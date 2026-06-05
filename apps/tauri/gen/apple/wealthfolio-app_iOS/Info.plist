@@ -42,21 +42,6 @@
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Wealthfolio needs camera access to scan QR codes for device pairing.</string>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLSchemes</key>
-			<array/>
-			<key>CFBundleURLName</key>
-			<string>https</string>
-		</dict>
-		<dict>
-			<key>CFBundleURLSchemes</key>
-			<array/>
-			<key>CFBundleURLName</key>
-			<string>https</string>
-		</dict>
-	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 </dict>
