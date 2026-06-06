@@ -82,6 +82,13 @@ fn has_warning_reasons(reasons: &[String]) -> bool {
     false
 }
 
+fn normalize_source_system(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_uppercase())
+}
+
 /// Build metadata JSON for storing in the activity record.
 ///
 /// Extracts relevant fields from the API metadata and formats them for storage.
@@ -496,11 +503,9 @@ pub fn map_broker_activity(
         fx_rate,
         metadata,
         needs_review: Some(needs_review_flag),
-        source_system: activity
-            .source_system
-            .clone()
-            .or(activity.provider_type.clone())
-            .or(Some("SNAPTRADE".to_string())),
+        source_system: normalize_source_system(activity.source_system.as_deref())
+            .or_else(|| normalize_source_system(activity.provider_type.as_deref()))
+            .or_else(|| Some("SNAPTRADE".to_string())),
         source_record_id: activity
             .source_record_id
             .clone()
@@ -570,7 +575,7 @@ mod tests {
         let activity = AccountUniversalActivity {
             id: Some("act-1".to_string()),
             activity_type: Some("BUY".to_string()),
-            provider_type: Some("SNAPTRADE".to_string()),
+            provider_type: Some("snaptrade".to_string()),
             external_reference_id: Some("ext-123".to_string()),
             ..Default::default()
         };
@@ -582,7 +587,7 @@ mod tests {
 
         let metadata_json = mapped.metadata.expect("metadata should be present");
         let metadata: serde_json::Value = serde_json::from_str(&metadata_json).unwrap();
-        assert_eq!(metadata["provider_type"], "SNAPTRADE");
+        assert_eq!(metadata["provider_type"], "snaptrade");
         assert_eq!(metadata["external_reference_id"], "ext-123");
     }
 

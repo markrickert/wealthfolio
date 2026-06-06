@@ -572,6 +572,7 @@ pub fn sync_entity_from_remote(entity: &str) -> Option<SyncEntity> {
         "quote" => Some(SyncEntity::Quote),
         "asset_taxonomy_assignment" => Some(SyncEntity::AssetTaxonomyAssignment),
         "activity" => Some(SyncEntity::Activity),
+        "broker_activity_user_patch" => Some(SyncEntity::BrokerActivityUserPatch),
         "activity_import_profile" => Some(SyncEntity::ActivityImportProfile),
         "import_template" => Some(SyncEntity::ImportTemplate),
         "goal" => Some(SyncEntity::Goal),
@@ -771,6 +772,10 @@ mod tests {
         assert_eq!(
             sync_entity_from_remote("spending_preset_rule_deletion"),
             Some(SyncEntity::SpendingPresetRuleDeletion)
+        );
+        assert_eq!(
+            sync_entity_from_remote("broker_activity_user_patch"),
+            Some(SyncEntity::BrokerActivityUserPatch)
         );
     }
 }

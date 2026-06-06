@@ -13,6 +13,7 @@ use crate::db::{get_connection, DbPool, WriteHandle};
 use crate::errors::StorageError;
 use crate::schema::{spending_activity_events, spending_event_types, spending_events};
 use crate::spending::activity_events::ActivityEventDB;
+use crate::spending::activity_sync::should_sync_activity_local_id_outbox;
 use wealthfolio_core::sync::{SyncEntity, SyncOperation};
 use wealthfolio_spending::events::{
     Event, EventType, EventTypesRepositoryTrait, EventsRepositoryTrait, NewEvent, NewEventType,
@@ -351,7 +352,9 @@ impl EventsRepositoryTrait for EventsRepository {
                 .map_err(StorageError::from)?;
                 if removed_activity_events > 0 {
                     for activity_id in affected_activity_event_ids {
-                        tx.delete::<ActivityEventDB>(activity_id);
+                        if should_sync_activity_local_id_outbox(tx.conn(), &activity_id)? {
+                            tx.delete::<ActivityEventDB>(activity_id);
+                        }
                     }
                 }
 

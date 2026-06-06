@@ -26,10 +26,17 @@ use wealthfolio_core::{Error, Result};
 use super::model::{ActivityDB, ActivityDetailsDB, ImportAccountTemplateDB, ImportTemplateDB};
 use crate::db::{get_connection, WriteHandle};
 use crate::errors::StorageError;
-use crate::schema::{accounts, activities, assets, import_account_templates, import_templates};
+use crate::schema::{
+    accounts, activities, assets, import_account_templates, import_runs, import_templates,
+};
+use crate::sync::broker_activity_patch::{
+    broker_activity_identity, broker_activity_user_overlay_changed,
+    broker_activity_user_patch_request,
+};
+use crate::sync::should_sync_outbox_for_activity;
 use crate::utils::chunk_for_sqlite;
 use async_trait::async_trait;
-use diesel::dsl::{max, min};
+use diesel::dsl::{max, min, sql};
 use num_traits::Zero;
 
 /// Repository for managing activity data in the database
@@ -44,6 +51,130 @@ fn apply_decimal_patch(existing: Option<String>, patch: Option<Option<Decimal>>)
         Some(None) => None,
         Some(Some(value)) => Some(value.to_string()),
     }
+}
+
+fn provider_account_id_for_account(
+    conn: &mut SqliteConnection,
+    account_id: &str,
+) -> Result<Option<String>> {
+    let provider_account_id = accounts::table
+        .find(account_id)
+        .select(accounts::provider_account_id)
+        .first::<Option<String>>(conn)
+        .optional()
+        .map_err(StorageError::from)?;
+    Ok(provider_account_id.flatten())
+}
+
+fn provider_account_id_for_broker_activity(
+    conn: &mut SqliteConnection,
+    activity: &ActivityDB,
+) -> Result<Option<String>> {
+    if let Some(import_run_id) = activity.import_run_id.as_deref() {
+        if let Some(import_account_id) = import_runs::table
+            .find(import_run_id)
+            .select(import_runs::account_id)
+            .first::<String>(conn)
+            .optional()
+            .map_err(StorageError::from)?
+        {
+            if let Some(provider_account_id) =
+                provider_account_id_for_account(conn, &import_account_id)?
+            {
+                return Ok(Some(provider_account_id));
+            }
+        }
+    }
+
+    provider_account_id_for_account(conn, &activity.account_id)
+}
+
+fn should_sync_raw_activity_outbox(activity: &ActivityDB) -> bool {
+    should_sync_outbox_for_activity(
+        activity.source_system.as_deref(),
+        activity.is_user_modified != 0,
+        activity.import_run_id.as_deref(),
+        activity.source_record_id.as_deref(),
+    )
+}
+
+fn is_broker_origin_activity(activity: &ActivityDB) -> bool {
+    let source_system = activity
+        .source_system
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_uppercase());
+
+    if matches!(source_system.as_deref(), Some("MANUAL" | "CSV")) {
+        return false;
+    }
+
+    activity
+        .import_run_id
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+        || activity
+            .source_record_id
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+}
+
+fn should_sync_transfer_pair_raw_outbox(a: &ActivityDB, b: &ActivityDB) -> bool {
+    if is_broker_origin_activity(a) || is_broker_origin_activity(b) {
+        return false;
+    }
+
+    should_sync_raw_activity_outbox(a) && should_sync_raw_activity_outbox(b)
+}
+
+fn queue_activity_update_outbox(
+    tx: &mut crate::db::write_actor::DbWriteTx<'_>,
+    before: &ActivityDB,
+    after: &ActivityDB,
+    provider_account_id: Option<&str>,
+) -> Result<()> {
+    if broker_activity_identity(
+        after.source_system.as_deref(),
+        provider_account_id,
+        after.source_record_id.as_deref(),
+    )
+    .is_some()
+    {
+        if broker_activity_user_overlay_changed(before, after) {
+            if let Some(request) = broker_activity_user_patch_request(after, provider_account_id)? {
+                tx.queue_outbox(request);
+            }
+        }
+    } else {
+        tx.update(after)?;
+    }
+
+    Ok(())
+}
+
+fn preserve_broker_base_type(
+    activity: &mut ActivityDB,
+    existing_activity_type: &str,
+    provider_account_id: Option<&str>,
+) {
+    if broker_activity_identity(
+        activity.source_system.as_deref(),
+        provider_account_id,
+        activity.source_record_id.as_deref(),
+    )
+    .is_none()
+    {
+        return;
+    }
+
+    let requested_activity_type = activity.activity_type.clone();
+    activity.activity_type = existing_activity_type.to_string();
+    activity.activity_type_override = if requested_activity_type == activity.activity_type {
+        None
+    } else {
+        Some(requested_activity_type)
+    };
 }
 
 fn set_transfer_flow_external(metadata: Option<String>, is_external: bool) -> Option<String> {
@@ -181,7 +312,12 @@ impl ActivityRepositoryTrait for ActivityRepository {
                 query = query.filter(activities::account_id.eq_any(account_ids));
             }
             if let Some(ref activity_types) = activity_type_filter {
-                query = query.filter(activities::activity_type.eq_any(activity_types));
+                query = query.filter(
+                    sql::<Text>(
+                        "COALESCE(activities.activity_type_override, activities.activity_type)",
+                    )
+                    .eq_any(activity_types),
+                );
             }
             if let Some(ref keyword) = asset_id_keyword {
                 let pattern = format!("%{}%", keyword);
@@ -234,9 +370,19 @@ impl ActivityRepositoryTrait for ActivityRepository {
                     }
                     "activityType" => {
                         if sort.desc {
-                            query = query.order(activities::activity_type.desc());
+                            query = query.order(
+                                sql::<Text>(
+                                    "COALESCE(activities.activity_type_override, activities.activity_type)",
+                                )
+                                .desc(),
+                            );
                         } else {
-                            query = query.order(activities::activity_type.asc());
+                            query = query.order(
+                                sql::<Text>(
+                                    "COALESCE(activities.activity_type_override, activities.activity_type)",
+                                )
+                                .asc(),
+                            );
                         }
                     }
                     "assetSymbol" => {
@@ -282,7 +428,9 @@ impl ActivityRepositoryTrait for ActivityRepository {
                 activities::id,
                 activities::account_id,
                 activities::asset_id,
-                activities::activity_type,
+                sql::<Text>(
+                    "COALESCE(activities.activity_type_override, activities.activity_type)",
+                ),
                 activities::subtype,
                 activities::status,
                 activities::activity_date,
@@ -359,6 +507,10 @@ impl ActivityRepositoryTrait for ActivityRepository {
                     .find(&activity_id_owned)
                     .first::<ActivityDB>(tx.conn())
                     .map_err(StorageError::from)?;
+                let existing_activity_type = existing.activity_type.clone();
+                let provider_account_id =
+                    provider_account_id_for_broker_activity(tx.conn(), &existing)?;
+                let existing_before_update = existing.clone();
 
                 // Preserve fields from existing record that shouldn't be overwritten
                 let ActivityDB {
@@ -425,6 +577,11 @@ impl ActivityRepositoryTrait for ActivityRepository {
                 if activity_to_update.metadata.is_none() {
                     activity_to_update.metadata = metadata;
                 }
+                preserve_broker_base_type(
+                    &mut activity_to_update,
+                    &existing_activity_type,
+                    provider_account_id.as_deref(),
+                );
                 activity_to_update.updated_at = chrono::Utc::now().to_rfc3339();
 
                 let updated_activity =
@@ -432,8 +589,13 @@ impl ActivityRepositoryTrait for ActivityRepository {
                         .set(&activity_to_update)
                         .get_result::<ActivityDB>(tx.conn())
                         .map_err(StorageError::from)?;
+                queue_activity_update_outbox(
+                    tx,
+                    &existing_before_update,
+                    &updated_activity,
+                    provider_account_id.as_deref(),
+                )?;
                 let activity = Activity::from(updated_activity);
-                tx.update(&activity_to_update)?;
                 Ok(activity)
             })
             .await
@@ -450,24 +612,30 @@ impl ActivityRepositoryTrait for ActivityRepository {
 
                 // Atomically delete the transfer counterpart if this activity is linked
                 if let Some(ref group_id) = activity.source_group_id {
-                    let counterpart_ids: Vec<String> = activities::table
+                    let counterparts: Vec<ActivityDB> = activities::table
                         .filter(activities::source_group_id.eq(group_id))
                         .filter(activities::id.ne(&activity_id))
-                        .select(activities::id)
-                        .load::<String>(tx.conn())
+                        .select(ActivityDB::as_select())
+                        .load::<ActivityDB>(tx.conn())
                         .map_err(StorageError::from)?;
-                    for cid in &counterpart_ids {
-                        diesel::delete(activities::table.filter(activities::id.eq(cid)))
-                            .execute(tx.conn())
-                            .map_err(StorageError::from)?;
-                        tx.delete::<ActivityDB>(cid.clone());
+                    for counterpart in counterparts {
+                        diesel::delete(
+                            activities::table.filter(activities::id.eq(&counterpart.id)),
+                        )
+                        .execute(tx.conn())
+                        .map_err(StorageError::from)?;
+                        if should_sync_raw_activity_outbox(&counterpart) {
+                            tx.delete::<ActivityDB>(counterpart.id);
+                        }
                     }
                 }
 
                 diesel::delete(activities::table.filter(activities::id.eq(&activity_id)))
                     .execute(tx.conn())
                     .map_err(StorageError::from)?;
-                tx.delete::<ActivityDB>(activity_id.clone());
+                if should_sync_raw_activity_outbox(&activity) {
+                    tx.delete::<ActivityDB>(activity_id.clone());
+                }
                 Ok(activity.into())
             })
             .await
@@ -553,8 +721,10 @@ impl ActivityRepositoryTrait for ActivityRepository {
                     .get_result::<ActivityDB>(tx.conn())
                     .map_err(StorageError::from)?;
 
-                tx.update(&updated_in)?;
-                tx.update(&updated_out)?;
+                if should_sync_transfer_pair_raw_outbox(&updated_in, &updated_out) {
+                    tx.update(&updated_in)?;
+                    tx.update(&updated_out)?;
+                }
 
                 Ok((Activity::from(updated_in), Activity::from(updated_out)))
             })
@@ -644,8 +814,10 @@ impl ActivityRepositoryTrait for ActivityRepository {
                     .get_result::<ActivityDB>(tx.conn())
                     .map_err(StorageError::from)?;
 
-                tx.update(&updated_in)?;
-                tx.update(&updated_out)?;
+                if should_sync_transfer_pair_raw_outbox(&updated_in, &updated_out) {
+                    tx.update(&updated_in)?;
+                    tx.update(&updated_out)?;
+                }
 
                 Ok((Activity::from(updated_in), Activity::from(updated_out)))
             })
@@ -699,7 +871,9 @@ impl ActivityRepositoryTrait for ActivityRepository {
                             diesel::delete(activities::table.filter(activities::id.eq(&cid)))
                                 .execute(tx.conn())
                                 .map_err(StorageError::from)?;
-                            tx.delete::<ActivityDB>(cid.clone());
+                            if should_sync_raw_activity_outbox(&cp_db) {
+                                tx.delete::<ActivityDB>(cid.clone());
+                            }
                             outcome.deleted.push(Activity::from(cp_db));
                             already_deleted.insert(cid);
                         }
@@ -707,7 +881,9 @@ impl ActivityRepositoryTrait for ActivityRepository {
                     diesel::delete(activities::table.filter(activities::id.eq(delete_id)))
                         .execute(tx.conn())
                         .map_err(StorageError::from)?;
-                    tx.delete::<ActivityDB>(delete_id.clone());
+                    if should_sync_raw_activity_outbox(&activity_db) {
+                        tx.delete::<ActivityDB>(delete_id.clone());
+                    }
                     outcome.deleted.push(Activity::from(activity_db));
                     already_deleted.insert(delete_id.clone());
                 }
@@ -722,6 +898,10 @@ impl ActivityRepositoryTrait for ActivityRepository {
                         .find(&activity_db.id)
                         .first::<ActivityDB>(tx.conn())
                         .map_err(StorageError::from)?;
+                    let existing_activity_type = existing.activity_type.clone();
+                    let provider_account_id =
+                        provider_account_id_for_broker_activity(tx.conn(), &existing)?;
+                    let existing_before_update = existing.clone();
 
                     // Preserve fields from existing record
                     let ActivityDB {
@@ -783,13 +963,23 @@ impl ActivityRepositoryTrait for ActivityRepository {
                     if activity_db.metadata.is_none() {
                         activity_db.metadata = metadata;
                     }
+                    preserve_broker_base_type(
+                        &mut activity_db,
+                        &existing_activity_type,
+                        provider_account_id.as_deref(),
+                    );
                     activity_db.updated_at = chrono::Utc::now().to_rfc3339();
 
                     let updated_activity = diesel::update(activities::table.find(&activity_db.id))
                         .set(&activity_db)
                         .get_result::<ActivityDB>(tx.conn())
                         .map_err(StorageError::from)?;
-                    tx.update(&activity_db)?;
+                    queue_activity_update_outbox(
+                        tx,
+                        &existing_before_update,
+                        &updated_activity,
+                        provider_account_id.as_deref(),
+                    )?;
                     outcome.updated.push(Activity::from(updated_activity));
                 }
 
@@ -2236,9 +2426,10 @@ impl ActivityRepositoryTrait for ActivityRepository {
 mod tests {
     use super::*;
     use crate::db::{create_pool, get_connection, init, run_migrations, write_actor::spawn_writer};
+    use crate::schema::sync_outbox;
     use rust_decimal::Decimal;
     use tempfile::tempdir;
-    use wealthfolio_core::activities::{import_type, ActivityUpsert};
+    use wealthfolio_core::activities::{import_type, ActivityStatus, ActivityUpsert};
 
     fn setup_db() -> (Arc<Pool<ConnectionManager<SqliteConnection>>>, WriteHandle) {
         std::env::set_var("CONNECT_API_URL", "http://test.local");
@@ -2269,6 +2460,81 @@ mod tests {
         ))
         .execute(conn)
         .expect("insert account");
+    }
+
+    fn sql_value(value: Option<&str>) -> String {
+        value
+            .map(|value| format!("'{}'", value.replace('\'', "''")))
+            .unwrap_or_else(|| "NULL".to_string())
+    }
+
+    fn insert_broker_account_and_import_run(conn: &mut SqliteConnection) {
+        diesel::sql_query(
+            "INSERT INTO accounts \
+             (id, name, account_type, `group`, currency, is_default, is_active, created_at, updated_at, \
+              platform_id, account_number, meta, provider, provider_account_id, is_archived, tracking_mode) \
+             VALUES ('broker-local-account', 'Broker Account', 'cash', NULL, 'USD', 0, 1, \
+                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL, NULL, 'SNAPTRADE', \
+                     'provider-account-1', 0, 'portfolio')",
+        )
+        .execute(conn)
+        .expect("insert broker account");
+
+        diesel::sql_query(
+            "INSERT INTO import_runs \
+             (id, account_id, source_system, run_type, mode, status, started_at, finished_at, \
+              review_mode, applied_at, checkpoint_in, checkpoint_out, summary, warnings, error, \
+              created_at, updated_at) \
+             VALUES ('local-import-run', 'broker-local-account', 'SNAPTRADE', 'SYNC', \
+                     'INCREMENTAL', 'COMPLETED', '2026-01-01T00:00:00Z', \
+                     '2026-01-01T00:00:01Z', 'NEVER', '2026-01-01T00:00:01Z', \
+                     NULL, NULL, NULL, NULL, NULL, \
+                     '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z')",
+        )
+        .execute(conn)
+        .expect("insert broker import run");
+    }
+
+    struct BrokerActivitySeed<'a> {
+        id: &'a str,
+        activity_type: &'a str,
+        activity_type_override: Option<&'a str>,
+        source_system: &'a str,
+        source_record_id: &'a str,
+        amount: &'a str,
+        notes: &'a str,
+    }
+
+    fn insert_broker_activity(conn: &mut SqliteConnection, seed: BrokerActivitySeed<'_>) {
+        diesel::sql_query(format!(
+            "INSERT INTO activities \
+             (id, account_id, asset_id, activity_type, activity_type_override, source_type, subtype, \
+              status, activity_date, settlement_date, quantity, unit_price, amount, fee, currency, \
+              fx_rate, notes, metadata, source_system, source_record_id, source_group_id, \
+              idempotency_key, import_run_id, is_user_modified, needs_review, created_at, updated_at) \
+             VALUES ('{}', 'broker-local-account', NULL, '{}', {}, NULL, NULL, \
+                     'POSTED', '2026-01-01T00:00:00Z', NULL, '10', '5', '{}', '1', 'USD', \
+                     NULL, '{}', '{{\"broker\":\"keep\"}}', '{}', '{}', \
+                     NULL, 'local-idempotency-key-{}', 'local-import-run', 0, 0, \
+                     '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            seed.id,
+            seed.activity_type,
+            sql_value(seed.activity_type_override),
+            seed.amount,
+            seed.notes.replace('\'', "''"),
+            seed.source_system,
+            seed.source_record_id,
+            seed.id
+        ))
+        .execute(conn)
+        .expect("insert broker activity");
+    }
+
+    fn sync_outbox_count(conn: &mut SqliteConnection) -> i64 {
+        sync_outbox::table
+            .count()
+            .get_result::<i64>(conn)
+            .expect("count outbox")
     }
 
     fn insert_holdings_snapshot(
@@ -2345,6 +2611,335 @@ mod tests {
             .values(&activity)
             .execute(conn)
             .expect("insert transfer activity");
+    }
+
+    #[tokio::test]
+    async fn update_broker_activity_queues_user_patch_outbox() {
+        let (pool, writer) = setup_db();
+        let repo = ActivityRepository::new(pool.clone(), writer);
+
+        {
+            let mut conn = get_connection(&pool).expect("conn");
+            diesel::sql_query(
+                "INSERT INTO accounts \
+                 (id, name, account_type, `group`, currency, is_default, is_active, created_at, updated_at, \
+                  platform_id, account_number, meta, provider, provider_account_id, is_archived, tracking_mode) \
+                 VALUES ('broker-local-account', 'Broker Account', 'cash', NULL, 'USD', 0, 1, \
+                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL, NULL, 'SNAPTRADE', \
+                         'provider-account-1', 0, 'portfolio')",
+            )
+            .execute(&mut conn)
+            .expect("insert broker account");
+
+            diesel::sql_query(
+                "INSERT INTO import_runs \
+                 (id, account_id, source_system, run_type, mode, status, started_at, finished_at, \
+                  review_mode, applied_at, checkpoint_in, checkpoint_out, summary, warnings, error, \
+                  created_at, updated_at) \
+                 VALUES ('local-import-run', 'broker-local-account', 'SNAPTRADE', 'SYNC', \
+                         'INCREMENTAL', 'COMPLETED', '2026-01-01T00:00:00Z', \
+                         '2026-01-01T00:00:01Z', 'NEVER', '2026-01-01T00:00:01Z', \
+                         NULL, NULL, NULL, NULL, NULL, \
+                         '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z')",
+            )
+            .execute(&mut conn)
+            .expect("insert broker import run");
+
+            diesel::sql_query(
+                "INSERT INTO activities \
+                 (id, account_id, asset_id, activity_type, activity_type_override, source_type, subtype, \
+                  status, activity_date, settlement_date, quantity, unit_price, amount, fee, currency, \
+                  fx_rate, notes, metadata, source_system, source_record_id, source_group_id, \
+                  idempotency_key, import_run_id, is_user_modified, needs_review, created_at, updated_at) \
+                 VALUES ('broker-local-activity', 'broker-local-account', NULL, 'BUY', NULL, NULL, NULL, \
+                         'POSTED', '2026-01-01T00:00:00Z', NULL, '10', '5', '50', '1', 'USD', \
+                         NULL, 'Broker note', '{\"broker\":\"keep\"}', 'SNAPTRADE', 'broker-record-1', \
+                         NULL, 'local-idempotency-key', 'local-import-run', 0, 1, \
+                         '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            )
+            .execute(&mut conn)
+            .expect("insert broker activity");
+        }
+
+        repo.update_activity(ActivityUpdate {
+            id: "broker-local-activity".to_string(),
+            account_id: "broker-local-account".to_string(),
+            asset: None,
+            activity_type: "SELL".to_string(),
+            subtype: Some("DRIP".to_string()),
+            activity_date: "2026-01-01T00:00:00Z".to_string(),
+            quantity: None,
+            unit_price: None,
+            currency: "USD".to_string(),
+            fee: None,
+            amount: None,
+            status: Some(ActivityStatus::Posted),
+            notes: Some("User note".to_string()),
+            fx_rate: None,
+            metadata: None,
+        })
+        .await
+        .expect("update broker activity");
+
+        let mut conn = get_connection(&pool).expect("conn");
+        let activity_type_row = activities::table
+            .find("broker-local-activity")
+            .select((
+                activities::activity_type,
+                activities::activity_type_override,
+            ))
+            .first::<(String, Option<String>)>(&mut conn)
+            .expect("broker activity type row");
+        assert_eq!(activity_type_row.0, "BUY");
+        assert_eq!(activity_type_row.1.as_deref(), Some("SELL"));
+        let needs_review = activities::table
+            .find("broker-local-activity")
+            .select(activities::needs_review)
+            .first::<i32>(&mut conn)
+            .expect("broker activity needs_review");
+        assert_eq!(needs_review, 0);
+
+        let rows = sync_outbox::table
+            .select((
+                sync_outbox::entity,
+                sync_outbox::entity_id,
+                sync_outbox::op,
+                sync_outbox::payload,
+            ))
+            .load::<(String, String, String, String)>(&mut conn)
+            .expect("sync outbox rows");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "broker_activity_user_patch");
+        assert!(rows[0].1.starts_with("broker_activity_patch:"));
+        assert_eq!(rows[0].2, "update");
+
+        let payload: serde_json::Value = serde_json::from_str(&rows[0].3).expect("outbox payload");
+        assert_eq!(payload["source_system"], "SNAPTRADE");
+        assert_eq!(payload["provider_account_id"], "provider-account-1");
+        assert_eq!(payload["source_record_id"], "broker-record-1");
+        assert_eq!(payload["overlay"]["notes"], "User note");
+        assert_eq!(payload["overlay"]["activityTypeOverride"], "SELL");
+        assert_eq!(payload["overlay"]["subtype"], "DRIP");
+        assert_eq!(payload["overlay"]["needsReview"], false);
+        assert!(payload.get("account_id").is_none());
+        assert!(payload.get("amount").is_none());
+        assert!(payload.get("import_run_id").is_none());
+        assert!(payload.get("source_group_id").is_none());
+    }
+
+    #[tokio::test]
+    async fn search_activities_uses_effective_broker_activity_type() {
+        let (pool, writer) = setup_db();
+        let repo = ActivityRepository::new(pool.clone(), writer);
+
+        {
+            let mut conn = get_connection(&pool).expect("conn");
+            insert_broker_account_and_import_run(&mut conn);
+            insert_broker_activity(
+                &mut conn,
+                BrokerActivitySeed {
+                    id: "broker-buy-override",
+                    activity_type: "BUY",
+                    activity_type_override: Some("SELL"),
+                    source_system: "SNAPTRADE",
+                    source_record_id: "broker-record-sell",
+                    amount: "50",
+                    notes: "Broker override",
+                },
+            );
+            insert_broker_activity(
+                &mut conn,
+                BrokerActivitySeed {
+                    id: "broker-dividend",
+                    activity_type: "DIVIDEND",
+                    activity_type_override: None,
+                    source_system: "SNAPTRADE",
+                    source_record_id: "broker-record-dividend",
+                    amount: "5",
+                    notes: "Broker dividend",
+                },
+            );
+        }
+
+        let filtered = repo
+            .search_activities(
+                0,
+                10,
+                None,
+                Some(vec!["SELL".to_string()]),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .expect("search by effective type");
+        assert_eq!(filtered.data.len(), 1);
+        assert_eq!(filtered.data[0].id, "broker-buy-override");
+        assert_eq!(filtered.data[0].activity_type, "SELL");
+
+        let sorted = repo
+            .search_activities(
+                0,
+                10,
+                None,
+                None,
+                None,
+                Some(Sort {
+                    id: "activityType".to_string(),
+                    desc: false,
+                }),
+                None,
+                None,
+                None,
+                None,
+            )
+            .expect("sort by effective type");
+        let ids: Vec<&str> = sorted
+            .data
+            .iter()
+            .map(|activity| activity.id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["broker-dividend", "broker-buy-override"]);
+    }
+
+    #[tokio::test]
+    async fn notes_only_broker_edit_preserves_type_override_and_base_type_clears_it() {
+        let (pool, writer) = setup_db();
+        let repo = ActivityRepository::new(pool.clone(), writer);
+
+        {
+            let mut conn = get_connection(&pool).expect("conn");
+            insert_broker_account_and_import_run(&mut conn);
+            insert_broker_activity(
+                &mut conn,
+                BrokerActivitySeed {
+                    id: "broker-activity-with-override",
+                    activity_type: "BUY",
+                    activity_type_override: Some("SELL"),
+                    source_system: "SNAPTRADE",
+                    source_record_id: "broker-record-override",
+                    amount: "50",
+                    notes: "Old note",
+                },
+            );
+        }
+
+        repo.update_activity(ActivityUpdate {
+            id: "broker-activity-with-override".to_string(),
+            account_id: "broker-local-account".to_string(),
+            asset: None,
+            activity_type: "SELL".to_string(),
+            subtype: None,
+            activity_date: "2026-01-01T00:00:00Z".to_string(),
+            quantity: None,
+            unit_price: None,
+            currency: "USD".to_string(),
+            fee: None,
+            amount: None,
+            status: Some(ActivityStatus::Posted),
+            notes: Some("New note".to_string()),
+            fx_rate: None,
+            metadata: None,
+        })
+        .await
+        .expect("notes-only update");
+
+        let mut conn = get_connection(&pool).expect("conn");
+        let type_row = activities::table
+            .find("broker-activity-with-override")
+            .select((
+                activities::activity_type,
+                activities::activity_type_override,
+                activities::notes,
+            ))
+            .first::<(String, Option<String>, Option<String>)>(&mut conn)
+            .expect("activity type row");
+        assert_eq!(type_row.0, "BUY");
+        assert_eq!(type_row.1.as_deref(), Some("SELL"));
+        assert_eq!(type_row.2.as_deref(), Some("New note"));
+
+        repo.update_activity(ActivityUpdate {
+            id: "broker-activity-with-override".to_string(),
+            account_id: "broker-local-account".to_string(),
+            asset: None,
+            activity_type: "BUY".to_string(),
+            subtype: None,
+            activity_date: "2026-01-01T00:00:00Z".to_string(),
+            quantity: None,
+            unit_price: None,
+            currency: "USD".to_string(),
+            fee: None,
+            amount: None,
+            status: Some(ActivityStatus::Posted),
+            notes: Some("New note".to_string()),
+            fx_rate: None,
+            metadata: None,
+        })
+        .await
+        .expect("clear override update");
+
+        let cleared_override = activities::table
+            .find("broker-activity-with-override")
+            .select(activities::activity_type_override)
+            .first::<Option<String>>(&mut conn)
+            .expect("cleared override");
+        assert_eq!(cleared_override, None);
+    }
+
+    #[tokio::test]
+    async fn broker_owned_only_edit_persists_locally_without_outbox() {
+        let (pool, writer) = setup_db();
+        let repo = ActivityRepository::new(pool.clone(), writer);
+
+        {
+            let mut conn = get_connection(&pool).expect("conn");
+            insert_broker_account_and_import_run(&mut conn);
+            insert_broker_activity(
+                &mut conn,
+                BrokerActivitySeed {
+                    id: "broker-owned-local-edit",
+                    activity_type: "BUY",
+                    activity_type_override: None,
+                    source_system: "SNAPTRADE",
+                    source_record_id: "broker-record-owned",
+                    amount: "50",
+                    notes: "Broker note",
+                },
+            );
+        }
+
+        repo.update_activity(ActivityUpdate {
+            id: "broker-owned-local-edit".to_string(),
+            account_id: "broker-local-account".to_string(),
+            asset: None,
+            activity_type: "BUY".to_string(),
+            subtype: None,
+            activity_date: "2026-01-02T00:00:00Z".to_string(),
+            quantity: None,
+            unit_price: None,
+            currency: "USD".to_string(),
+            fee: None,
+            amount: Some(Some(Decimal::new(6000, 2))),
+            status: Some(ActivityStatus::Posted),
+            notes: Some("Broker note".to_string()),
+            fx_rate: None,
+            metadata: None,
+        })
+        .await
+        .expect("broker-owned-only update");
+
+        let mut conn = get_connection(&pool).expect("conn");
+        let row = activities::table
+            .find("broker-owned-local-edit")
+            .select((activities::amount, activities::activity_date))
+            .first::<(Option<String>, String)>(&mut conn)
+            .expect("broker-owned local row");
+        assert_eq!(row.0.as_deref(), Some("60.00"));
+        assert_eq!(row.1, "2026-01-02T00:00:00+00:00");
+        assert_eq!(sync_outbox_count(&mut conn), 0);
     }
 
     fn insert_activity_with_subtype(
@@ -2727,6 +3322,53 @@ mod tests {
         );
         assert_eq!(activity_user_modified(&mut conn, "transfer-in"), 1);
         assert_eq!(activity_user_modified(&mut conn, "transfer-out"), 1);
+        assert_eq!(sync_outbox_count(&mut conn), 2);
+    }
+
+    #[tokio::test]
+    async fn mixed_broker_manual_transfer_link_is_local_only() {
+        let (pool, writer) = setup_db();
+        let repo = ActivityRepository::new(pool.clone(), writer);
+        let mut conn = get_connection(&pool).expect("conn");
+
+        insert_broker_account_and_import_run(&mut conn);
+        insert_account(&mut conn, "manual-transfer-account");
+        insert_broker_activity(
+            &mut conn,
+            BrokerActivitySeed {
+                id: "broker-transfer-in",
+                activity_type: "TRANSFER_IN",
+                activity_type_override: None,
+                source_system: "SNAPTRADE",
+                source_record_id: "broker-transfer-record-in",
+                amount: "100",
+                notes: "Broker transfer in",
+            },
+        );
+        insert_transfer_activity(
+            &mut conn,
+            "manual-transfer-out",
+            "manual-transfer-account",
+            "TRANSFER_OUT",
+            None,
+            None,
+        );
+
+        let (transfer_in, transfer_out) = repo
+            .link_transfer_activities(
+                "broker-transfer-in".to_string(),
+                "manual-transfer-out".to_string(),
+            )
+            .await
+            .expect("link mixed broker/manual transfer");
+
+        assert_eq!(transfer_in.id, "broker-transfer-in");
+        assert_eq!(transfer_out.id, "manual-transfer-out");
+        assert!(transfer_in.source_group_id.is_some());
+        assert_eq!(transfer_in.source_group_id, transfer_out.source_group_id);
+        assert_eq!(activity_user_modified(&mut conn, "broker-transfer-in"), 1);
+        assert_eq!(activity_user_modified(&mut conn, "manual-transfer-out"), 1);
+        assert_eq!(sync_outbox_count(&mut conn), 0);
     }
 
     #[tokio::test]
@@ -2889,6 +3531,57 @@ mod tests {
         );
         assert_eq!(activity_user_modified(&mut conn, "transfer-in"), 1);
         assert_eq!(activity_user_modified(&mut conn, "transfer-out"), 1);
+        assert_eq!(sync_outbox_count(&mut conn), 2);
+    }
+
+    #[tokio::test]
+    async fn mixed_broker_manual_transfer_unlink_is_local_only() {
+        let (pool, writer) = setup_db();
+        let repo = ActivityRepository::new(pool.clone(), writer);
+        let mut conn = get_connection(&pool).expect("conn");
+
+        insert_broker_account_and_import_run(&mut conn);
+        insert_account(&mut conn, "manual-transfer-account");
+        insert_broker_activity(
+            &mut conn,
+            BrokerActivitySeed {
+                id: "broker-transfer-in",
+                activity_type: "TRANSFER_IN",
+                activity_type_override: None,
+                source_system: "SNAPTRADE",
+                source_record_id: "broker-transfer-record-in",
+                amount: "100",
+                notes: "Broker transfer in",
+            },
+        );
+        diesel::update(activities::table.find("broker-transfer-in"))
+            .set(activities::source_group_id.eq(Some("mixed-transfer-group".to_string())))
+            .execute(&mut conn)
+            .expect("set broker transfer group");
+        insert_transfer_activity(
+            &mut conn,
+            "manual-transfer-out",
+            "manual-transfer-account",
+            "TRANSFER_OUT",
+            Some("mixed-transfer-group"),
+            Some(r#"{"flow":{"is_external":false}}"#),
+        );
+
+        let (transfer_in, transfer_out) = repo
+            .unlink_transfer_activities(
+                "broker-transfer-in".to_string(),
+                "manual-transfer-out".to_string(),
+            )
+            .await
+            .expect("unlink mixed broker/manual transfer");
+
+        assert_eq!(transfer_in.id, "broker-transfer-in");
+        assert_eq!(transfer_out.id, "manual-transfer-out");
+        assert_eq!(transfer_in.source_group_id, None);
+        assert_eq!(transfer_out.source_group_id, None);
+        assert_eq!(activity_user_modified(&mut conn, "broker-transfer-in"), 1);
+        assert_eq!(activity_user_modified(&mut conn, "manual-transfer-out"), 1);
+        assert_eq!(sync_outbox_count(&mut conn), 0);
     }
 
     #[tokio::test]

@@ -4,6 +4,7 @@
 
 pub mod activity_assignments;
 pub mod activity_events;
+pub(crate) mod activity_sync;
 pub mod budget;
 pub mod categorization_rules;
 pub(crate) mod deterministic_ids;

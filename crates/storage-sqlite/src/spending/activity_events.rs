@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::{get_connection, DbPool, WriteHandle};
 use crate::errors::StorageError;
 use crate::schema::spending_activity_events;
+use crate::spending::activity_sync::should_sync_activity_local_id_outbox;
 use wealthfolio_core::sync::SyncEntity;
 use wealthfolio_spending::activity_events::{ActivityEvent, ActivityEventsRepositoryTrait};
 
@@ -106,6 +107,7 @@ impl ActivityEventsRepositoryTrait for ActivityEventsRepository {
         self.writer
             .exec_tx(move |tx| {
                 let now = chrono::Utc::now().to_rfc3339();
+                let should_sync = should_sync_activity_local_id_outbox(tx.conn(), &activity_id)?;
                 match &event_id {
                     Some(eid) => {
                         diesel::insert_into(spending_activity_events::table)
@@ -123,12 +125,14 @@ impl ActivityEventsRepositoryTrait for ActivityEventsRepository {
                             ))
                             .execute(tx.conn())
                             .map_err(StorageError::from)?;
-                        tx.update(&ActivityEventDB {
-                            activity_id: activity_id.clone(),
-                            event_id: eid.clone(),
-                            created_at: now.clone(),
-                            updated_at: now.clone(),
-                        })?;
+                        if should_sync {
+                            tx.update(&ActivityEventDB {
+                                activity_id: activity_id.clone(),
+                                event_id: eid.clone(),
+                                created_at: now.clone(),
+                                updated_at: now.clone(),
+                            })?;
+                        }
                     }
                     None => {
                         // Only emit the sync tombstone when an actual row
@@ -143,7 +147,7 @@ impl ActivityEventsRepositoryTrait for ActivityEventsRepository {
                         )
                         .execute(tx.conn())
                         .map_err(StorageError::from)?;
-                        if removed > 0 {
+                        if removed > 0 && should_sync {
                             tx.delete::<ActivityEventDB>(activity_id.clone());
                         }
                     }
@@ -174,7 +178,9 @@ impl ActivityEventsRepositoryTrait for ActivityEventsRepository {
                 .execute(tx.conn())
                 .map_err(StorageError::from)?;
                 for id in affected_ids {
-                    tx.delete::<ActivityEventDB>(id);
+                    if should_sync_activity_local_id_outbox(tx.conn(), &id)? {
+                        tx.delete::<ActivityEventDB>(id);
+                    }
                 }
                 Ok(removed)
             })
@@ -190,5 +196,122 @@ impl ActivityEventsRepositoryTrait for ActivityEventsRepository {
             .map_err(StorageError::from)
             .map_err(|e| anyhow::anyhow!(e))?;
         Ok(rows.into_iter().map(Into::into).collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{create_pool, get_connection, init, run_migrations, write_actor::spawn_writer};
+    use crate::schema::{spending_activity_events, sync_outbox};
+    use diesel::r2d2::{ConnectionManager, Pool};
+    use diesel::sqlite::SqliteConnection;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+    use wealthfolio_spending::activity_events::ActivityEventsRepositoryTrait;
+
+    fn setup_db() -> (Arc<Pool<ConnectionManager<SqliteConnection>>>, WriteHandle) {
+        std::env::set_var("CONNECT_API_URL", "http://test.local");
+        let app_data = tempdir()
+            .expect("tempdir")
+            .keep()
+            .to_string_lossy()
+            .to_string();
+        let db_path = init(&app_data).expect("init db");
+        run_migrations(&db_path).expect("migrate db");
+        let pool = create_pool(&db_path).expect("create pool");
+        let writer = spawn_writer(pool.as_ref().clone()).expect("spawn writer");
+        (pool, writer)
+    }
+
+    fn insert_account_and_activity(conn: &mut SqliteConnection, id: &str, source_system: &str) {
+        let account_id = format!("account-{id}");
+        diesel::sql_query(format!(
+            "INSERT INTO accounts \
+             (id, name, account_type, `group`, currency, is_default, is_active, created_at, updated_at, \
+              platform_id, account_number, meta, provider, provider_account_id, is_archived, tracking_mode) \
+             VALUES ('{}', 'Account {}', 'cash', NULL, 'USD', 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, \
+                     NULL, NULL, NULL, NULL, NULL, 0, 'portfolio')",
+            account_id, id
+        ))
+        .execute(conn)
+        .expect("insert account");
+
+        diesel::sql_query(format!(
+            "INSERT INTO activities \
+             (id, account_id, asset_id, activity_type, activity_type_override, source_type, subtype, \
+              status, activity_date, settlement_date, quantity, unit_price, amount, fee, currency, \
+              fx_rate, notes, metadata, source_system, source_record_id, source_group_id, \
+              idempotency_key, import_run_id, is_user_modified, needs_review, created_at, updated_at) \
+             VALUES ('{}', '{}', NULL, 'BUY', NULL, NULL, NULL, 'POSTED', \
+                     '2026-01-01T00:00:00Z', NULL, NULL, NULL, '10', NULL, 'USD', NULL, \
+                     NULL, NULL, '{}', '{}-source-record', NULL, NULL, NULL, 0, 0, \
+                     '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            id, account_id, source_system, id
+        ))
+        .execute(conn)
+        .expect("insert activity");
+    }
+
+    fn insert_event(conn: &mut SqliteConnection) {
+        diesel::sql_query(
+            "INSERT INTO spending_event_types (id, key, name, color, created_at, updated_at) \
+             VALUES ('event-type-test', NULL, 'Test Event Type', '#000000', \
+                     '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+        )
+        .execute(conn)
+        .expect("insert event type");
+
+        diesel::sql_query(
+            "INSERT INTO spending_events \
+             (id, name, description, event_type_id, start_date, end_date, created_at, updated_at) \
+             VALUES ('event-test', 'Test Event', NULL, 'event-type-test', '2026-01-01', '2026-01-31', \
+                     '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+        )
+        .execute(conn)
+        .expect("insert event");
+    }
+
+    fn outbox_count(conn: &mut SqliteConnection) -> i64 {
+        sync_outbox::table
+            .count()
+            .get_result::<i64>(conn)
+            .expect("count outbox")
+    }
+
+    #[tokio::test]
+    async fn broker_activity_event_tag_is_local_only_but_manual_tag_still_syncs() {
+        let (pool, writer) = setup_db();
+        {
+            let mut conn = get_connection(&pool).expect("conn");
+            insert_account_and_activity(&mut conn, "broker-activity", "SNAPTRADE");
+            insert_account_and_activity(&mut conn, "manual-activity", "MANUAL");
+            insert_event(&mut conn);
+        }
+
+        let repo = ActivityEventsRepository::new(pool.clone(), writer);
+        repo.set_activity_event_tag("broker-activity", Some("event-test".to_string()))
+            .await
+            .expect("tag broker activity");
+
+        let mut conn = get_connection(&pool).expect("conn");
+        assert_eq!(
+            spending_activity_events::table
+                .count()
+                .get_result::<i64>(&mut conn)
+                .expect("count event tags"),
+            1
+        );
+        assert_eq!(outbox_count(&mut conn), 0);
+
+        repo.set_activity_event_tag("manual-activity", Some("event-test".to_string()))
+            .await
+            .expect("tag manual activity");
+
+        let entities = sync_outbox::table
+            .select(sync_outbox::entity)
+            .load::<String>(&mut conn)
+            .expect("load outbox entities");
+        assert_eq!(entities, vec!["spending_activity_event".to_string()]);
     }
 }

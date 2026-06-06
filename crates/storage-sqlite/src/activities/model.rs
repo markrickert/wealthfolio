@@ -82,6 +82,7 @@ pub struct ActivityDB {
 
     // Classification
     pub activity_type: String,
+    #[diesel(treat_none_as_null = true)]
     pub activity_type_override: Option<String>,
     pub source_type: Option<String>,
     #[diesel(treat_none_as_null = true)]

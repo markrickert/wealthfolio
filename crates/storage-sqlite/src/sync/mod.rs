@@ -1,6 +1,7 @@
 //! SQLite storage implementation for sync (platforms, app sync state, import runs).
 
 pub mod app_sync;
+pub(crate) mod broker_activity_patch;
 pub mod import_run;
 pub mod platform;
 pub mod state;

@@ -1,8 +1,10 @@
 //! Repository for app-side device sync tables.
 
 use chrono::{DateTime, Duration, Utc};
+use diesel::dsl::sql;
 use diesel::prelude::*;
 use diesel::r2d2::{self, Pool};
+use diesel::sql_types::{Bool, Text};
 use diesel::sqlite::SqliteConnection;
 use rust_decimal::Decimal;
 use std::collections::{HashMap, HashSet};
@@ -18,10 +20,14 @@ use wealthfolio_core::sync::{
 use crate::db::{get_connection, WriteHandle};
 use crate::errors::StorageError;
 use crate::schema::{
-    spending_preset_rule_deletions, sync_applied_events, sync_cursor, sync_device_config,
-    sync_engine_state, sync_entity_metadata, sync_outbox, sync_table_state,
+    activities, spending_preset_rule_deletions, sync_applied_events, sync_cursor,
+    sync_device_config, sync_engine_state, sync_entity_metadata, sync_outbox, sync_table_state,
 };
 use crate::spending::deterministic_ids::preset_rule_deletion_id;
+use crate::sync::broker_activity_patch::{
+    broker_activity_identity, broker_activity_user_patch_entity_id,
+    parse_broker_activity_user_patch_payload,
+};
 
 use super::model::{
     SyncAppliedEventDB, SyncCursorDB, SyncDeviceConfigDB, SyncEngineStateDB, SyncEntityMetadataDB,
@@ -123,6 +129,8 @@ enum SyncRowFilter {
     UserModifiedBudgetGroups,
     UserModifiedBudgetGroupAssignments,
     UserModifiedSpendingEventTypes,
+    OverwriteRiskAccounts,
+    OverwriteRiskPlatforms,
     OverwriteRiskAssets,
 }
 
@@ -157,6 +165,10 @@ impl SyncRowFilter {
                 "is_system = 0 OR updated_at != created_at"
             }
             Self::UserModifiedSpendingEventTypes => "key IS NULL OR updated_at != created_at",
+            Self::OverwriteRiskAccounts => {
+                "provider_account_id IS NULL OR TRIM(provider_account_id) = ''"
+            }
+            Self::OverwriteRiskPlatforms => "external_id IS NULL OR TRIM(external_id) = ''",
             Self::OverwriteRiskAssets => {
                 "kind IN ('PROPERTY', 'VEHICLE', 'COLLECTIBLE', 'PRECIOUS_METAL', 'PRIVATE_EQUITY', 'LIABILITY', 'OTHER')"
             }
@@ -170,9 +182,7 @@ struct SyncTableFilterSpec {
 }
 
 const OVERWRITE_RISK_UNFILTERED_TABLES: &[&str] = &[
-    "platforms",
     "market_data_custom_providers",
-    "accounts",
     "goals",
     "goal_plans",
     "ai_threads",
@@ -194,6 +204,14 @@ const OVERWRITE_RISK_UNFILTERED_TABLES: &[&str] = &[
 ];
 
 const OVERWRITE_RISK_FILTERED_TABLES: &[SyncTableFilterSpec] = &[
+    SyncTableFilterSpec {
+        table: "platforms",
+        filter: SyncRowFilter::OverwriteRiskPlatforms,
+    },
+    SyncTableFilterSpec {
+        table: "accounts",
+        filter: SyncRowFilter::OverwriteRiskAccounts,
+    },
     SyncTableFilterSpec {
         table: "assets",
         filter: SyncRowFilter::OverwriteRiskAssets,
@@ -636,6 +654,8 @@ fn entity_storage_mapping(entity: &SyncEntity) -> Option<(&'static str, &'static
         SyncEntity::Quote => Some(("quotes", "id")),
         SyncEntity::AssetTaxonomyAssignment => Some(("asset_taxonomy_assignments", "id")),
         SyncEntity::Activity => Some(("activities", "id")),
+        // Broker activity user patches update an existing local broker row by provider identity.
+        SyncEntity::BrokerActivityUserPatch => None,
         SyncEntity::ActivityImportProfile => Some(("import_account_templates", "id")),
         SyncEntity::ImportTemplate => Some(("import_templates", "id")),
         SyncEntity::Goal => Some(("goals", "id")),
@@ -1412,6 +1432,82 @@ fn mark_table_incremental_applied_tx(conn: &mut SqliteConnection, table_name: &s
     Ok(())
 }
 
+fn apply_broker_activity_user_patch_tx(
+    conn: &mut SqliteConnection,
+    entity_id: &str,
+    payload_json: &serde_json::Value,
+    client_timestamp: &str,
+) -> Result<bool> {
+    let payload = parse_broker_activity_user_patch_payload(payload_json)?;
+    let identity = broker_activity_identity(
+        Some(&payload.source_system),
+        Some(&payload.provider_account_id),
+        Some(&payload.source_record_id),
+    )
+    .ok_or_else(|| {
+        Error::Database(DatabaseError::Internal(
+            "Invalid broker activity user patch identity".to_string(),
+        ))
+    })?;
+    let expected_entity_id = broker_activity_user_patch_entity_id(&identity);
+    if expected_entity_id != entity_id {
+        return Err(Error::Database(DatabaseError::Internal(format!(
+            "Broker activity user patch entity_id '{}' does not match payload identity '{}'",
+            entity_id, expected_entity_id
+        ))));
+    }
+
+    let activity_id = activities::table
+        .filter(
+            sql::<Bool>("UPPER(TRIM(COALESCE(activities.source_system, ''))) = ")
+                .bind::<Text, _>(payload.source_system.clone()),
+        )
+        .filter(activities::source_record_id.eq(Some(payload.source_record_id.clone())))
+        .filter(
+            sql::<Bool>(
+                "EXISTS (
+                    SELECT 1 FROM accounts AS current_accounts
+                    WHERE current_accounts.id = activities.account_id
+                      AND TRIM(COALESCE(current_accounts.provider_account_id, '')) = ",
+            )
+            .bind::<Text, _>(payload.provider_account_id.clone())
+            .sql(
+                "
+                ) OR EXISTS (
+                    SELECT 1
+                    FROM import_runs AS broker_import_runs
+                    JOIN accounts AS import_accounts
+                      ON import_accounts.id = broker_import_runs.account_id
+                    WHERE broker_import_runs.id = activities.import_run_id
+                      AND TRIM(COALESCE(import_accounts.provider_account_id, '')) = ",
+            )
+            .bind::<Text, _>(payload.provider_account_id.clone())
+            .sql(")"),
+        )
+        .select(activities::id)
+        .first::<String>(conn)
+        .optional()
+        .map_err(StorageError::from)?;
+
+    let Some(activity_id) = activity_id else {
+        return Ok(true);
+    };
+
+    diesel::update(activities::table.find(activity_id))
+        .set((
+            activities::notes.eq(payload.overlay.notes),
+            activities::activity_type_override.eq(payload.overlay.activity_type_override),
+            activities::subtype.eq(payload.overlay.subtype),
+            activities::needs_review.eq(if payload.overlay.needs_review { 1 } else { 0 }),
+            activities::is_user_modified.eq(1),
+            activities::updated_at.eq(client_timestamp),
+        ))
+        .execute(conn)
+        .map_err(StorageError::from)?;
+
+    Ok(true)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_remote_event_lww_tx(
     conn: &mut SqliteConnection,
@@ -1459,6 +1555,21 @@ fn apply_remote_event_lww_tx(
                 &client_timestamp_value,
                 seq_value,
             )?;
+        } else if entity == SyncEntity::BrokerActivityUserPatch {
+            match op {
+                SyncOperation::Create | SyncOperation::Update => {
+                    applied_entity_change = apply_broker_activity_user_patch_tx(
+                        conn,
+                        &entity_id_value,
+                        &payload_json,
+                        &client_timestamp_value,
+                    )?;
+                    mark_table_incremental_applied_tx(conn, "activities")?;
+                }
+                SyncOperation::Delete => {
+                    applied_entity_change = false;
+                }
+            }
         } else if entity == SyncEntity::SpendingSetting
             && !is_syncable_spending_setting_key(&entity_id_value)
         {
@@ -2819,9 +2930,10 @@ mod tests {
     use crate::db::{create_pool, get_connection, init, run_migrations, write_actor::spawn_writer};
     use crate::goals::GoalRepository;
     use crate::schema::{
-        accounts, app_settings, assets, goals, goals_allocation, import_account_templates,
-        import_templates, platforms, spending_preset_rule_deletions, sync_applied_events,
-        sync_device_config, sync_entity_metadata, sync_outbox, taxonomies, taxonomy_categories,
+        accounts, activities, app_settings, assets, goals, goals_allocation,
+        import_account_templates, import_templates, platforms, spending_preset_rule_deletions,
+        sync_applied_events, sync_device_config, sync_entity_metadata, sync_outbox, taxonomies,
+        taxonomy_categories,
     };
     use wealthfolio_core::accounts::account_types;
     use wealthfolio_core::goals::{GoalRepositoryTrait, GoalSummaryUpdate};
@@ -2998,6 +3110,123 @@ mod tests {
             .execute(conn)
             .map_err(StorageError::from)?;
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn broker_activity_user_patch_updates_only_overlay_fields() {
+        let (pool, _writer) = setup_db();
+        let mut conn = get_connection(&pool).expect("conn");
+
+        diesel::sql_query(
+            "INSERT INTO accounts \
+             (id, name, account_type, `group`, currency, is_default, is_active, created_at, updated_at, \
+              platform_id, account_number, meta, provider, provider_account_id, is_archived, tracking_mode) \
+             VALUES ('broker-local-account', 'Broker Account', 'cash', NULL, 'USD', 0, 1, \
+                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL, NULL, 'SNAPTRADE', \
+                     'provider-account-1', 0, 'portfolio')",
+        )
+        .execute(&mut conn)
+        .expect("insert broker account");
+
+        diesel::sql_query(
+            "INSERT INTO import_runs \
+             (id, account_id, source_system, run_type, mode, status, started_at, finished_at, \
+              review_mode, applied_at, checkpoint_in, checkpoint_out, summary, warnings, error, \
+              created_at, updated_at) \
+             VALUES ('local-import-run', 'broker-local-account', 'SNAPTRADE', 'SYNC', \
+                     'INCREMENTAL', 'COMPLETED', '2026-01-01T00:00:00Z', \
+                     '2026-01-01T00:00:01Z', 'NEVER', '2026-01-01T00:00:01Z', \
+                     NULL, NULL, NULL, NULL, NULL, \
+                     '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z')",
+        )
+        .execute(&mut conn)
+        .expect("insert broker import run");
+
+        diesel::sql_query(
+            "INSERT INTO activities \
+             (id, account_id, asset_id, activity_type, activity_type_override, source_type, subtype, \
+              status, activity_date, settlement_date, quantity, unit_price, amount, fee, currency, \
+              fx_rate, notes, metadata, source_system, source_record_id, source_group_id, \
+              idempotency_key, import_run_id, is_user_modified, needs_review, created_at, updated_at) \
+             VALUES ('broker-local-activity', 'broker-local-account', NULL, 'BUY', NULL, NULL, NULL, \
+                     'POSTED', '2026-01-01T00:00:00Z', NULL, '10', '5', '50', '1', 'USD', \
+                     NULL, 'Broker note', '{\"broker\":\"keep\"}', 'snaptrade', 'broker-record-1', \
+                     'local-group-id', 'local-idempotency-key', 'local-import-run', 0, 1, \
+                     '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+        )
+        .execute(&mut conn)
+        .expect("insert broker activity");
+
+        let identity = broker_activity_identity(
+            Some("SNAPTRADE"),
+            Some("provider-account-1"),
+            Some("broker-record-1"),
+        )
+        .expect("broker identity");
+        let entity_id = broker_activity_user_patch_entity_id(&identity);
+
+        let applied = apply_remote_event_lww_tx(
+            &mut conn,
+            SyncEntity::BrokerActivityUserPatch,
+            entity_id,
+            SyncOperation::Update,
+            "broker-patch-event-1".to_string(),
+            "2026-02-01T00:00:00Z".to_string(),
+            1,
+            serde_json::json!({
+                "sourceSystem": "SNAPTRADE",
+                "providerAccountId": "provider-account-1",
+                "sourceRecordId": "broker-record-1",
+                "overlay": {
+                    "notes": "Synced user note",
+                    "activityTypeOverride": "SELL",
+                    "subtype": "DRIP",
+                    "needsReview": false
+                }
+            }),
+        )
+        .expect("apply broker activity user patch");
+
+        assert!(applied);
+
+        let row = activities::table
+            .find("broker-local-activity")
+            .select((
+                activities::activity_type,
+                activities::activity_type_override,
+                activities::subtype,
+                activities::notes,
+                activities::needs_review,
+                activities::is_user_modified,
+                activities::amount,
+                activities::source_group_id,
+                activities::import_run_id,
+                activities::updated_at,
+            ))
+            .first::<(
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                i32,
+                i32,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                String,
+            )>(&mut conn)
+            .expect("broker activity row");
+
+        assert_eq!(row.0, "BUY");
+        assert_eq!(row.1.as_deref(), Some("SELL"));
+        assert_eq!(row.2.as_deref(), Some("DRIP"));
+        assert_eq!(row.3.as_deref(), Some("Synced user note"));
+        assert_eq!(row.4, 0);
+        assert_eq!(row.5, 1);
+        assert_eq!(row.6.as_deref(), Some("50"));
+        assert_eq!(row.7.as_deref(), Some("local-group-id"));
+        assert_eq!(row.8.as_deref(), Some("local-import-run"));
+        assert_eq!(row.9, "2026-02-01T00:00:00Z");
     }
 
     fn insert_goal_for_test(conn: &mut SqliteConnection, goal_id: &str) -> Result<()> {
@@ -3924,6 +4153,40 @@ mod tests {
             .non_empty_tables
             .iter()
             .any(|row| row.table == "goals" && row.rows == 1));
+    }
+
+    #[tokio::test]
+    async fn overwrite_risk_summary_ignores_broker_rehydratable_accounts() {
+        let (pool, writer) = setup_db();
+        let repo = AppSyncRepository::new(pool.clone(), writer);
+
+        {
+            let mut conn = get_connection(&pool).expect("conn");
+            diesel::sql_query(
+                "INSERT INTO platforms (id, name, url, external_id, kind, website_url, logo_url) \
+                 VALUES ('broker-platform-risk', 'Broker Platform', '', 'external-platform-risk', \
+                         'BROKERAGE', NULL, NULL)",
+            )
+            .execute(&mut conn)
+            .expect("insert broker platform");
+            diesel::sql_query(
+                "INSERT INTO accounts \
+                 (id, name, account_type, `group`, currency, is_default, is_active, created_at, updated_at, \
+                  platform_id, account_number, meta, provider, provider_account_id, is_archived, tracking_mode) \
+                 VALUES ('broker-account-risk', 'Broker Account', 'cash', NULL, 'USD', 0, 1, \
+                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'broker-platform-risk', NULL, NULL, \
+                         'SNAPTRADE', 'broker-provider-account-risk', 0, 'portfolio')",
+            )
+            .execute(&mut conn)
+            .expect("insert broker account");
+        }
+
+        let summary = repo
+            .get_local_sync_overwrite_risk_summary()
+            .expect("overwrite risk summary");
+
+        assert_eq!(summary.total_rows, 0);
+        assert!(summary.non_empty_tables.is_empty());
     }
 
     #[tokio::test]

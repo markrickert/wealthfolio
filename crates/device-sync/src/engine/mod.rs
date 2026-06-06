@@ -63,6 +63,7 @@ fn sync_entity_name(entity: &SyncEntity) -> &'static str {
         SyncEntity::Quote => "quote",
         SyncEntity::AssetTaxonomyAssignment => "asset_taxonomy_assignment",
         SyncEntity::Activity => "activity",
+        SyncEntity::BrokerActivityUserPatch => "broker_activity_user_patch",
         SyncEntity::ActivityImportProfile => "activity_import_profile",
         SyncEntity::ImportTemplate => "import_template",
         SyncEntity::Goal => "goal",

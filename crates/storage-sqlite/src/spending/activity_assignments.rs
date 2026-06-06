@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::{get_connection, DbPool, WriteHandle};
 use crate::errors::StorageError;
 use crate::schema::activity_taxonomy_assignments;
+use crate::spending::activity_sync::should_sync_activity_local_id_outbox;
 use crate::spending::deterministic_ids::activity_taxonomy_assignment_id;
 use wealthfolio_core::sync::SyncEntity;
 use wealthfolio_spending::activity_assignments::{
@@ -169,7 +170,9 @@ impl ActivityTaxonomyAssignmentRepositoryTrait for ActivityTaxonomyAssignmentRep
                     .get_result(tx.conn())
                     .map_err(StorageError::from)?;
 
-                tx.update(&result)?;
+                if should_sync_activity_local_id_outbox(tx.conn(), &result.activity_id)? {
+                    tx.update(&result)?;
+                }
                 Ok(result)
             })
             .await
@@ -237,10 +240,12 @@ impl ActivityTaxonomyAssignmentRepositoryTrait for ActivityTaxonomyAssignmentRep
                         .get_result::<ActivityTaxonomyAssignmentDB>(tx.conn())
                         .map_err(StorageError::from)?;
 
-                    if existing_id.is_some() {
-                        tx.update(&inserted)?;
-                    } else {
-                        tx.insert(&inserted)?;
+                    if should_sync_activity_local_id_outbox(tx.conn(), &inserted.activity_id)? {
+                        if existing_id.is_some() {
+                            tx.update(&inserted)?;
+                        } else {
+                            tx.insert(&inserted)?;
+                        }
                     }
                     out.push(inserted);
                 }
@@ -326,10 +331,12 @@ impl ActivityTaxonomyAssignmentRepositoryTrait for ActivityTaxonomyAssignmentRep
                         .get_result::<ActivityTaxonomyAssignmentDB>(tx.conn())
                         .map_err(StorageError::from)?;
 
-                    if had_existing {
-                        tx.update(&inserted)?;
-                    } else {
-                        tx.insert(&inserted)?;
+                    if should_sync_activity_local_id_outbox(tx.conn(), &inserted.activity_id)? {
+                        if had_existing {
+                            tx.update(&inserted)?;
+                        } else {
+                            tx.insert(&inserted)?;
+                        }
                     }
                     out.push(inserted);
                 }
@@ -348,10 +355,19 @@ impl ActivityTaxonomyAssignmentRepositoryTrait for ActivityTaxonomyAssignmentRep
         let id = id.to_string();
         self.writer
             .exec_tx(move |tx| {
+                let existing = activity_taxonomy_assignments::table
+                    .find(&id)
+                    .first::<ActivityTaxonomyAssignmentDB>(tx.conn())
+                    .optional()
+                    .map_err(StorageError::from)?;
+                let should_sync = match &existing {
+                    Some(row) => should_sync_activity_local_id_outbox(tx.conn(), &row.activity_id)?,
+                    None => false,
+                };
                 let affected = diesel::delete(activity_taxonomy_assignments::table.find(&id))
                     .execute(tx.conn())
                     .map_err(StorageError::from)?;
-                if affected > 0 {
+                if affected > 0 && should_sync {
                     tx.delete::<ActivityTaxonomyAssignmentDB>(id.clone());
                 }
                 Ok(())
@@ -371,6 +387,7 @@ impl ActivityTaxonomyAssignmentRepositoryTrait for ActivityTaxonomyAssignmentRep
                     .select(activity_taxonomy_assignments::id)
                     .load::<String>(tx.conn())
                     .map_err(StorageError::from)?;
+                let should_sync = should_sync_activity_local_id_outbox(tx.conn(), &activity_id)?;
 
                 diesel::delete(
                     activity_taxonomy_assignments::table
@@ -380,12 +397,126 @@ impl ActivityTaxonomyAssignmentRepositoryTrait for ActivityTaxonomyAssignmentRep
                 .execute(tx.conn())
                 .map_err(StorageError::from)?;
 
-                for assignment_id in existing_ids {
-                    tx.delete::<ActivityTaxonomyAssignmentDB>(assignment_id);
+                if should_sync {
+                    for assignment_id in existing_ids {
+                        tx.delete::<ActivityTaxonomyAssignmentDB>(assignment_id);
+                    }
                 }
                 Ok(())
             })
             .await
             .map_err(|e| anyhow::anyhow!(e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{create_pool, get_connection, init, run_migrations, write_actor::spawn_writer};
+    use crate::schema::{activity_taxonomy_assignments, sync_outbox};
+    use diesel::r2d2::{ConnectionManager, Pool};
+    use std::sync::Arc;
+    use tempfile::tempdir;
+    use wealthfolio_spending::activity_assignments::{
+        ActivityTaxonomyAssignmentRepositoryTrait, NewActivityTaxonomyAssignment,
+    };
+
+    fn setup_db() -> (Arc<Pool<ConnectionManager<SqliteConnection>>>, WriteHandle) {
+        std::env::set_var("CONNECT_API_URL", "http://test.local");
+        let app_data = tempdir()
+            .expect("tempdir")
+            .keep()
+            .to_string_lossy()
+            .to_string();
+        let db_path = init(&app_data).expect("init db");
+        run_migrations(&db_path).expect("migrate db");
+        let pool = create_pool(&db_path).expect("create pool");
+        let writer = spawn_writer(pool.as_ref().clone()).expect("spawn writer");
+        (pool, writer)
+    }
+
+    fn insert_account_and_activity(conn: &mut SqliteConnection, id: &str, source_system: &str) {
+        let account_id = format!("account-{id}");
+        diesel::sql_query(format!(
+            "INSERT INTO accounts \
+             (id, name, account_type, `group`, currency, is_default, is_active, created_at, updated_at, \
+              platform_id, account_number, meta, provider, provider_account_id, is_archived, tracking_mode) \
+             VALUES ('{}', 'Account {}', 'cash', NULL, 'USD', 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, \
+                     NULL, NULL, NULL, NULL, NULL, 0, 'portfolio')",
+            account_id, id
+        ))
+        .execute(conn)
+        .expect("insert account");
+
+        diesel::sql_query(format!(
+            "INSERT INTO activities \
+             (id, account_id, asset_id, activity_type, activity_type_override, source_type, subtype, \
+              status, activity_date, settlement_date, quantity, unit_price, amount, fee, currency, \
+              fx_rate, notes, metadata, source_system, source_record_id, source_group_id, \
+              idempotency_key, import_run_id, is_user_modified, needs_review, created_at, updated_at) \
+             VALUES ('{}', '{}', NULL, 'BUY', NULL, NULL, NULL, 'POSTED', \
+                     '2026-01-01T00:00:00Z', NULL, NULL, NULL, '10', NULL, 'USD', NULL, \
+                     NULL, NULL, '{}', '{}-source-record', NULL, NULL, NULL, 0, 0, \
+                     '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            id, account_id, source_system, id
+        ))
+        .execute(conn)
+        .expect("insert activity");
+    }
+
+    fn outbox_count(conn: &mut SqliteConnection) -> i64 {
+        sync_outbox::table
+            .count()
+            .get_result::<i64>(conn)
+            .expect("count outbox")
+    }
+
+    #[tokio::test]
+    async fn broker_activity_assignment_is_local_only_but_manual_assignment_still_syncs() {
+        let (pool, writer) = setup_db();
+        {
+            let mut conn = get_connection(&pool).expect("conn");
+            insert_account_and_activity(&mut conn, "broker-activity", "SNAPTRADE");
+            insert_account_and_activity(&mut conn, "manual-activity", "MANUAL");
+        }
+
+        let repo = ActivityTaxonomyAssignmentRepository::new(pool.clone(), writer);
+        repo.upsert(NewActivityTaxonomyAssignment {
+            id: None,
+            activity_id: "broker-activity".to_string(),
+            taxonomy_id: "spending_categories".to_string(),
+            category_id: "cat_food".to_string(),
+            weight: 10_000,
+            source: "manual".to_string(),
+        })
+        .await
+        .expect("assign broker activity");
+
+        let mut conn = get_connection(&pool).expect("conn");
+        assert_eq!(
+            activity_taxonomy_assignments::table
+                .count()
+                .get_result::<i64>(&mut conn)
+                .expect("count assignments"),
+            1
+        );
+        assert_eq!(outbox_count(&mut conn), 0);
+
+        repo.upsert(NewActivityTaxonomyAssignment {
+            id: None,
+            activity_id: "manual-activity".to_string(),
+            taxonomy_id: "spending_categories".to_string(),
+            category_id: "cat_groceries".to_string(),
+            weight: 10_000,
+            source: "manual".to_string(),
+        })
+        .await
+        .expect("assign manual activity");
+
+        let entities = sync_outbox::table
+            .select(sync_outbox::entity)
+            .load::<String>(&mut conn)
+            .expect("load outbox entities");
+        assert_eq!(entities, vec!["activity_taxonomy_assignment".to_string()]);
     }
 }
