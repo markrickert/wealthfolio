@@ -8,10 +8,12 @@ import {
   SheetTitle,
 } from "@wealthfolio/ui/components/ui/sheet";
 import { ActivityType, ActivityTypeNames } from "@/lib/constants";
+import { DateRangeFilter } from "@/features/spending/components/date-range-filter";
 import { Account, AccountScope, PortfolioWithAccounts } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@wealthfolio/ui";
 import { useEffect, useMemo, useState } from "react";
+import type { DateRange } from "react-day-picker";
 
 interface ActivityMobileFilterSheetProps {
   open: boolean;
@@ -22,6 +24,8 @@ interface ActivityMobileFilterSheetProps {
   setAccountScope: (accountScope: AccountScope) => void;
   selectedActivityTypes: ActivityType[];
   setSelectedActivityTypes: (types: ActivityType[]) => void;
+  dateRange: DateRange | undefined;
+  setDateRange: (dateRange: DateRange | undefined) => void;
 }
 
 function accountIdsForScope(scope: AccountScope, portfolios: PortfolioWithAccounts[]) {
@@ -48,11 +52,14 @@ export const ActivityMobileFilterSheet = ({
   setAccountScope,
   selectedActivityTypes,
   setSelectedActivityTypes,
+  dateRange,
+  setDateRange,
 }: ActivityMobileFilterSheetProps) => {
   // Local state for temporary selections
   const [localAccountScope, setLocalAccountScope] = useState<AccountScope>(accountScope);
   const [localActivityTypes, setLocalActivityTypes] =
     useState<ActivityType[]>(selectedActivityTypes);
+  const [localDateRange, setLocalDateRange] = useState<DateRange | undefined>(dateRange);
 
   const localAccountIds = useMemo(
     () => accountIdsForScope(localAccountScope, portfolios),
@@ -64,12 +71,14 @@ export const ActivityMobileFilterSheet = ({
     if (open) {
       setLocalAccountScope(accountScope);
       setLocalActivityTypes(selectedActivityTypes);
+      setLocalDateRange(dateRange);
     }
-  }, [open, accountScope, selectedActivityTypes]);
+  }, [open, accountScope, selectedActivityTypes, dateRange]);
 
   const handleApply = () => {
     setAccountScope(localAccountScope);
     setSelectedActivityTypes(localActivityTypes);
+    setDateRange(localDateRange);
     onOpenChange(false);
   };
 
@@ -93,6 +102,12 @@ export const ActivityMobileFilterSheet = ({
         </SheetHeader>
         <ScrollArea className="flex-1 py-4">
           <div className="space-y-6 pr-4">
+            {/* Date Filter Section */}
+            <div>
+              <h4 className="mb-3 font-medium">Date</h4>
+              <DateRangeFilter value={localDateRange} onChange={setLocalDateRange} />
+            </div>
+
             {/* Account Filter Section */}
             <div>
               <h4 className="mb-3 font-medium">Account</h4>

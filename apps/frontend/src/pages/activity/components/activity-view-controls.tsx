@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import type { DateRange } from "react-day-picker";
 
+import { DateRangeFilter } from "@/features/spending/components/date-range-filter";
 import { ActivityType, ActivityTypeNames, INSTRUMENT_TYPE_OPTIONS } from "@/lib/constants";
 import { debounce } from "@/lib/debounce";
 import type { Account, AccountScope, PortfolioWithAccounts } from "@/lib/types";
@@ -27,6 +29,8 @@ interface ActivityViewControlsProps {
   onInstrumentTypesChange: (types: string[]) => void;
   statusFilter: ActivityStatusFilter;
   onStatusFilterChange: (status: ActivityStatusFilter) => void;
+  dateRange: DateRange | undefined;
+  onDateRangeChange: (range: DateRange | undefined) => void;
   viewMode: ActivityViewMode;
   onViewModeChange: (mode: ActivityViewMode) => void;
   /** Shown only in table view - number of activities fetched so far */
@@ -64,6 +68,8 @@ export function ActivityViewControls({
   onInstrumentTypesChange,
   statusFilter,
   onStatusFilterChange,
+  dateRange,
+  onDateRangeChange,
   viewMode,
   onViewModeChange,
   totalFetched,
@@ -142,7 +148,9 @@ export function ActivityViewControls({
     accountScope.type !== "all" ||
     selectedActivityTypes.length > 0 ||
     selectedInstrumentTypes.length > 0 ||
-    statusFilter !== "all";
+    statusFilter !== "all" ||
+    !!dateRange?.from ||
+    !!dateRange?.to;
 
   return (
     <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -155,6 +163,20 @@ export function ActivityViewControls({
           }}
           className="w-[160px] lg:w-[240px]"
         />
+
+        <FacetedFilter
+          title="Status"
+          options={statusOptions}
+          selectedValues={new Set(statusFilter === "all" ? [] : [statusFilter])}
+          onFilterChange={(values: Set<string>) => {
+            const selected = Array.from(values);
+            onStatusFilterChange(
+              selected.length === 0 ? "all" : (selected[0] as ActivityStatusFilter),
+            );
+          }}
+        />
+
+        <DateRangeFilter value={dateRange} onChange={onDateRangeChange} />
 
         <FacetedFilter
           title="Account"
@@ -182,18 +204,6 @@ export function ActivityViewControls({
           onFilterChange={(values: Set<string>) => onInstrumentTypesChange(Array.from(values))}
         />
 
-        <FacetedFilter
-          title="Status"
-          options={statusOptions}
-          selectedValues={new Set(statusFilter === "all" ? [] : [statusFilter])}
-          onFilterChange={(values: Set<string>) => {
-            const selected = Array.from(values);
-            onStatusFilterChange(
-              selected.length === 0 ? "all" : (selected[0] as ActivityStatusFilter),
-            );
-          }}
-        />
-
         {hasActiveFilters ? (
           <Button
             variant="ghost"
@@ -206,6 +216,7 @@ export function ActivityViewControls({
               onActivityTypesChange([]);
               onInstrumentTypesChange([]);
               onStatusFilterChange("all");
+              onDateRangeChange(undefined);
             }}
           >
             Reset

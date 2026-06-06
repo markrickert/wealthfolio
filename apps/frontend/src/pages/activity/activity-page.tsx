@@ -15,11 +15,13 @@ import { ActivityType } from "@/lib/constants";
 import { debounce } from "@/lib/debounce";
 import { QueryKeys } from "@/lib/query-keys";
 import { Account, AccountScope, ActivityDetails } from "@/lib/types";
+import { formatDateISO } from "@/lib/utils";
 import { AlternativeAssetQuickAddModal } from "@/pages/asset/alternative-assets";
 import { useQuery } from "@tanstack/react-query";
 import type { SortingState } from "@tanstack/react-table";
 import { Button, Icons, Page, PageContent, PageHeader } from "@wealthfolio/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DateRange } from "react-day-picker";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ActivityDataGrid } from "./components/activity-data-grid/activity-data-grid";
 import { ActivityDeleteModal } from "./components/activity-delete-modal";
@@ -34,10 +36,36 @@ import { MobileActivityForm } from "./components/mobile-forms/mobile-activity-fo
 import { useActivityMutations } from "./hooks/use-activity-mutations";
 import { useActivitySearch, type ActivityStatusFilter } from "./hooks/use-activity-search";
 import {
+  clearActivityUrlDateFilters,
   clearActivityUrlFilters,
   resolveActivityTabFromUrlFilters,
   resolveActivityUrlFilters,
 } from "./utils/url-filters";
+
+interface ActivityDateRangeFilter {
+  from?: string;
+  to?: string;
+}
+
+function parseLocalDate(value?: string): Date | undefined {
+  if (!value) return undefined;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return undefined;
+  return new Date(year, month - 1, day);
+}
+
+function toDateRange(value: ActivityDateRangeFilter): DateRange | undefined {
+  const from = parseLocalDate(value.from);
+  const to = parseLocalDate(value.to);
+  return from || to ? { from, to } : undefined;
+}
+
+function fromDateRange(range: DateRange | undefined): ActivityDateRangeFilter {
+  return {
+    ...(range?.from ? { from: formatDateISO(range.from) } : {}),
+    ...(range?.to ? { to: formatDateISO(range.to) } : {}),
+  };
+}
 
 const ActivityPage = () => {
   const [showForm, setShowForm] = useState(false);
@@ -73,6 +101,10 @@ const ActivityPage = () => {
   );
   const [persistedStatusFilter, setPersistedStatusFilter] =
     usePersistentState<ActivityStatusFilter>("activity-filter-status", "all");
+  const [selectedDateRange, setSelectedDateRange] = usePersistentState<ActivityDateRangeFilter>(
+    "activity-filter-date-range",
+    {},
+  );
   const [searchInput, setSearchInput] = usePersistentState<string>("activity-filter-search", "");
   const [searchQuery, setSearchQuery] = useState(searchInput);
   const [viewMode, setViewMode] = usePersistentState<ActivityViewMode>(
@@ -104,6 +136,12 @@ const ActivityPage = () => {
   const effectiveActivityTypes = activityUrlFilters.activityTypes ?? selectedActivityTypes;
   const urlDateFrom = activityUrlFilters.dateFrom;
   const urlDateTo = activityUrlFilters.dateTo;
+  const effectiveDateFrom = urlDateFrom ?? selectedDateRange.from;
+  const effectiveDateTo = urlDateTo ?? selectedDateRange.to;
+  const effectiveDateRange = useMemo(
+    () => toDateRange({ from: effectiveDateFrom, to: effectiveDateTo }),
+    [effectiveDateFrom, effectiveDateTo],
+  );
 
   const clearBrokerReviewUrlFilters = useCallback(() => {
     setSearchParams(
@@ -145,6 +183,22 @@ const ActivityPage = () => {
       setPersistedAccountScope,
       setPersistedStatusFilter,
     ],
+  );
+
+  const setInvestmentDateRange = useCallback(
+    (range: DateRange | undefined) => {
+      setSelectedDateRange(fromDateRange(range));
+      if (urlDateFrom || urlDateTo) {
+        setSearchParams(
+          (prev) => {
+            const next = clearActivityUrlDateFilters(prev);
+            return next.toString() === prev.toString() ? prev : next;
+          },
+          { replace: true },
+        );
+      }
+    },
+    [setSearchParams, setSelectedDateRange, urlDateFrom, urlDateTo],
   );
 
   // Coerce "spending" URL state back to investments when the module is disabled.
@@ -298,8 +352,8 @@ const ActivityPage = () => {
       activityTypes: effectiveActivityTypes,
       instrumentTypes: selectedInstrumentTypes,
       status: statusFilter,
-      dateFrom: urlDateFrom,
-      dateTo: urlDateTo,
+      dateFrom: effectiveDateFrom,
+      dateTo: effectiveDateTo,
     },
     searchQuery,
     sorting,
@@ -313,8 +367,8 @@ const ActivityPage = () => {
       activityTypes: effectiveActivityTypes,
       instrumentTypes: selectedInstrumentTypes,
       status: statusFilter,
-      dateFrom: urlDateFrom,
-      dateTo: urlDateTo,
+      dateFrom: effectiveDateFrom,
+      dateTo: effectiveDateTo,
     },
     searchQuery,
     sorting,
@@ -331,9 +385,11 @@ const ActivityPage = () => {
     effectiveInvestmentAccountIds,
     isDatagridView,
     pageIndex,
-    selectedActivityTypes,
+    effectiveActivityTypes,
     selectedInstrumentTypes,
     statusFilter,
+    effectiveDateFrom,
+    effectiveDateTo,
     searchQuery,
     setPageIndex,
     sorting,
@@ -425,6 +481,8 @@ const ActivityPage = () => {
     selectedActivityTypes.length > 0 ||
     selectedInstrumentTypes.length > 0 ||
     statusFilter !== "all" ||
+    !!effectiveDateFrom ||
+    !!effectiveDateTo ||
     searchInput.trim().length > 0;
 
   const clearInvestmentsFilters = useCallback(() => {
@@ -432,6 +490,7 @@ const ActivityPage = () => {
     setSelectedActivityTypes([]);
     setSelectedInstrumentTypes([]);
     setPersistedStatusFilter("all");
+    setSelectedDateRange({});
     setSearchInput("");
     setSearchQuery("");
     clearBrokerReviewUrlFilters();
@@ -441,6 +500,7 @@ const ActivityPage = () => {
     setSelectedActivityTypes,
     setSelectedInstrumentTypes,
     setPersistedStatusFilter,
+    setSelectedDateRange,
     setSearchInput,
   ]);
 
@@ -585,6 +645,8 @@ const ActivityPage = () => {
           onAccountScopeChange={setAccountScope}
           selectedActivityTypes={selectedActivityTypes}
           onActivityTypesChange={setSelectedActivityTypes}
+          dateRange={effectiveDateRange}
+          onDateRangeChange={setInvestmentDateRange}
           isCompactView={isCompactView}
           onCompactViewChange={setIsCompactView}
         />
@@ -602,6 +664,8 @@ const ActivityPage = () => {
           onInstrumentTypesChange={setSelectedInstrumentTypes}
           statusFilter={statusFilter}
           onStatusFilterChange={setStatusFilter}
+          dateRange={effectiveDateRange}
+          onDateRangeChange={setInvestmentDateRange}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
           totalFetched={shouldUseDatagridView ? undefined : totalFetched}

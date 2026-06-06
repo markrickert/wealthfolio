@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  clearActivityUrlDateFilters,
   clearActivityUrlFilters,
   resolveActivityTabFromUrlFilters,
   resolveActivityUrlFilters,
@@ -68,5 +69,17 @@ describe("resolveActivityUrlFilters", () => {
     );
 
     expect(cleared.toString()).toBe("tab=investments");
+  });
+
+  it("clears only date params when replacing investment date filter", () => {
+    const cleared = clearActivityUrlDateFilters(
+      new URLSearchParams(
+        "tab=investments&account=acct-1&needsReview=true&types=TRANSFER_IN&from=2026-06-01&to=2026-06-04",
+      ),
+    );
+
+    expect(cleared.toString()).toBe(
+      "tab=investments&account=acct-1&needsReview=true&types=TRANSFER_IN",
+    );
   });
 });

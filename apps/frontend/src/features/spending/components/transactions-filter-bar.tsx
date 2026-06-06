@@ -145,6 +145,7 @@ export function TransactionsFilterBar({
         selectedValues={selectedTypes}
         onFilterChange={onTypesChange}
       />
+      <AmountRangeFilter value={amountRange} onChange={onAmountRangeChange} />
       <FacetedFilter
         title="Category"
         options={categoryOptions}
@@ -165,7 +166,6 @@ export function TransactionsFilterBar({
           onFilterChange={onEventsChange}
         />
       )}
-      <AmountRangeFilter value={amountRange} onChange={onAmountRangeChange} />
     </>
   );
 

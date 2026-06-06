@@ -53,3 +53,10 @@ export function clearActivityUrlFilters(searchParams: URLSearchParams): URLSearc
   next.delete("to");
   return next;
 }
+
+export function clearActivityUrlDateFilters(searchParams: URLSearchParams): URLSearchParams {
+  const next = new URLSearchParams(searchParams);
+  next.delete("from");
+  next.delete("to");
+  return next;
+}

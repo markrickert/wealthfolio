@@ -2,12 +2,31 @@ import { AccountType } from "@/lib/constants";
 import type { Account, AccountScope, PortfolioWithAccounts } from "@/lib/types";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
+import type { InputHTMLAttributes, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ActivityMobileFilterSheet } from "./activity-mobile-filter-sheet";
 
 vi.mock("@wealthfolio/ui", () => ({
+  Badge: ({ children }: { children: ReactNode }) => <span>{children}</span>,
+  Button: ({
+    children,
+    onClick,
+    className: _className,
+  }: {
+    children: ReactNode;
+    onClick?: () => void;
+    className?: string;
+  }) => <button onClick={onClick}>{children}</button>,
+  Calendar: () => <div data-testid="calendar" />,
+  Icons: {
+    PlusCircle: () => <span data-testid="plus-circle-icon" />,
+  },
+  Input: (props: InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
+  Popover: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  PopoverContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  PopoverTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   ScrollArea: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  Separator: () => <span data-testid="separator" />,
 }));
 
 vi.mock("@wealthfolio/ui/components/ui/button", () => ({
@@ -86,6 +105,8 @@ describe("ActivityMobileFilterSheet", () => {
         setAccountScope={setAccountScope}
         selectedActivityTypes={[]}
         setSelectedActivityTypes={vi.fn()}
+        dateRange={undefined}
+        setDateRange={vi.fn()}
       />,
     );
 

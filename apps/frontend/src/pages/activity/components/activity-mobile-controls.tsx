@@ -2,6 +2,7 @@ import { Button, Icons, Input } from "@wealthfolio/ui";
 import { ActivityType } from "@/lib/constants";
 import { Account, AccountScope, PortfolioWithAccounts } from "@/lib/types";
 import { useState } from "react";
+import type { DateRange } from "react-day-picker";
 import { ActivityMobileFilterSheet } from "./activity-mobile-filter-sheet";
 
 interface ActivityMobileControlsProps {
@@ -13,6 +14,8 @@ interface ActivityMobileControlsProps {
   onAccountScopeChange: (accountScope: AccountScope) => void;
   selectedActivityTypes: ActivityType[];
   onActivityTypesChange: (types: ActivityType[]) => void;
+  dateRange: DateRange | undefined;
+  onDateRangeChange: (dateRange: DateRange | undefined) => void;
   isCompactView: boolean;
   onCompactViewChange: (isCompact: boolean) => void;
 }
@@ -26,12 +29,18 @@ export function ActivityMobileControls({
   onAccountScopeChange,
   selectedActivityTypes,
   onActivityTypesChange,
+  dateRange,
+  onDateRangeChange,
   isCompactView,
   onCompactViewChange,
 }: ActivityMobileControlsProps) {
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
 
-  const hasActiveFilters = accountScope.type !== "all" || selectedActivityTypes.length > 0;
+  const hasActiveFilters =
+    accountScope.type !== "all" ||
+    selectedActivityTypes.length > 0 ||
+    !!dateRange?.from ||
+    !!dateRange?.to;
 
   return (
     <>
@@ -79,6 +88,8 @@ export function ActivityMobileControls({
         setAccountScope={onAccountScopeChange}
         selectedActivityTypes={selectedActivityTypes}
         setSelectedActivityTypes={onActivityTypesChange}
+        dateRange={dateRange}
+        setDateRange={onDateRangeChange}
       />
     </>
   );
