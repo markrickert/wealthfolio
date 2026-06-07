@@ -1188,9 +1188,12 @@ fn json_value_to_sql_literal(value: &serde_json::Value) -> String {
 
 fn restore_sql_error(phase: &str, table: &str, err: diesel::result::Error) -> Error {
     let core_error: Error = StorageError::from(err).into();
-    Error::Database(DatabaseError::Internal(format!(
-        "Snapshot restore {phase} failed for table '{table}': {core_error}"
-    )))
+    let message = format!("Snapshot restore {phase} failed for table={table}: {core_error}");
+    if is_foreign_key_error_message(&message) {
+        Error::Database(DatabaseError::ForeignKeyViolation(message))
+    } else {
+        Error::Database(DatabaseError::Internal(message))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -6783,8 +6786,8 @@ mod tests {
                 .get_result(&mut exported_conn)
                 .expect("count snapshot rows");
         assert_eq!(
-            snapshot_count.c, 2,
-            "manual + broker snapshots should export"
+            snapshot_count.c, 1,
+            "manual snapshots should export; broker snapshots stay local"
         );
 
         let broker_count: CountRow = diesel::sql_query(
@@ -6792,7 +6795,7 @@ mod tests {
         )
         .get_result(&mut exported_conn)
         .expect("count broker snapshots");
-        assert_eq!(broker_count.c, 1, "broker snapshots should be included");
+        assert_eq!(broker_count.c, 0, "broker snapshots should not export");
 
         let calculated_count: CountRow = diesel::sql_query(
             "SELECT COUNT(*) AS c FROM holdings_snapshots WHERE source = 'CALCULATED'",
@@ -7891,7 +7894,7 @@ mod tests {
                     "accountId": "acc-sync-snap",
                     "snapshotDate": "2026-01-01",
                     "currency": "USD",
-                    "positions": "{\"asset-sync-snap-new\":{\"assetId\":\"asset-sync-snap-new\",\"quantity\":\"7\",\"averageCost\":\"110\",\"totalCostBasis\":\"770\",\"currency\":\"USD\",\"inceptionDate\":\"2026-01-01T00:00:00Z\",\"contractMultiplier\":\"1\",\"createdAt\":\"2026-01-01T00:00:00Z\",\"lastUpdated\":\"2026-01-01T00:00:00Z\"}}",
+                    "positions": "{\"asset-sync-snap-new\":{\"id\":\"POS-asset-sync-snap-new-acc-sync-snap\",\"accountId\":\"acc-sync-snap\",\"assetId\":\"asset-sync-snap-new\",\"quantity\":\"7\",\"averageCost\":\"110\",\"totalCostBasis\":\"770\",\"currency\":\"USD\",\"inceptionDate\":\"2026-01-01T00:00:00Z\",\"contractMultiplier\":\"1\",\"createdAt\":\"2026-01-01T00:00:00Z\",\"lastUpdated\":\"2026-01-01T00:00:00Z\"}}",
                     "cashBalances": "{}",
                     "costBasis": "0",
                     "netContribution": "0",
