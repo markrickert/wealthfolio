@@ -274,14 +274,12 @@ mod tests {
         assert!(!issue.title.contains(id));
         assert!(!issue.message.contains(id));
         assert!(!issue.details.as_deref().unwrap_or_default().contains(id));
-        assert!(
-            issue
-                .affected_items
-                .as_ref()
-                .unwrap()
-                .iter()
-                .all(|item| !item.name.contains(id))
-        );
+        assert!(issue
+            .affected_items
+            .as_ref()
+            .unwrap()
+            .iter()
+            .all(|item| !item.name.contains(id)));
         let item = &issue.affected_items.as_ref().unwrap()[0];
         assert_eq!(
             item.route.as_deref(),
