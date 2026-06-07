@@ -412,12 +412,10 @@ describe("DeviceSyncSection", () => {
 
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Connect Another Device" }));
-        await Promise.resolve();
       });
+      await flushAsyncWork();
 
-      await waitFor(() => {
-        expect(refetch).toHaveBeenCalled();
-      });
+      expect(refetch).toHaveBeenCalled();
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2500);
@@ -478,12 +476,10 @@ describe("DeviceSyncSection", () => {
 
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Connect Another Device" }));
-        await Promise.resolve();
       });
+      await flushAsyncWork();
 
-      await waitFor(() => {
-        expect(refetch).toHaveBeenCalled();
-      });
+      expect(refetch).toHaveBeenCalled();
 
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Check again" }));
@@ -540,4 +536,11 @@ function renderWithQueryClient(ui: ReactElement) {
   });
 
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
+
+async function flushAsyncWork() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
 }
