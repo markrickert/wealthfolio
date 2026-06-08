@@ -619,6 +619,13 @@ export default function SpendingTabContent() {
       },
       { replace: true },
     );
+    if (code === "LAST_MONTH") {
+      setBudgetMonthKey(addMonthsToMonthKey(currentBudgetMonthKey, -1));
+      setBudgetMonthTouched(true);
+    } else {
+      setBudgetMonthKey(currentBudgetMonthKey);
+      setBudgetMonthTouched(false);
+    }
   };
 
   const handleCustomMonthSelect = (monthKey: string | null) => {
@@ -636,6 +643,13 @@ export default function SpendingTabContent() {
       },
       { replace: true },
     );
+    if (monthKey && monthKey <= currentBudgetMonthKey) {
+      setBudgetMonthKey(monthKey);
+      setBudgetMonthTouched(true);
+    } else {
+      setBudgetMonthKey(currentBudgetMonthKey);
+      setBudgetMonthTouched(false);
+    }
   };
 
   const granularity: "day" | "week" | "month" = useMemo(() => {
