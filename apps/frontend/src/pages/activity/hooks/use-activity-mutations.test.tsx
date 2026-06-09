@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ActivityType } from "@/lib/constants";
 import type { ActivityDetails } from "@/lib/types";
 import { useActivityMutations } from "./use-activity-mutations";
 
@@ -152,14 +153,16 @@ describe("useActivityMutations", () => {
     );
   });
 
-  it("copies bond trade amounts when duplicating price-bearing activities", async () => {
+  it("copies bond trade amounts when duplicating buy and sell activities", async () => {
     const { result } = renderHook(() => useActivityMutations(), { wrapper: createWrapper() });
-    const bondBuyActivity: ActivityDetails = {
+    const bondActivity = (
+      activityType: typeof ActivityType.BUY | typeof ActivityType.SELL,
+    ): ActivityDetails => ({
       id: "activity-1",
       accountId: "acc-1",
       accountName: "Taxable",
       accountCurrency: "CAD",
-      activityType: "BUY",
+      activityType,
       date: new Date("2026-04-30T16:00:00Z"),
       assetId: "asset-bond",
       assetSymbol: "CA135087Q988",
@@ -174,14 +177,26 @@ describe("useActivityMutations", () => {
       needsReview: false,
       createdAt: new Date("2026-04-30T16:00:00Z"),
       updatedAt: new Date("2026-04-30T16:00:00Z"),
-    };
-
-    await act(async () => {
-      await result.current.duplicateActivityMutation.mutateAsync(bondBuyActivity);
     });
 
-    expect(adapterMocks.createActivity).toHaveBeenCalledWith(
+    await act(async () => {
+      await result.current.duplicateActivityMutation.mutateAsync(bondActivity(ActivityType.BUY));
+      await result.current.duplicateActivityMutation.mutateAsync(bondActivity(ActivityType.SELL));
+    });
+
+    expect(adapterMocks.createActivity).toHaveBeenNthCalledWith(
+      1,
       expect.objectContaining({
+        activityType: ActivityType.BUY,
+        amount: "990",
+        quantity: "1000",
+        unitPrice: "99",
+      }),
+    );
+    expect(adapterMocks.createActivity).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        activityType: ActivityType.SELL,
         amount: "990",
         quantity: "1000",
         unitPrice: "99",

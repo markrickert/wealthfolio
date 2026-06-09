@@ -1812,6 +1812,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_update_bond_price_bearing_activity_preserves_authoritative_amount() {
+        let account_service = Arc::new(MockAccountService::new());
+        let asset_service = Arc::new(MockAssetService::new());
+        let fx_service = Arc::new(MockFxService::new());
+        let activity_repository = Arc::new(MockActivityRepository::new());
+
+        account_service.add_account(create_test_account("acc-usd", "USD"));
+        asset_service.add_asset(create_test_asset_with_instrument(
+            "asset-bond",
+            "US912828ZT58",
+            None,
+            Some(InstrumentType::Bond),
+            "USD",
+        ));
+
+        let mut existing = create_stored_activity("activity-1", "acc-usd", Some("asset-bond"));
+        existing.amount = Some(dec!(990));
+        existing.quantity = Some(dec!(1000));
+        existing.unit_price = Some(dec!(99));
+        activity_repository
+            .activities
+            .lock()
+            .unwrap()
+            .push(existing);
+
+        let quote_service = Arc::new(MockQuoteService);
+        let activity_service = ActivityService::new(
+            activity_repository,
+            account_service,
+            asset_service,
+            fx_service,
+            quote_service,
+        );
+
+        let updated = activity_service
+            .update_activity(ActivityUpdate {
+                id: "activity-1".to_string(),
+                account_id: "acc-usd".to_string(),
+                asset: Some(AssetResolutionInput {
+                    id: Some("asset-bond".to_string()),
+                    ..Default::default()
+                }),
+                activity_type: "BUY".to_string(),
+                subtype: None,
+                activity_date: "2024-01-15".to_string(),
+                quantity: Some(Some(dec!(1000))),
+                unit_price: Some(Some(dec!(98))),
+                currency: "USD".to_string(),
+                fee: Some(Some(dec!(0))),
+                amount: None,
+                status: None,
+                notes: None,
+                fx_rate: None,
+                metadata: None,
+            })
+            .await
+            .expect("update should succeed");
+
+        assert_eq!(updated.amount, Some(dec!(990)));
+        assert_eq!(updated.quantity, Some(dec!(1000)));
+        assert_eq!(updated.unit_price, Some(dec!(98)));
+    }
+
+    #[tokio::test]
     async fn test_create_split_rejects_missing_amount_ratio() {
         let account_service = Arc::new(MockAccountService::new());
         let asset_service = Arc::new(MockAssetService::new());

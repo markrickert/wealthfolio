@@ -135,6 +135,7 @@ impl ActivityService {
     }
 
     fn hydrate_and_validate_update_against_existing(
+        &self,
         activity: &mut ActivityUpdate,
         existing: &Activity,
     ) -> Result<()> {
@@ -173,7 +174,7 @@ impl ActivityService {
             amount,
         )?;
 
-        if Self::should_clear_stale_price_bearing_amount(activity, existing) {
+        if self.should_clear_stale_price_bearing_amount(activity, existing) {
             activity.amount = Some(None);
         }
 
@@ -181,6 +182,7 @@ impl ActivityService {
     }
 
     fn should_clear_stale_price_bearing_amount(
+        &self,
         activity: &ActivityUpdate,
         existing: &Activity,
     ) -> bool {
@@ -194,6 +196,9 @@ impl ActivityService {
         if activity.activity_type == ACTIVITY_TYPE_TRANSFER_IN
             && !is_securities_transfer(&activity.activity_type, asset_id)
         {
+            return false;
+        }
+        if self.is_bond_asset(asset_id) {
             return false;
         }
 
@@ -211,6 +216,12 @@ impl ActivityService {
             || Self::decimal_patch_changes(activity.unit_price, existing.unit_price)
             || Self::decimal_patch_changes(activity.fee, existing.fee)
             || Self::decimal_patch_changes(activity.fx_rate, existing.fx_rate)
+    }
+
+    fn is_bond_asset(&self, asset_id: Option<&str>) -> bool {
+        asset_id
+            .and_then(|asset_id| self.asset_service.get_asset_by_id(asset_id).ok())
+            .is_some_and(|asset| asset.instrument_type == Some(InstrumentType::Bond))
     }
 
     fn decimal_patch_changes(patch: Option<Option<Decimal>>, existing: Option<Decimal>) -> bool {
@@ -3485,7 +3496,7 @@ impl ActivityServiceTrait for ActivityService {
         // Get the existing activity BEFORE the update to capture old account_id and asset_id
         // This ensures we emit events for both old and new locations if they changed
         let existing = self.activity_repository.get_activity(&activity.id)?;
-        Self::hydrate_and_validate_update_against_existing(&mut activity, &existing)?;
+        self.hydrate_and_validate_update_against_existing(&mut activity, &existing)?;
 
         let pair = self.load_internal_transfer_pair_for_activity(&activity.id)?;
         let counterpart_update = match pair.as_ref() {
@@ -3499,7 +3510,7 @@ impl ActivityServiceTrait for ActivityService {
             let counterpart_existing = self
                 .activity_repository
                 .get_activity(&counterpart_update.id)?;
-            Self::hydrate_and_validate_update_against_existing(
+            self.hydrate_and_validate_update_against_existing(
                 &mut counterpart_update,
                 &counterpart_existing,
             )?;
@@ -3745,7 +3756,7 @@ impl ActivityServiceTrait for ActivityService {
             );
             for update in &mut updates {
                 let existing = self.activity_repository.get_activity(&update.id)?;
-                Self::hydrate_and_validate_update_against_existing(update, &existing)?;
+                self.hydrate_and_validate_update_against_existing(update, &existing)?;
             }
             let mut prepared_updates = Vec::new();
             for update in updates {
@@ -3999,7 +4010,7 @@ impl ActivityServiceTrait for ActivityService {
                     }
                     old_currencies.insert(existing.currency.clone());
                     old_activity_dates.push(existing.activity_date);
-                    if let Err(err) = Self::hydrate_and_validate_update_against_existing(
+                    if let Err(err) = self.hydrate_and_validate_update_against_existing(
                         &mut update_request,
                         &existing,
                     ) {
