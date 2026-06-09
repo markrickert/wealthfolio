@@ -139,6 +139,37 @@ pub trait ActivityRepositoryTrait: Send + Sync {
         date_to: Option<NaiveDate>,
         instrument_type_filter: Option<Vec<String>>,
     ) -> Result<ActivitySearchResponse>;
+    #[allow(clippy::too_many_arguments)]
+    fn search_activities_in_utc_range(
+        &self,
+        page: i64,
+        page_size: i64,
+        account_id_filter: Option<Vec<String>>,
+        activity_type_filter: Option<Vec<String>>,
+        asset_id_keyword: Option<String>,
+        sort: Option<Sort>,
+        needs_review_filter: Option<bool>,
+        date_from_utc: Option<DateTime<Utc>>,
+        date_to_utc_exclusive: Option<DateTime<Utc>>,
+        instrument_type_filter: Option<Vec<String>>,
+    ) -> Result<ActivitySearchResponse> {
+        let date_from = date_from_utc.map(|dt| dt.date_naive());
+        let date_to =
+            date_to_utc_exclusive.map(|dt| (dt - chrono::Duration::seconds(1)).date_naive());
+
+        self.search_activities(
+            page,
+            page_size,
+            account_id_filter,
+            activity_type_filter,
+            asset_id_keyword,
+            sort,
+            needs_review_filter,
+            date_from,
+            date_to,
+            instrument_type_filter,
+        )
+    }
     async fn create_activity(&self, new_activity: NewActivity) -> Result<Activity>;
     async fn update_activity(&self, activity_update: ActivityUpdate) -> Result<Activity>;
     async fn delete_activity(&self, activity_id: String) -> Result<Activity>;
@@ -281,6 +312,37 @@ pub trait ActivityServiceTrait: Send + Sync {
         date_to: Option<NaiveDate>,
         instrument_type_filter: Option<Vec<String>>,
     ) -> Result<ActivitySearchResponse>;
+    #[allow(clippy::too_many_arguments)]
+    fn search_activities_in_utc_range(
+        &self,
+        page: i64,
+        page_size: i64,
+        account_id_filter: Option<Vec<String>>,
+        activity_type_filter: Option<Vec<String>>,
+        asset_id_keyword: Option<String>,
+        sort: Option<Sort>,
+        needs_review_filter: Option<bool>,
+        date_from_utc: Option<DateTime<Utc>>,
+        date_to_utc_exclusive: Option<DateTime<Utc>>,
+        instrument_type_filter: Option<Vec<String>>,
+    ) -> Result<ActivitySearchResponse> {
+        let date_from = date_from_utc.map(|dt| dt.date_naive());
+        let date_to =
+            date_to_utc_exclusive.map(|dt| (dt - chrono::Duration::seconds(1)).date_naive());
+
+        self.search_activities(
+            page,
+            page_size,
+            account_id_filter,
+            activity_type_filter,
+            asset_id_keyword,
+            sort,
+            needs_review_filter,
+            date_from,
+            date_to,
+            instrument_type_filter,
+        )
+    }
     fn get_first_activity_date(
         &self,
         account_ids: Option<&[String]>,

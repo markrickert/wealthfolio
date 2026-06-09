@@ -14,6 +14,9 @@ use wealthfolio_core::activities::{
     InternalTransferPairResponse, NewActivity, ParseConfig, ParsedCsvResult,
     TransferMatchCandidate, TransferMatchCandidateRequest,
 };
+use wealthfolio_core::utils::time_utils::{
+    local_date_range_utc_bounds, parse_user_timezone_or_default,
+};
 
 use super::shared::parse_date_optional;
 
@@ -82,8 +85,12 @@ async fn search_activities(
     // Parse date filters
     let date_from_parsed = parse_date_optional(body.date_from, "dateFrom")?;
     let date_to_parsed = parse_date_optional(body.date_to, "dateTo")?;
+    let timezone = state.timezone.read().unwrap().clone();
+    let tz = parse_user_timezone_or_default(&timezone);
+    let (date_from_utc, date_to_utc_exclusive) =
+        local_date_range_utc_bounds(date_from_parsed, date_to_parsed, tz)?;
 
-    let resp = state.activity_service.search_activities(
+    let resp = state.activity_service.search_activities_in_utc_range(
         body.page,
         body.page_size,
         account_ids,
@@ -91,8 +98,8 @@ async fn search_activities(
         body.asset_id_keyword,
         sort_normalized,
         body.needs_review_filter,
-        date_from_parsed,
-        date_to_parsed,
+        date_from_utc,
+        date_to_utc_exclusive,
         instrument_types,
     )?;
     Ok(Json(resp))

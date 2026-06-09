@@ -40,7 +40,11 @@ vi.mock("@wealthfolio/ui", () => ({
     </div>
   ),
   Sheet: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  SheetContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  SheetContent: ({ children, className }: { children: React.ReactNode; className?: string }) => (
+    <div data-testid="sheet-content" className={className}>
+      {children}
+    </div>
+  ),
   SheetHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   SheetTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
 }));
@@ -129,5 +133,16 @@ describe("IssueDetailSheet", () => {
     expect(scrollArea).not.toContainElement(
       screen.getByRole("link", { name: /Open General Settings/i }),
     );
+  });
+
+  it("uses a wider responsive sheet for dense issue details", () => {
+    renderIssueSheet({
+      ...baseIssue,
+      category: "DATA_CONSISTENCY",
+      title: "7 incomplete transfers detected",
+      affectedCount: 7,
+    });
+
+    expect(screen.getByTestId("sheet-content")).toHaveClass("sm:max-w-xl", "lg:max-w-2xl");
   });
 });

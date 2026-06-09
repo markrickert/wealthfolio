@@ -11,6 +11,9 @@ use wealthfolio_core::activities::{
     InternalTransferPairResponse, NewActivity, ParseConfig, ParsedCsvResult, Sort,
     TransferMatchCandidate, TransferMatchCandidateRequest,
 };
+use wealthfolio_core::utils::time_utils::{
+    local_date_range_utc_bounds, parse_user_timezone_or_default,
+};
 
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
@@ -38,8 +41,13 @@ pub async fn search_activities(
         .map(|s| chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d"))
         .transpose()
         .map_err(|e| format!("Invalid date_to format: {}", e))?;
+    let timezone = state.get_timezone();
+    let tz = parse_user_timezone_or_default(&timezone);
+    let (date_from_utc, date_to_utc_exclusive) =
+        local_date_range_utc_bounds(date_from_parsed, date_to_parsed, tz)
+            .map_err(|e| e.to_string())?;
 
-    Ok(state.activity_service().search_activities(
+    Ok(state.activity_service().search_activities_in_utc_range(
         page,
         page_size,
         account_id_filter,
@@ -47,8 +55,8 @@ pub async fn search_activities(
         asset_id_keyword,
         sort,
         needs_review_filter,
-        date_from_parsed,
-        date_to_parsed,
+        date_from_utc,
+        date_to_utc_exclusive,
         instrument_type_filter,
     )?)
 }

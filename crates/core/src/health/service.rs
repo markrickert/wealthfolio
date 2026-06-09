@@ -488,14 +488,18 @@ impl HealthService {
 
         // Detect invalid, incomplete, or unreviewed transfer flows across all
         // activities so the Health Center can surface them.
-        let invalid_transfer_groups =
-            gather_invalid_transfer_groups(activity_service.as_ref(), &account_name_map);
+        let effective_timezone = effective_timezone(configured_timezone, client_timezone);
+        let invalid_transfer_groups = gather_invalid_transfer_groups(
+            activity_service.as_ref(),
+            &account_name_map,
+            effective_timezone,
+        );
         let missing_lot_disposal_sells = gather_missing_lot_disposal_sells(
             activity_service.as_ref(),
             lot_repository.as_ref(),
             asset_service.as_ref(),
             &accounts,
-            configured_timezone.or(client_timezone),
+            effective_timezone,
         )
         .await;
         consistency_issues.extend(missing_lot_disposal_sells);
@@ -549,12 +553,22 @@ impl HealthService {
     }
 }
 
+fn effective_timezone<'a>(
+    configured_timezone: Option<&'a str>,
+    client_timezone: Option<&'a str>,
+) -> Option<&'a str> {
+    configured_timezone
+        .filter(|tz| !tz.trim().is_empty())
+        .or_else(|| client_timezone.filter(|tz| !tz.trim().is_empty()))
+}
+
 /// Loads all activities and resolves transfer groups, returning the ones that
 /// don't form a valid pair, plus posted ungrouped transfers that are not
 /// explicitly marked as external.
 fn gather_invalid_transfer_groups(
     activity_service: &dyn ActivityServiceTrait,
     account_names: &HashMap<String, String>,
+    timezone: Option<&str>,
 ) -> Vec<InvalidTransferGroupInfo> {
     let activities = match activity_service.get_activities() {
         Ok(activities) => activities,
@@ -567,13 +581,15 @@ fn gather_invalid_transfer_groups(
         }
     };
 
-    invalid_transfer_groups_from_activities(&activities, account_names)
+    invalid_transfer_groups_from_activities(&activities, account_names, timezone)
 }
 
 fn invalid_transfer_groups_from_activities(
     activities: &[Activity],
     account_names: &HashMap<String, String>,
+    timezone: Option<&str>,
 ) -> Vec<InvalidTransferGroupInfo> {
+    let tz = parse_user_timezone_or_default(timezone.unwrap_or_default());
     let resolution = TransferPairResolution::from_activities(activities);
     let by_id: HashMap<&str, &Activity> = activities.iter().map(|a| (a.id.as_str(), a)).collect();
 
@@ -585,7 +601,7 @@ fn invalid_transfer_groups_from_activities(
                 .activity_ids
                 .iter()
                 .filter_map(|id| by_id.get(id.as_str()).copied())
-                .map(|act| transfer_leg_detail(act, account_names))
+                .map(|act| transfer_leg_detail(act, account_names, tz))
                 .collect();
             InvalidTransferGroupInfo {
                 group_id: group.group_id.clone(),
@@ -601,7 +617,7 @@ fn invalid_transfer_groups_from_activities(
         {
             groups.push(InvalidTransferGroupInfo {
                 group_id: format!("ungrouped:{}", activity.id),
-                legs: vec![transfer_leg_detail(activity, account_names)],
+                legs: vec![transfer_leg_detail(activity, account_names, tz)],
             });
         }
     }
@@ -803,6 +819,7 @@ fn health_sell_net_proceeds(activity: &Activity, asset: Option<&Asset>) -> Decim
 fn transfer_leg_detail(
     activity: &Activity,
     account_names: &HashMap<String, String>,
+    timezone: chrono_tz::Tz,
 ) -> TransferLegDetail {
     TransferLegDetail {
         account_id: activity.account_id.clone(),
@@ -813,7 +830,7 @@ fn transfer_leg_detail(
         activity_type: activity.effective_type().to_string(),
         amount: activity.amount,
         currency: activity.currency.clone(),
-        date: activity.activity_date.date_naive(),
+        date: activity_date_in_tz(activity.activity_date, timezone),
     }
 }
 
@@ -1195,13 +1212,40 @@ mod tests {
             ActivityStatus::Posted,
         )];
 
-        let groups = invalid_transfer_groups_from_activities(&activities, &account_names);
+        let groups = invalid_transfer_groups_from_activities(&activities, &account_names, None);
 
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].group_id, "ungrouped:transfer-in-1");
         assert_eq!(groups[0].legs.len(), 1);
         assert_eq!(groups[0].legs[0].account_name, "TFSA");
         assert_eq!(groups[0].legs[0].activity_type, ACTIVITY_TYPE_TRANSFER_IN);
+    }
+
+    #[test]
+    fn invalid_transfer_group_dates_use_configured_timezone() {
+        let account_names = HashMap::from([("acc_tfsa".to_string(), "TFSA".to_string())]);
+        let mut activity = transfer_activity(
+            "transfer-in-1",
+            "acc_tfsa",
+            ACTIVITY_TYPE_TRANSFER_IN,
+            None,
+            false,
+            ActivityStatus::Posted,
+        );
+        activity.activity_date = Utc.with_ymd_and_hms(2024, 1, 4, 2, 13, 0).unwrap();
+        let activities = vec![activity];
+
+        let groups = invalid_transfer_groups_from_activities(
+            &activities,
+            &account_names,
+            Some("America/Toronto"),
+        );
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(
+            groups[0].legs[0].date,
+            chrono::NaiveDate::from_ymd_opt(2024, 1, 3).unwrap()
+        );
     }
 
     #[test]
@@ -1245,7 +1289,7 @@ mod tests {
             ),
         ];
 
-        let groups = invalid_transfer_groups_from_activities(&activities, &account_names);
+        let groups = invalid_transfer_groups_from_activities(&activities, &account_names, None);
 
         assert!(groups.is_empty());
     }

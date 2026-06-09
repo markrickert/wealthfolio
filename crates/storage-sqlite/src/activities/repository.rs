@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use diesel::expression_methods::ExpressionMethods;
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool};
@@ -266,6 +266,191 @@ impl ActivityRepository {
     pub fn new(pool: Arc<Pool<ConnectionManager<SqliteConnection>>>, writer: WriteHandle) -> Self {
         Self { pool, writer }
     }
+
+    fn naive_date_start_utc(date: NaiveDate) -> DateTime<Utc> {
+        DateTime::from_naive_utc_and_offset(date.and_time(NaiveTime::MIN), Utc)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn search_activities_with_utc_bounds(
+        &self,
+        page: i64,
+        page_size: i64,
+        account_id_filter: Option<Vec<String>>,
+        activity_type_filter: Option<Vec<String>>,
+        asset_id_keyword: Option<String>,
+        sort: Option<Sort>,
+        needs_review_filter: Option<bool>,
+        date_from_utc: Option<DateTime<Utc>>,
+        date_to_utc_exclusive: Option<DateTime<Utc>>,
+        instrument_type_filter: Option<Vec<String>>,
+    ) -> Result<ActivitySearchResponse> {
+        let mut conn = get_connection(&self.pool)?;
+
+        let offset = page * page_size;
+
+        let create_base_query = |_conn: &SqliteConnection| {
+            let mut query = activities::table
+                .inner_join(accounts::table.on(activities::account_id.eq(accounts::id)))
+                .left_join(assets::table.on(activities::asset_id.eq(assets::id.nullable())))
+                .filter(accounts::is_archived.eq(false))
+                .into_boxed();
+
+            if let Some(ref account_ids) = account_id_filter {
+                query = query.filter(activities::account_id.eq_any(account_ids));
+            }
+            if let Some(ref activity_types) = activity_type_filter {
+                query = query.filter(
+                    sql::<Text>(
+                        "COALESCE(activities.activity_type_override, activities.activity_type)",
+                    )
+                    .eq_any(activity_types),
+                );
+            }
+            if let Some(ref keyword) = asset_id_keyword {
+                let pattern = format!("%{}%", keyword);
+                query = query.filter(
+                    assets::id
+                        .like(pattern.clone())
+                        .or(assets::name.like(pattern.clone()))
+                        .or(assets::display_code.like(pattern.clone()))
+                        .or(activities::notes.like(pattern)),
+                );
+            }
+            if let Some(needs_review) = needs_review_filter {
+                if needs_review {
+                    query = query.filter(activities::status.eq("DRAFT"));
+                } else {
+                    query = query.filter(activities::status.ne("DRAFT"));
+                }
+            }
+            if let Some(from_utc) = date_from_utc {
+                query = query.filter(activities::activity_date.ge(from_utc.to_rfc3339()));
+            }
+            if let Some(to_utc) = date_to_utc_exclusive {
+                query = query.filter(activities::activity_date.lt(to_utc.to_rfc3339()));
+            }
+            if let Some(ref instrument_types) = instrument_type_filter {
+                query = query.filter(assets::instrument_type.eq_any(instrument_types));
+            }
+
+            if let Some(ref sort) = sort {
+                match sort.id.as_str() {
+                    "date" => {
+                        if sort.desc {
+                            query = query.order((
+                                activities::activity_date.desc(),
+                                activities::created_at.asc(),
+                            ));
+                        } else {
+                            query = query.order((
+                                activities::activity_date.asc(),
+                                activities::created_at.asc(),
+                            ));
+                        }
+                    }
+                    "activityType" => {
+                        if sort.desc {
+                            query = query.order(
+                                sql::<Text>(
+                                    "COALESCE(activities.activity_type_override, activities.activity_type)",
+                                )
+                                .desc(),
+                            );
+                        } else {
+                            query = query.order(
+                                sql::<Text>(
+                                    "COALESCE(activities.activity_type_override, activities.activity_type)",
+                                )
+                                .asc(),
+                            );
+                        }
+                    }
+                    "assetSymbol" => {
+                        if sort.desc {
+                            query = query.order(activities::asset_id.desc());
+                        } else {
+                            query = query.order(activities::asset_id.asc());
+                        }
+                    }
+                    "accountName" => {
+                        if sort.desc {
+                            query = query.order(accounts::name.desc());
+                        } else {
+                            query = query.order(accounts::name.asc());
+                        }
+                    }
+                    _ => {
+                        query = query.order((
+                            activities::activity_date.desc(),
+                            activities::created_at.asc(),
+                        ))
+                    }
+                }
+            } else {
+                query = query.order((
+                    activities::activity_date.desc(),
+                    activities::created_at.asc(),
+                ));
+            }
+
+            query
+        };
+
+        let total_row_count = create_base_query(&conn)
+            .count()
+            .get_result::<i64>(&mut conn)
+            .map_err(StorageError::from)?;
+
+        let results_db = create_base_query(&conn)
+            .select((
+                activities::id,
+                activities::account_id,
+                activities::asset_id,
+                sql::<Text>(
+                    "COALESCE(activities.activity_type_override, activities.activity_type)",
+                ),
+                activities::subtype,
+                activities::status,
+                activities::activity_date,
+                activities::quantity,
+                activities::unit_price,
+                activities::currency,
+                activities::fee,
+                activities::amount,
+                activities::notes,
+                activities::fx_rate,
+                activities::needs_review,
+                activities::is_user_modified,
+                activities::source_system,
+                activities::source_record_id,
+                activities::source_group_id,
+                activities::idempotency_key,
+                activities::import_run_id,
+                activities::created_at,
+                activities::updated_at,
+                accounts::name,
+                accounts::currency,
+                assets::display_code.nullable(),
+                assets::name.nullable(),
+                assets::instrument_exchange_mic.nullable(),
+                assets::quote_mode.nullable(),
+                assets::instrument_type.nullable(),
+                activities::metadata,
+            ))
+            .limit(page_size)
+            .offset(offset)
+            .load::<ActivityDetailsDB>(&mut conn)
+            .map_err(StorageError::from)?;
+
+        let results: Vec<ActivityDetails> =
+            results_db.into_iter().map(ActivityDetails::from).collect();
+
+        Ok(ActivitySearchResponse {
+            data: results,
+            meta: ActivitySearchResponseMeta { total_row_count },
+        })
+    }
 }
 
 // Implement the trait for the repository
@@ -354,181 +539,51 @@ impl ActivityRepositoryTrait for ActivityRepository {
         date_to: Option<NaiveDate>,        // Optional end date filter (inclusive)
         instrument_type_filter: Option<Vec<String>>, // Optional instrument_type filter
     ) -> Result<ActivitySearchResponse> {
-        let mut conn = get_connection(&self.pool)?;
+        let date_from_utc = date_from.map(Self::naive_date_start_utc);
+        let date_to_utc_exclusive = date_to
+            .and_then(|date| date.succ_opt())
+            .map(Self::naive_date_start_utc);
 
-        let offset = page * page_size;
+        self.search_activities_with_utc_bounds(
+            page,
+            page_size,
+            account_id_filter,
+            activity_type_filter,
+            asset_id_keyword,
+            sort,
+            needs_review_filter,
+            date_from_utc,
+            date_to_utc_exclusive,
+            instrument_type_filter,
+        )
+    }
 
-        // Function to create base query - now using LEFT JOIN for assets since asset_id can be NULL
-        let create_base_query = |_conn: &SqliteConnection| {
-            let mut query = activities::table
-                .inner_join(accounts::table.on(activities::account_id.eq(accounts::id)))
-                .left_join(assets::table.on(activities::asset_id.eq(assets::id.nullable())))
-                .filter(accounts::is_archived.eq(false))
-                .into_boxed();
-
-            if let Some(ref account_ids) = account_id_filter {
-                query = query.filter(activities::account_id.eq_any(account_ids));
-            }
-            if let Some(ref activity_types) = activity_type_filter {
-                query = query.filter(
-                    sql::<Text>(
-                        "COALESCE(activities.activity_type_override, activities.activity_type)",
-                    )
-                    .eq_any(activity_types),
-                );
-            }
-            if let Some(ref keyword) = asset_id_keyword {
-                let pattern = format!("%{}%", keyword);
-                query = query.filter(
-                    assets::id
-                        .like(pattern.clone())
-                        .or(assets::name.like(pattern.clone()))
-                        .or(assets::display_code.like(pattern.clone()))
-                        .or(activities::notes.like(pattern)),
-                );
-            }
-            // Map needs_review_filter to status filter (DRAFT status means needs review)
-            if let Some(needs_review) = needs_review_filter {
-                if needs_review {
-                    query = query.filter(activities::status.eq("DRAFT"));
-                } else {
-                    query = query.filter(activities::status.ne("DRAFT"));
-                }
-            }
-            // Date range filters (activity_date is stored as RFC3339 string, compare lexicographically)
-            if let Some(from_date) = date_from {
-                // Start of day in RFC3339 format for lexicographic comparison
-                let from_str = format!("{}T00:00:00", from_date);
-                query = query.filter(activities::activity_date.ge(from_str));
-            }
-            if let Some(to_date) = date_to {
-                // End of day in RFC3339 format for lexicographic comparison
-                let to_str = format!("{}T23:59:59", to_date);
-                query = query.filter(activities::activity_date.le(to_str));
-            }
-            if let Some(ref instrument_types) = instrument_type_filter {
-                query = query.filter(assets::instrument_type.eq_any(instrument_types));
-            }
-
-            // Apply sorting
-            if let Some(ref sort) = sort {
-                match sort.id.as_str() {
-                    "date" => {
-                        if sort.desc {
-                            query = query.order((
-                                activities::activity_date.desc(),
-                                activities::created_at.asc(),
-                            ));
-                        } else {
-                            query = query.order((
-                                activities::activity_date.asc(),
-                                activities::created_at.asc(),
-                            ));
-                        }
-                    }
-                    "activityType" => {
-                        if sort.desc {
-                            query = query.order(
-                                sql::<Text>(
-                                    "COALESCE(activities.activity_type_override, activities.activity_type)",
-                                )
-                                .desc(),
-                            );
-                        } else {
-                            query = query.order(
-                                sql::<Text>(
-                                    "COALESCE(activities.activity_type_override, activities.activity_type)",
-                                )
-                                .asc(),
-                            );
-                        }
-                    }
-                    "assetSymbol" => {
-                        if sort.desc {
-                            query = query.order(activities::asset_id.desc());
-                        } else {
-                            query = query.order(activities::asset_id.asc());
-                        }
-                    }
-                    "accountName" => {
-                        if sort.desc {
-                            query = query.order(accounts::name.desc());
-                        } else {
-                            query = query.order(accounts::name.asc());
-                        }
-                    }
-                    _ => {
-                        query = query.order((
-                            activities::activity_date.desc(),
-                            activities::created_at.asc(),
-                        ))
-                    } // Default order
-                }
-            } else {
-                query = query.order((
-                    activities::activity_date.desc(),
-                    activities::created_at.asc(),
-                )); // Default order
-            }
-
-            query
-        };
-
-        // Count query
-        let total_row_count = create_base_query(&conn)
-            .count()
-            .get_result::<i64>(&mut conn)
-            .map_err(StorageError::from)?;
-
-        // Data fetching query - updated to match new schema fields
-        let results_db = create_base_query(&conn)
-            .select((
-                activities::id,
-                activities::account_id,
-                activities::asset_id,
-                sql::<Text>(
-                    "COALESCE(activities.activity_type_override, activities.activity_type)",
-                ),
-                activities::subtype,
-                activities::status,
-                activities::activity_date,
-                activities::quantity,
-                activities::unit_price,
-                activities::currency,
-                activities::fee,
-                activities::amount,
-                activities::notes,
-                activities::fx_rate,
-                activities::needs_review,
-                activities::is_user_modified,
-                activities::source_system,
-                activities::source_record_id,
-                activities::source_group_id,
-                activities::idempotency_key,
-                activities::import_run_id,
-                activities::created_at,
-                activities::updated_at,
-                accounts::name,
-                accounts::currency,
-                assets::display_code.nullable(),
-                assets::name.nullable(),
-                assets::instrument_exchange_mic.nullable(),
-                assets::quote_mode.nullable(),
-                assets::instrument_type.nullable(),
-                activities::metadata,
-            ))
-            .limit(page_size)
-            .offset(offset)
-            .load::<ActivityDetailsDB>(&mut conn)
-            .map_err(StorageError::from)?;
-
-        let results: Vec<ActivityDetails> =
-            results_db.into_iter().map(ActivityDetails::from).collect();
-
-        Ok(ActivitySearchResponse {
-            data: results,
-            meta: ActivitySearchResponseMeta { total_row_count },
-        })
+    #[allow(clippy::too_many_arguments)]
+    fn search_activities_in_utc_range(
+        &self,
+        page: i64,
+        page_size: i64,
+        account_id_filter: Option<Vec<String>>,
+        activity_type_filter: Option<Vec<String>>,
+        asset_id_keyword: Option<String>,
+        sort: Option<Sort>,
+        needs_review_filter: Option<bool>,
+        date_from_utc: Option<DateTime<Utc>>,
+        date_to_utc_exclusive: Option<DateTime<Utc>>,
+        instrument_type_filter: Option<Vec<String>>,
+    ) -> Result<ActivitySearchResponse> {
+        self.search_activities_with_utc_bounds(
+            page,
+            page_size,
+            account_id_filter,
+            activity_type_filter,
+            asset_id_keyword,
+            sort,
+            needs_review_filter,
+            date_from_utc,
+            date_to_utc_exclusive,
+            instrument_type_filter,
+        )
     }
 
     async fn create_activity(&self, new_activity: NewActivity) -> Result<Activity> {
@@ -2871,6 +2926,65 @@ mod tests {
             .map(|activity| activity.id.as_str())
             .collect();
         assert_eq!(ids, vec!["broker-dividend", "broker-buy-override"]);
+    }
+
+    #[tokio::test]
+    async fn search_activities_in_utc_range_uses_exact_timestamp_bounds() {
+        let (pool, writer) = setup_db();
+        let repo = ActivityRepository::new(pool.clone(), writer);
+
+        {
+            let mut conn = get_connection(&pool).expect("conn");
+            insert_broker_account_and_import_run(&mut conn);
+            diesel::sql_query(
+                "INSERT INTO activities \
+                 (id, account_id, asset_id, activity_type, activity_type_override, source_type, subtype, \
+                  status, activity_date, settlement_date, quantity, unit_price, amount, fee, currency, \
+                  fx_rate, notes, metadata, source_system, source_record_id, source_group_id, \
+                  idempotency_key, import_run_id, is_user_modified, needs_review, created_at, updated_at) \
+                 VALUES \
+                 ('local-evening-transfer', 'broker-local-account', NULL, 'TRANSFER_IN', NULL, NULL, NULL, \
+                  'POSTED', '2024-01-04T02:13:00+00:00', NULL, NULL, NULL, '1685.43', NULL, 'USD', \
+                  NULL, 'Belongs to Jan 3 in Toronto', NULL, 'CSV', 'range-1', NULL, \
+                  'local-evening-transfer-key', 'local-import-run', 0, 0, \
+                  '2024-01-04T02:13:00+00:00', '2024-01-04T02:13:00+00:00'), \
+                 ('next-local-day-transfer', 'broker-local-account', NULL, 'TRANSFER_IN', NULL, NULL, NULL, \
+                  'POSTED', '2024-01-04T05:30:00+00:00', NULL, NULL, NULL, '10', NULL, 'USD', \
+                  NULL, 'Belongs to Jan 4 in Toronto', NULL, 'CSV', 'range-2', NULL, \
+                  'next-local-day-transfer-key', 'local-import-run', 0, 0, \
+                  '2024-01-04T05:30:00+00:00', '2024-01-04T05:30:00+00:00')",
+            )
+            .execute(&mut conn)
+            .expect("insert activities");
+        }
+
+        let date_from_utc = DateTime::parse_from_rfc3339("2024-01-03T05:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc);
+        let date_to_utc_exclusive = DateTime::parse_from_rfc3339("2024-01-04T05:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        let response = repo
+            .search_activities_in_utc_range(
+                0,
+                10,
+                None,
+                Some(vec!["TRANSFER_IN".to_string()]),
+                None,
+                Some(Sort {
+                    id: "date".to_string(),
+                    desc: true,
+                }),
+                None,
+                Some(date_from_utc),
+                Some(date_to_utc_exclusive),
+                None,
+            )
+            .expect("search by utc range");
+
+        assert_eq!(response.meta.total_row_count, 1);
+        assert_eq!(response.data[0].id, "local-evening-transfer");
     }
 
     #[tokio::test]

@@ -3,6 +3,8 @@ use chrono::{DateTime, Datelike, Duration, LocalResult, NaiveDate, TimeZone, Utc
 use chrono_tz::Tz;
 use wealthfolio_market_data::resolver::exchange_metadata;
 
+pub type UtcDateRangeBounds = (Option<DateTime<Utc>>, Option<DateTime<Utc>>);
+
 /// Default timezone for valuation dates.
 /// This is used as a runtime fallback when user timezone is missing.
 pub const DEFAULT_VALUATION_TZ: Tz = chrono_tz::UTC;
@@ -84,6 +86,38 @@ pub fn local_year_utc_bounds(year: i32, tz: Tz) -> Result<(DateTime<Utc>, DateTi
         start_local.with_timezone(&Utc),
         end_exclusive_local.with_timezone(&Utc),
     ))
+}
+
+/// Returns UTC boundaries for an inclusive local date range in a timezone.
+/// The returned range is [start_utc, end_utc_exclusive).
+pub fn local_date_range_utc_bounds(
+    start: Option<NaiveDate>,
+    end: Option<NaiveDate>,
+    tz: Tz,
+) -> Result<UtcDateRangeBounds> {
+    let start_utc = start
+        .map(|date| local_date_start_utc(date, tz))
+        .transpose()?;
+    let end_exclusive_utc = end
+        .map(|date| {
+            let next_date = date.succ_opt().ok_or_else(|| {
+                Error::Validation(ValidationError::InvalidInput(format!(
+                    "Invalid local date range end: {date}"
+                )))
+            })?;
+            local_date_start_utc(next_date, tz)
+        })
+        .transpose()?;
+
+    Ok((start_utc, end_exclusive_utc))
+}
+
+fn local_date_start_utc(date: NaiveDate, tz: Tz) -> Result<DateTime<Utc>> {
+    let local = resolve_local_datetime(
+        tz.with_ymd_and_hms(date.year(), date.month(), date.day(), 0, 0, 0),
+        date.year(),
+    )?;
+    Ok(local.with_timezone(&Utc))
 }
 
 fn resolve_local_datetime(
@@ -260,6 +294,26 @@ mod tests {
         assert_eq!(
             end_exclusive_utc,
             Utc.with_ymd_and_hms(2026, 12, 31, 10, 0, 0).unwrap()
+        );
+    }
+
+    #[test]
+    fn local_date_range_utc_bounds_match_local_midnight_boundaries() {
+        let tz = chrono_tz::America::Toronto;
+        let (start_utc, end_exclusive_utc) = local_date_range_utc_bounds(
+            Some(NaiveDate::from_ymd_opt(2024, 1, 3).unwrap()),
+            Some(NaiveDate::from_ymd_opt(2024, 1, 3).unwrap()),
+            tz,
+        )
+        .unwrap();
+
+        assert_eq!(
+            start_utc,
+            Some(Utc.with_ymd_and_hms(2024, 1, 3, 5, 0, 0).unwrap())
+        );
+        assert_eq!(
+            end_exclusive_utc,
+            Some(Utc.with_ymd_and_hms(2024, 1, 4, 5, 0, 0).unwrap())
         );
     }
 }
