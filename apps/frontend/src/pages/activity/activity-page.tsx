@@ -494,16 +494,7 @@ const ActivityPage = () => {
           return;
         } catch {
           // Fall back to single-leg editing for invalid groups that are not valid internal pairs.
-          setSelectedActivity({
-            ...activity,
-            metadata: {
-              ...activity.metadata,
-              flow: {
-                ...((activity.metadata?.flow as Record<string, unknown> | undefined) ?? {}),
-                is_external: true,
-              },
-            },
-          });
+          setSelectedActivity(activity);
           setShowForm(true);
           return;
         }

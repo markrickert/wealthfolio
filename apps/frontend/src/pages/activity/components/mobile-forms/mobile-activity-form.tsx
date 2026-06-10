@@ -273,12 +273,7 @@ export function MobileActivityForm({
       isSecuritiesTransfer(activity?.activityType ?? "", activity?.assetSymbol, activity?.assetId);
     const initialTransferMode = isSecurityTransferActivity ? "securities" : "cash";
     const flowMetadata = activity?.metadata?.flow as { is_external?: boolean } | undefined;
-    const hasInternalPair = Boolean(activity?.transferOutId && activity?.transferInId);
-    const initialIsExternal = isTransferType
-      ? activity?.id
-        ? flowMetadata?.is_external === true || !hasInternalPair
-        : flowMetadata?.is_external === true
-      : false;
+    const initialIsExternal = isTransferType ? flowMetadata?.is_external === true : false;
     const editingTransferIn = activity?.activityType === ActivityType.TRANSFER_IN;
     const sourceAmount = editingTransferIn
       ? activity?.counterpartAmount

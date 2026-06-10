@@ -233,14 +233,21 @@ export function MobileDetailsStep({ accounts, activityType, isEditing }: MobileD
   const handleExternalChange = (checked: boolean) => {
     setValue("isExternal" as any, checked, { shouldValidate: false });
     if (checked) {
-      // Copy current account to accountId for external
-      if (accountId) {
-        setValue("accountId", accountId);
+      const externalAccountId =
+        direction === "in" ? toAccountId || accountId : accountId || toAccountId;
+      if (externalAccountId) {
+        setValue("accountId", externalAccountId);
       }
       setValue("toAccountId" as any, "");
     } else {
-      // Internal: use accountId as fromAccountId
-      setValue("toAccountId" as any, "");
+      if (direction === "in") {
+        if (accountId) {
+          setValue("toAccountId" as any, accountId);
+        }
+        setValue("accountId", "");
+      } else {
+        setValue("toAccountId" as any, "");
+      }
     }
   };
 

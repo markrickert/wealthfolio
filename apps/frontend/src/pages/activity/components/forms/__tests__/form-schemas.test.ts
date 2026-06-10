@@ -854,6 +854,43 @@ describe("Form Schemas Validation", () => {
       expect(defaults.assetId).toBeNull();
     });
 
+    it("does not infer external mode for unpaired existing transfers", () => {
+      const defaults = ACTIVITY_FORM_CONFIG.TRANSFER.getDefaults(
+        {
+          id: "transfer-in-1",
+          activityType: ActivityType.TRANSFER_IN,
+          accountId: "acc-123",
+          date: new Date(),
+          amount: "1000",
+          currency: "USD",
+        },
+        [],
+      ) as any;
+
+      expect(defaults.isExternal).toBe(false);
+      expect(defaults.accountId).toBe("");
+      expect(defaults.toAccountId).toBe("acc-123");
+    });
+
+    it("uses persisted external metadata for existing transfers", () => {
+      const defaults = ACTIVITY_FORM_CONFIG.TRANSFER.getDefaults(
+        {
+          id: "transfer-in-1",
+          activityType: ActivityType.TRANSFER_IN,
+          accountId: "acc-123",
+          date: new Date(),
+          amount: "1000",
+          currency: "USD",
+          metadata: { flow: { is_external: true } },
+        },
+        [],
+      ) as any;
+
+      expect(defaults.isExternal).toBe(true);
+      expect(defaults.accountId).toBe("acc-123");
+      expect(defaults.toAccountId).toBe("");
+    });
+
     it("includes unitPrice in payload for external securities transfer-in", () => {
       const formData = {
         isExternal: true,

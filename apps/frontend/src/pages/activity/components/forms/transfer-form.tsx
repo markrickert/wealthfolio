@@ -513,16 +513,24 @@ export function TransferForm({
     setValue("isExternal", checked, { shouldValidate: false });
     // Reset account fields when toggling
     if (checked) {
-      // Switching to external: copy fromAccountId to accountId if set
-      if (fromAccountId) {
-        setValue("accountId", fromAccountId);
+      // Switching to external: keep the account from the side represented by the direction.
+      const externalAccountId =
+        direction === "in"
+          ? toAccountId || accountId || fromAccountId
+          : fromAccountId || accountId || toAccountId;
+      if (externalAccountId) {
+        setValue("accountId", externalAccountId);
       }
       setValue("fromAccountId", "");
       setValue("toAccountId", "");
     } else {
-      // Switching to internal: copy accountId to fromAccountId if set
+      // Switching to internal: put the account back on the side represented by the direction.
       if (accountId) {
-        setValue("fromAccountId", accountId);
+        if (direction === "in") {
+          setValue("toAccountId", accountId);
+        } else {
+          setValue("fromAccountId", accountId);
+        }
       }
       setValue("accountId", "");
     }
