@@ -7,7 +7,12 @@ import { AccountPurpose } from "@/lib/constants";
 import { performanceHeadlineReturn, performancePeriodPnl } from "@/lib/performance";
 import { QueryKeys } from "@/lib/query-keys";
 import { useSettingsContext } from "@/lib/settings-provider";
-import type { AccountValuation, DateRange, PerformanceSummaryScope } from "@/lib/types";
+import type {
+  AccountValuation,
+  DateRange,
+  PerformanceSummaryScope,
+  TrackingMode,
+} from "@/lib/types";
 import { useQuery } from "@tanstack/react-query";
 import { GainAmount, GainPercent, PrivacyAmount } from "@wealthfolio/ui";
 import { Button } from "@wealthfolio/ui/components/ui/button";
@@ -31,6 +36,7 @@ interface AccountSummaryDisplayData {
   accountId?: string;
   accountType?: string;
   accountGroup?: string | null;
+  trackingMode?: TrackingMode;
   isGroup?: boolean;
   accountCount?: number;
   accounts?: AccountSummaryDisplayData[];
@@ -126,7 +132,11 @@ const AccountSummaryComponent = React.memo(
       gainAmountToDisplay !== null &&
       gainAmountToDisplay !== 0;
     const warningMessages = hasBadData
-      ? ["Return % unavailable - activity history may be inconsistent."]
+      ? [
+          item.trackingMode === "HOLDINGS"
+            ? "Return % unavailable - missing cost basis or starting holdings value."
+            : "Return % unavailable - activity history may be inconsistent.",
+        ]
       : [];
     const shouldShowWarning = hasBadData;
     const shouldRenderGainMetrics = gainPercentToDisplay !== null && (isNested || !isZeroGain);
@@ -352,6 +362,7 @@ export const AccountsSummary = React.memo(
             accountId: acc.id,
             accountType: acc.accountType,
             accountGroup: acc.group ?? null,
+            trackingMode: acc.trackingMode,
             isGroup: false,
           };
         }
@@ -376,6 +387,7 @@ export const AccountsSummary = React.memo(
           accountId: acc.id,
           accountType: acc.accountType,
           accountGroup: acc.group ?? null,
+          trackingMode: acc.trackingMode,
           isGroup: false,
         };
       });
@@ -487,6 +499,9 @@ export const AccountsSummary = React.memo(
               isGroup: true,
               accountCount: groupAccounts.length,
               accounts: groupAccounts,
+              trackingMode: groupAccounts.every((account) => account.trackingMode === "HOLDINGS")
+                ? "HOLDINGS"
+                : undefined,
               displayInAccountCurrency: false,
             });
           }

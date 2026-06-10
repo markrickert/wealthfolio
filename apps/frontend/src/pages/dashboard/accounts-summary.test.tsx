@@ -448,6 +448,41 @@ describe("AccountsSummary", () => {
     expect(within(badRow as HTMLElement).getByText(/return % unavailable/i)).toBeInTheDocument();
   });
 
+  it("uses holdings-mode copy when a holdings account has unavailable return percent", () => {
+    renderAccountsSummary({
+      accounts: [
+        createAccount({
+          id: "holdings-account",
+          name: "Holdings Account",
+          trackingMode: "HOLDINGS",
+        }),
+      ],
+      valuations: [
+        createValuation({
+          accountId: "holdings-account",
+          totalValue: 125,
+        }),
+      ],
+      performanceByAccountId: {
+        "holdings-account": {
+          pnl: 25,
+          returnValue: null,
+        },
+      },
+    });
+
+    const row = screen.getByText("Holdings Account").closest("a");
+    expect(row).not.toBeNull();
+    expect(
+      within(row as HTMLElement).getByText(
+        "Return % unavailable - missing cost basis or starting holdings value.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(row as HTMLElement).queryByText(/activity history may be inconsistent/i),
+    ).not.toBeInTheDocument();
+  });
+
   it("does not flag normal transaction-mode not-applicable details as dashboard warnings", () => {
     renderAccountsSummary({
       accounts: [createAccount({ id: "td-invest", name: "TD Invest" })],
