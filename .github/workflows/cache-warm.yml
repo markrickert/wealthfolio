@@ -1,0 +1,115 @@
+name: Warm Rust Cache
+
+# Release builds run on tag refs, which can only restore caches created on the
+# default branch. This workflow compiles the release-profile dependency graph
+# on main and saves it under the shared-keys that release.yml restores.
+#
+# Dependency artifacts (the only thing rust-cache keeps - workspace crates are
+# pruned) only change when Cargo.lock or the toolchain changes, hence the
+# narrow path filter. The weekly run keeps caches alive (GitHub evicts caches
+# unused for 7 days) and re-warms after stable rustc bumps.
+#
+# macOS release jobs (~18 min cold) are deliberately not warmed to stay under
+# the 10 GB per-repo cache limit; Linux and Windows are the expensive ones.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Cargo.lock"
+      - "rust-toolchain*"
+      - ".github/workflows/cache-warm.yml"
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: cache-warm
+  cancel-in-progress: true
+
+jobs:
+  warm-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: "ubuntu-24.04"
+            cache-key: linux-x86_64
+            args: ""
+          - platform: "ubuntu-24.04-arm"
+            cache-key: linux-aarch64
+            args: ""
+          - platform: "windows-latest"
+            cache-key: windows-x86_64
+            target: x86_64-pc-windows-msvc
+            args: "--target x86_64-pc-windows-msvc"
+          - platform: "windows-latest"
+            cache-key: windows-aarch64
+            target: aarch64-pc-windows-msvc
+            args: "--target aarch64-pc-windows-msvc"
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (ubuntu only)
+        if: contains(matrix.platform, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf pkg-config libssl-dev libsoup2.4-dev javascriptcoregtk-4.0 webkit2gtk-4.0 xdg-utils
+
+      - name: Rust setup
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.cache-key }}
+
+      - name: Stub frontend dist
+        # tauri::generate_context! reads frontendDist (../../dist) at compile
+        # time; a placeholder is enough since the app crate itself is pruned
+        # from the cache anyway.
+        shell: bash
+        run:
+          mkdir -p dist && echo '<!DOCTYPE html><html><head></head><body></body></html>' >
+          dist/index.html
+
+      - name: Build release dependencies
+        # Mirrors what tauri-action runs: release profile, custom-protocol on.
+        run: cargo build --release -p wealthfolio-app --features custom-protocol ${{ matrix.args }}
+
+  warm-server:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev libsqlite3-dev build-essential
+
+      - name: Rust setup
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          shared-key: prebuild-server-linux-amd64
+
+      - name: Stub frontend dist
+        run:
+          mkdir -p dist && echo '<!DOCTYPE html><html><head></head><body></body></html>' >
+          dist/index.html
+
+      - name: Build server binary
+        env:
+          # OPENSSL_STATIC affects how openssl-sys (a cached dependency) is
+          # built - must match the release job.
+          OPENSSL_STATIC: "1"
+        run: cargo build --release --manifest-path apps/server/Cargo.toml

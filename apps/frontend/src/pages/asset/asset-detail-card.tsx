@@ -3,6 +3,7 @@ import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@wealthfolio/ui/components/ui/card";
 import { Separator } from "@wealthfolio/ui/components/ui/separator";
 import { formatPercent } from "@wealthfolio/ui";
+import { GainPercent } from "@wealthfolio/ui";
 import { AmountDisplay } from "@wealthfolio/ui";
 import { QuantityDisplay } from "@wealthfolio/ui";
 import { useBalancePrivacy } from "@/hooks/use-balance-privacy";
@@ -55,6 +56,12 @@ interface AssetDetailProps {
   className?: string;
 }
 
+const SectionHeader: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div className="text-muted-foreground mb-2 text-xs font-medium uppercase tracking-wider">
+    {children}
+  </div>
+);
+
 const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) => {
   const { isBalanceHidden } = useBalancePrivacy();
 
@@ -89,22 +96,12 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
   const quantityLabel = isOption ? "contracts" : "shares";
   const averageCostLabel = isOption ? "Average premium" : "Average cost";
 
-  const renderAmountWithPercent = (amount: number | null, percent: number | null) => {
-    if (amount == null) return <span className="text-muted-foreground">N/A</span>;
-    return (
-      <>
-        <AmountDisplay value={amount} currency={currency} isHidden={isBalanceHidden} />
-        {percent != null && <> ({formatPercent(percent)})</>}
-      </>
-    );
-  };
-
   const amountTone = (amount: number | null) => {
     if (amount == null || amount === 0) return "";
     return amount < 0 ? "text-destructive" : "text-success";
   };
 
-  const holdingRows = [
+  const positionRows = [
     {
       label: "Book value",
       value: <AmountDisplay value={costBasis} currency={currency} isHidden={isBalanceHidden} />,
@@ -114,72 +111,73 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
       value: <AmountDisplay value={averagePrice} currency={currency} isHidden={isBalanceHidden} />,
     },
     { label: "% of my portfolio", value: formatPercent(portfolioPercent) },
+  ];
+
+  const performanceRows: {
+    label: string;
+    amount: number | null;
+    currency: string;
+    percent: number | null;
+    color: string;
+  }[] = [
     ...(todaysReturn !== null && todaysReturnPercent !== null
       ? [
           {
             label: "Today's return",
-            value: (
-              <>
-                <AmountDisplay
-                  value={todaysReturn}
-                  currency={currency}
-                  isHidden={isBalanceHidden}
-                />{" "}
-                ({formatPercent(todaysReturnPercent)})
-              </>
-            ),
-            color: todaysReturn < 0 ? "text-destructive" : "text-success",
+            amount: todaysReturn,
+            currency,
+            percent: todaysReturnPercent,
+            color: amountTone(todaysReturn),
           },
         ]
       : []),
     {
       label: "Unrealized P&L",
-      value: renderAmountWithPercent(unrealizedPnl, unrealizedPnlPercent),
+      amount: unrealizedPnl,
+      currency,
+      percent: unrealizedPnlPercent,
       color: amountTone(unrealizedPnl),
     },
     {
       label: "Realized P&L",
-      value: renderAmountWithPercent(realizedPnl, realizedPnlPercent),
+      amount: realizedPnl,
+      currency,
+      percent: realizedPnlPercent,
       color: amountTone(realizedPnl),
     },
     {
       label: "Income",
-      value:
-        income == null ? (
-          <span className="text-muted-foreground">N/A</span>
-        ) : (
-          <AmountDisplay value={income} currency={currency} isHidden={isBalanceHidden} />
-        ),
+      amount: income,
+      currency,
+      percent: null,
       color: amountTone(income),
     },
     {
       label: "FX effect",
-      value:
-        fxEffect == null ? (
-          <span className="text-muted-foreground">N/A</span>
-        ) : (
-          <AmountDisplay value={fxEffect} currency={baseCurrency} isHidden={isBalanceHidden} />
-        ),
+      amount: fxEffect,
+      currency: baseCurrency,
+      percent: null,
       color: amountTone(fxEffect),
     },
     {
       label: "Price return",
-      value:
-        priceReturnPercent == null ? (
-          <span className="text-muted-foreground">N/A</span>
-        ) : (
-          formatPercent(priceReturnPercent)
-        ),
+      amount: null,
+      currency,
+      percent: priceReturnPercent,
       color: amountTone(priceReturnPercent),
     },
     {
       label: "Total P&L",
-      value: renderAmountWithPercent(totalPnl, totalPnlPercent),
+      amount: totalPnl,
+      currency,
+      percent: totalPnlPercent,
       color: amountTone(totalPnl),
     },
     {
       label: "Total Return",
-      value: renderAmountWithPercent(totalReturn, totalReturnPercent),
+      amount: totalReturn,
+      currency,
+      percent: totalReturnPercent,
       color: amountTone(totalReturn),
     },
   ];
@@ -205,20 +203,58 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
 
       <CardContent>
         <Separator className="my-3" />
-        <div className="space-y-4 text-sm">
-          {holdingRows.map(({ label, value, color }, idx) => (
-            <div key={idx} className="flex justify-between">
-              <span className="text-muted-foreground">{label}</span>
-              <span className={`font-medium ${color || ""}`}>{value}</span>
-            </div>
-          ))}
+        <div>
+          <SectionHeader>Position</SectionHeader>
+          <div className="space-y-1.5 text-sm">
+            {positionRows.map(({ label, value }, idx) => (
+              <div key={idx} className="flex justify-between">
+                <span className="text-muted-foreground">{label}</span>
+                <span className="font-medium">{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <Separator className="my-3" />
+        <div>
+          <SectionHeader>Performance</SectionHeader>
+          <div className="space-y-1.5 text-sm">
+            {performanceRows.map(
+              ({ label, amount, currency: rowCurrency, percent, color }, idx) => (
+                <div key={idx} className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{label}</span>
+                  <span className="flex items-center gap-2">
+                    {amount == null && percent == null ? (
+                      <span className="text-muted-foreground">N/A</span>
+                    ) : (
+                      <>
+                        {amount != null && (
+                          <span className={`font-medium ${color || ""}`}>
+                            <AmountDisplay
+                              value={amount}
+                              currency={rowCurrency}
+                              isHidden={isBalanceHidden}
+                            />
+                          </span>
+                        )}
+                        {percent != null && (
+                          <GainPercent variant="badge" value={percent} className="text-xs" />
+                        )}
+                      </>
+                    )}
+                  </span>
+                </div>
+              ),
+            )}
+          </div>
         </div>
 
         {quote && (
           <>
-            <Separator className="my-4" />
+            <Separator className="my-3" />
             <div>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+              <SectionHeader>Day Range</SectionHeader>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2">
                 <div className="flex flex-col">
                   <span className="text-muted-foreground text-xs">Open</span>
                   <div className="text-sm font-medium">
@@ -282,7 +318,7 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
 
         {bondSpec && (
           <>
-            <Separator className="my-4" />
+            <Separator className="my-3" />
             <div className="grid grid-cols-2 gap-x-6">
               {bondSpec.couponRate != null && (
                 <div className="flex flex-col">
@@ -315,7 +351,7 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
 
         {optionSpec && (
           <>
-            <Separator className="my-4" />
+            <Separator className="my-3" />
             <div className="grid grid-cols-3 gap-x-4">
               {optionSpec.right && (
                 <div className="flex flex-col">

@@ -115,6 +115,7 @@ pub struct ActivityDB {
     // Source identity
     pub source_system: Option<String>,
     pub source_record_id: Option<String>,
+    #[diesel(treat_none_as_null = true)]
     pub source_group_id: Option<String>,
     pub idempotency_key: Option<String>,
     pub import_run_id: Option<String>,

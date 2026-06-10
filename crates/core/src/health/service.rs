@@ -596,17 +596,18 @@ fn invalid_transfer_groups_from_activities(
     let mut groups: Vec<InvalidTransferGroupInfo> = resolution
         .invalid_groups()
         .iter()
-        .map(|group| {
-            let legs = group
+        .filter_map(|group| {
+            let legs: Vec<_> = group
                 .activity_ids
                 .iter()
                 .filter_map(|id| by_id.get(id.as_str()).copied())
+                .filter(|act| act.is_posted() && !is_external_transfer(act))
                 .map(|act| transfer_leg_detail(act, account_names, tz))
                 .collect();
-            InvalidTransferGroupInfo {
+            (!legs.is_empty()).then(|| InvalidTransferGroupInfo {
                 group_id: group.group_id.clone(),
                 legs,
-            }
+            })
         })
         .collect();
 
@@ -1268,6 +1269,22 @@ mod tests {
                 "acc_tfsa",
                 ACTIVITY_TYPE_TRANSFER_IN,
                 None,
+                false,
+                ActivityStatus::Pending,
+            ),
+            transfer_activity(
+                "external-orphan-transfer",
+                "acc_tfsa",
+                ACTIVITY_TYPE_TRANSFER_IN,
+                Some("orphan-transfer-group"),
+                true,
+                ActivityStatus::Posted,
+            ),
+            transfer_activity(
+                "pending-orphan-transfer",
+                "acc_tfsa",
+                ACTIVITY_TYPE_TRANSFER_IN,
+                Some("pending-transfer-group"),
                 false,
                 ActivityStatus::Pending,
             ),

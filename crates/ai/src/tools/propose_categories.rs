@@ -1025,6 +1025,7 @@ mod tests {
             cash_flow_bucket: CashFlowBucket::Spending,
             assignments,
             event_id: None,
+            transfer_link_status: None,
         }
     }
 

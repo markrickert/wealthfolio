@@ -1,4 +1,4 @@
-import { logger } from "@/adapters";
+import { getTransferPairForActivity, logger } from "@/adapters";
 import { buildAssetResolutionInput } from "@/lib/asset-resolution-input";
 import { ActivityType } from "@/lib/constants";
 import { generateId } from "@/lib/id";
@@ -28,6 +28,24 @@ function extractErrorMessage(error: unknown): string {
     if (typeof raw.message === "string" && raw.message.trim()) return raw.message;
   }
   return "Failed to save activity. Please check your inputs and try again.";
+}
+
+function transferPairIds(activity: Partial<ActivityDetails> | undefined): {
+  transferOutId?: string;
+  transferInId?: string;
+} {
+  return {
+    transferOutId:
+      activity?.transferOutId ??
+      (activity?.activityType === ActivityType.TRANSFER_OUT
+        ? activity.id
+        : activity?.counterpartActivityId),
+    transferInId:
+      activity?.transferInId ??
+      (activity?.activityType === ActivityType.TRANSFER_IN
+        ? activity.id
+        : activity?.counterpartActivityId),
+  };
 }
 
 export interface UseActivityFormParams {
@@ -67,6 +85,7 @@ export function useActivityForm({
     updateActivityMutation,
     saveActivitiesMutation,
     saveInternalTransferPairMutation,
+    unlinkTransferActivitiesMutation,
   } = useActivityMutations(onSuccess);
 
   const isEditing = !!activity?.id;
@@ -74,17 +93,20 @@ export function useActivityForm({
     addActivityMutation.isPending ||
     updateActivityMutation.isPending ||
     saveActivitiesMutation.isPending ||
-    saveInternalTransferPairMutation.isPending;
+    saveInternalTransferPairMutation.isPending ||
+    unlinkTransferActivitiesMutation.isPending;
   const error =
     addActivityMutation.error ??
     updateActivityMutation.error ??
     saveActivitiesMutation.error ??
-    saveInternalTransferPairMutation.error;
+    saveInternalTransferPairMutation.error ??
+    unlinkTransferActivitiesMutation.error;
   const isError =
     addActivityMutation.isError ||
     updateActivityMutation.isError ||
     saveActivitiesMutation.isError ||
-    saveInternalTransferPairMutation.isError;
+    saveInternalTransferPairMutation.isError ||
+    unlinkTransferActivitiesMutation.isError;
 
   // Get config for selected type (undefined if no type selected)
   const config = selectedType ? ACTIVITY_FORM_CONFIG[selectedType] : undefined;
@@ -127,16 +149,7 @@ export function useActivityForm({
                 throw new Error("Transfer amount and currencies are required.");
               }
 
-              const transferOutId =
-                activity?.transferOutId ??
-                (activity?.activityType === ActivityType.TRANSFER_OUT
-                  ? activity.id
-                  : activity?.counterpartActivityId);
-              const transferInId =
-                activity?.transferInId ??
-                (activity?.activityType === ActivityType.TRANSFER_IN
-                  ? activity.id
-                  : activity?.counterpartActivityId);
+              const { transferOutId, transferInId } = transferPairIds(activity);
 
               if (isEditing && (!transferOutId || !transferInId)) {
                 throw new Error(
@@ -211,16 +224,7 @@ export function useActivityForm({
               : undefined;
 
             if (isEditing) {
-              const transferOutId =
-                activity?.transferOutId ??
-                (activity?.activityType === ActivityType.TRANSFER_OUT
-                  ? activity.id
-                  : activity?.counterpartActivityId);
-              const transferInId =
-                activity?.transferInId ??
-                (activity?.activityType === ActivityType.TRANSFER_IN
-                  ? activity.id
-                  : activity?.counterpartActivityId);
+              const { transferOutId, transferInId } = transferPairIds(activity);
 
               if (!transferOutId || !transferInId) {
                 throw new Error("Editing an internal securities transfer requires both legs.");
@@ -297,6 +301,22 @@ export function useActivityForm({
           }
 
           if (isEditing && activity?.id) {
+            let { transferOutId, transferInId } = transferPairIds(activity);
+            if (activity.sourceGroupId && (!transferOutId || !transferInId)) {
+              try {
+                const pair = await getTransferPairForActivity(activity.id);
+                transferOutId = pair.transferOut.id;
+                transferInId = pair.transferIn.id;
+              } catch {
+                // Invalid/orphan groups are cleared by the single-row external update below.
+              }
+            }
+            if (activity.sourceGroupId && transferOutId && transferInId) {
+              await unlinkTransferActivitiesMutation.mutateAsync({
+                activityAId: transferOutId,
+                activityBId: transferInId,
+              });
+            }
             await updateActivityMutation.mutateAsync({
               id: activity.id,
               currentAssetId: activity.assetId,
@@ -343,12 +363,13 @@ export function useActivityForm({
       config,
       accounts,
       isEditing,
-      activity?.id,
+      activity,
       selectedType,
       addActivityMutation,
       updateActivityMutation,
       saveActivitiesMutation,
       saveInternalTransferPairMutation,
+      unlinkTransferActivitiesMutation,
     ],
   );
 

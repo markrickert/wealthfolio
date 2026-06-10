@@ -10,6 +10,19 @@ const mutationMocks = vi.hoisted(() => ({
   updateMutateAsync: vi.fn(),
   saveMutateAsync: vi.fn(),
   savePairMutateAsync: vi.fn(),
+  unlinkMutateAsync: vi.fn(),
+}));
+
+const adapterMocks = vi.hoisted(() => ({
+  getTransferPairForActivity: vi.fn(),
+  loggerError: vi.fn(),
+}));
+
+vi.mock("@/adapters", () => ({
+  getTransferPairForActivity: adapterMocks.getTransferPairForActivity,
+  logger: {
+    error: adapterMocks.loggerError,
+  },
 }));
 
 vi.mock("./use-activity-mutations", () => ({
@@ -38,6 +51,12 @@ vi.mock("./use-activity-mutations", () => ({
       error: null,
       isError: false,
     },
+    unlinkTransferActivitiesMutation: {
+      mutateAsync: mutationMocks.unlinkMutateAsync,
+      isPending: false,
+      error: null,
+      isError: false,
+    },
   }),
 }));
 
@@ -53,6 +72,9 @@ describe("useActivityForm", () => {
     mutationMocks.updateMutateAsync.mockResolvedValue({});
     mutationMocks.saveMutateAsync.mockResolvedValue({});
     mutationMocks.savePairMutateAsync.mockResolvedValue({});
+    mutationMocks.unlinkMutateAsync.mockResolvedValue({});
+    adapterMocks.getTransferPairForActivity.mockReset();
+    adapterMocks.loggerError.mockReset();
   });
 
   it("preserves user-selected currency for DEPOSIT", async () => {
@@ -216,5 +238,65 @@ describe("useActivityForm", () => {
         }),
       ],
     });
+  });
+
+  it("unlinks a valid grouped transfer before saving it as external", async () => {
+    adapterMocks.getTransferPairForActivity.mockResolvedValue({
+      transferOut: { id: "transfer-out-id" },
+      transferIn: { id: "transfer-in-id" },
+    });
+
+    const { result } = renderHook(() =>
+      useActivityForm({
+        accounts,
+        selectedType: "TRANSFER",
+        activity: {
+          id: "transfer-in-id",
+          activityType: ActivityType.TRANSFER_IN,
+          accountId: "acc-cad",
+          sourceGroupId: "group-1",
+        },
+      }),
+    );
+
+    const formData = {
+      isExternal: true,
+      direction: "in",
+      accountId: "acc-cad",
+      fromAccountId: "",
+      toAccountId: "",
+      activityDate: new Date("2026-02-01T10:00:00.000Z"),
+      transferMode: "cash",
+      amount: 250,
+      assetId: null,
+      quantity: null,
+      unitPrice: null,
+      comment: "external transfer",
+      currency: "CAD",
+      fxRate: null,
+      subtype: null,
+      quoteMode: "MARKET",
+    } as ActivityFormValues;
+
+    await act(async () => {
+      await result.current.handleSubmit(formData);
+    });
+
+    expect(adapterMocks.getTransferPairForActivity).toHaveBeenCalledWith("transfer-in-id");
+    expect(mutationMocks.unlinkMutateAsync).toHaveBeenCalledWith({
+      activityAId: "transfer-out-id",
+      activityBId: "transfer-in-id",
+    });
+    expect(mutationMocks.updateMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "transfer-in-id",
+        accountId: "acc-cad",
+        activityType: ActivityType.TRANSFER_IN,
+        metadata: { flow: { is_external: true } },
+      }),
+    );
+    expect(mutationMocks.unlinkMutateAsync.mock.invocationCallOrder[0]).toBeLessThan(
+      mutationMocks.updateMutateAsync.mock.invocationCallOrder[0],
+    );
   });
 });

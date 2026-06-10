@@ -52,9 +52,7 @@ export function SearchableSelect({
           <Icons.ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent
-        className={cn("w-[var(--radix-popover-trigger-width)] p-0", contentClassName)}
-      >
+      <PopoverContent className={cn("w-[var(--radix-popover-trigger-width)] p-0", contentClassName)}>
         <Command>
           <CommandInput placeholder={searchPlaceholder} className="h-9" />
           <CommandEmpty>{emptyMessage}</CommandEmpty>

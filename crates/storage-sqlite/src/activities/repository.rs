@@ -203,6 +203,18 @@ fn set_transfer_flow_external(metadata: Option<String>, is_external: bool) -> Op
     Some(value.to_string())
 }
 
+fn transfer_flow_is_external(metadata: Option<&str>) -> bool {
+    metadata
+        .and_then(|metadata| serde_json::from_str::<serde_json::Value>(metadata).ok())
+        .and_then(|value| {
+            value
+                .get("flow")
+                .and_then(|flow| flow.get("is_external"))
+                .and_then(|value| value.as_bool())
+        })
+        .unwrap_or(false)
+}
+
 fn link_transfer_tolerance() -> Decimal {
     Decimal::new(1, 6)
 }
@@ -244,13 +256,38 @@ fn source_group_blocks_transfer_link(
         return Ok(false);
     }
 
-    let has_transfer_in = group_activities
+    let transfer_in = group_activities
         .iter()
-        .any(|activity| effective_activity_type(activity) == ACTIVITY_TYPE_TRANSFER_IN);
-    let has_transfer_out = group_activities
+        .find(|activity| effective_activity_type(activity) == ACTIVITY_TYPE_TRANSFER_IN);
+    let transfer_out = group_activities
         .iter()
-        .any(|activity| effective_activity_type(activity) == ACTIVITY_TYPE_TRANSFER_OUT);
-    Ok(has_transfer_in && has_transfer_out)
+        .find(|activity| effective_activity_type(activity) == ACTIVITY_TYPE_TRANSFER_OUT);
+
+    let (Some(transfer_in), Some(transfer_out)) = (transfer_in, transfer_out) else {
+        return Ok(false);
+    };
+    if transfer_in.account_id == transfer_out.account_id {
+        return Ok(false);
+    }
+
+    Ok(validate_link_transfer_asset_shape(transfer_in, transfer_out).is_ok())
+}
+
+fn clear_invalid_source_group_for_external_transfer(
+    conn: &mut SqliteConnection,
+    activity: &mut ActivityDB,
+) -> Result<()> {
+    let is_transfer = matches!(
+        effective_activity_type(activity),
+        ACTIVITY_TYPE_TRANSFER_IN | ACTIVITY_TYPE_TRANSFER_OUT
+    );
+    if !is_transfer || !transfer_flow_is_external(activity.metadata.as_deref()) {
+        return Ok(());
+    }
+    if !source_group_blocks_transfer_link(conn, activity.source_group_id.as_deref())? {
+        activity.source_group_id = None;
+    }
+    Ok(())
 }
 
 fn parse_optional_decimal(value: Option<&String>) -> Option<Decimal> {
@@ -720,6 +757,10 @@ impl ActivityRepositoryTrait for ActivityRepository {
                 if activity_to_update.metadata.is_none() {
                     activity_to_update.metadata = metadata;
                 }
+                clear_invalid_source_group_for_external_transfer(
+                    tx.conn(),
+                    &mut activity_to_update,
+                )?;
                 preserve_broker_base_type(
                     &mut activity_to_update,
                     &existing_activity_type,
@@ -1113,6 +1154,7 @@ impl ActivityRepositoryTrait for ActivityRepository {
                     if activity_db.metadata.is_none() {
                         activity_db.metadata = metadata;
                     }
+                    clear_invalid_source_group_for_external_transfer(tx.conn(), &mut activity_db)?;
                     preserve_broker_base_type(
                         &mut activity_db,
                         &existing_activity_type,
@@ -3586,6 +3628,60 @@ mod tests {
             }),
             Some(false)
         );
+    }
+
+    #[tokio::test]
+    async fn update_external_transfer_clears_invalid_source_group() {
+        let (pool, writer) = setup_db();
+        let repo = ActivityRepository::new(pool.clone(), writer);
+        let mut conn = get_connection(&pool).expect("conn");
+
+        insert_account(&mut conn, "acc-a");
+        insert_transfer_activity(
+            &mut conn,
+            "orphan-in",
+            "acc-a",
+            "TRANSFER_IN",
+            Some("orphan-group"),
+            Some(r#"{"flow":{"is_external":false}}"#),
+        );
+
+        let updated = repo
+            .update_activity(ActivityUpdate {
+                id: "orphan-in".to_string(),
+                account_id: "acc-a".to_string(),
+                asset: None,
+                activity_type: "TRANSFER_IN".to_string(),
+                subtype: None,
+                activity_date: "2024-01-15T00:00:00Z".to_string(),
+                quantity: Some(None),
+                unit_price: Some(None),
+                currency: "USD".to_string(),
+                fee: Some(None),
+                amount: Some(Some(Decimal::new(100, 0))),
+                status: Some(ActivityStatus::Posted),
+                notes: None,
+                fx_rate: None,
+                metadata: Some(r#"{"flow":{"is_external":true}}"#.to_string()),
+            })
+            .await
+            .expect("external transfer update should succeed");
+
+        assert_eq!(updated.source_group_id, None);
+        assert_eq!(
+            updated.metadata.as_ref().and_then(|m| {
+                m.get("flow")
+                    .and_then(|flow| flow.get("is_external"))
+                    .and_then(|value| value.as_bool())
+            }),
+            Some(true)
+        );
+        let stored_group: Option<String> = activities::table
+            .filter(activities::id.eq("orphan-in"))
+            .select(activities::source_group_id)
+            .first(&mut conn)
+            .expect("stored source group");
+        assert_eq!(stored_group, None);
     }
 
     #[tokio::test]
