@@ -863,10 +863,7 @@ fn truncate_str(s: &str, max_bytes: usize) -> String {
         return s.to_string();
     }
     // Walk backward from max_bytes to find a char boundary
-    let end = s[..=max_bytes.min(s.len() - 1)]
-        .char_indices()
-        .next_back()
-        .map_or(0, |(i, _)| i);
+    let end = s.floor_char_boundary(max_bytes);
     format!("{}...", &s[..end])
 }
 
