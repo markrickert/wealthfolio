@@ -270,6 +270,18 @@ const ActivityPage = () => {
     [materializeInvestmentFilters],
   );
 
+  // handle filter changes in mobile form
+  const setMobileFilters = useCallback(
+    (types: ActivityType[], range: DateRange | undefined, scope: AccountScope) => {
+      materializeInvestmentFilters({
+        accountScope: scope,
+        activityTypes: types,
+        dateRange: fromDateRange(range),
+      });
+    },
+    [materializeInvestmentFilters],
+  );
+
   // Coerce "spending" URL state back to investments when the module is disabled.
   const urlTab = searchParams.get("tab");
   useEffect(() => {
@@ -649,13 +661,11 @@ const ActivityPage = () => {
           searchQuery={displayedSearchInput}
           onSearchQueryChange={handleSearchChange}
           accountScope={accountScope}
-          onAccountScopeChange={setAccountScope}
           selectedActivityTypes={effectiveActivityTypes}
-          onActivityTypesChange={setInvestmentActivityTypes}
           dateRange={effectiveDateRange}
-          onDateRangeChange={setInvestmentDateRange}
           isCompactView={isCompactView}
           onCompactViewChange={setIsCompactView}
+          onFilterChange={setMobileFilters}
         />
       ) : (
         <ActivityViewControls

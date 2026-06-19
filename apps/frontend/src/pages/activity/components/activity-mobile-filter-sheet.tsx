@@ -21,11 +21,9 @@ interface ActivityMobileFilterSheetProps {
   accountScope: AccountScope;
   accounts: Account[];
   portfolios: PortfolioWithAccounts[];
-  setAccountScope: (accountScope: AccountScope) => void;
   selectedActivityTypes: ActivityType[];
-  setSelectedActivityTypes: (types: ActivityType[]) => void;
   dateRange: DateRange | undefined;
-  setDateRange: (dateRange: DateRange | undefined) => void;
+  setFilters: (types: ActivityType[], range: DateRange | undefined, scope: AccountScope) => void;
 }
 
 function accountIdsForScope(scope: AccountScope, portfolios: PortfolioWithAccounts[]) {
@@ -49,11 +47,9 @@ export const ActivityMobileFilterSheet = ({
   accountScope,
   accounts,
   portfolios,
-  setAccountScope,
   selectedActivityTypes,
-  setSelectedActivityTypes,
   dateRange,
-  setDateRange,
+  setFilters,
 }: ActivityMobileFilterSheetProps) => {
   // Local state for temporary selections
   const [localAccountScope, setLocalAccountScope] = useState<AccountScope>(accountScope);
@@ -76,9 +72,7 @@ export const ActivityMobileFilterSheet = ({
   }, [open, accountScope, selectedActivityTypes, dateRange]);
 
   const handleApply = () => {
-    setAccountScope(localAccountScope);
-    setSelectedActivityTypes(localActivityTypes);
-    setDateRange(localDateRange);
+    setFilters(localActivityTypes, localDateRange, localAccountScope);
     onOpenChange(false);
   };
 

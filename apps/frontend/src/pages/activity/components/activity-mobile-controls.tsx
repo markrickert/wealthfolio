@@ -11,13 +11,15 @@ interface ActivityMobileControlsProps {
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
   accountScope: AccountScope;
-  onAccountScopeChange: (accountScope: AccountScope) => void;
   selectedActivityTypes: ActivityType[];
-  onActivityTypesChange: (types: ActivityType[]) => void;
   dateRange: DateRange | undefined;
-  onDateRangeChange: (dateRange: DateRange | undefined) => void;
   isCompactView: boolean;
   onCompactViewChange: (isCompact: boolean) => void;
+  onFilterChange: (
+    types: ActivityType[],
+    range: DateRange | undefined,
+    scope: AccountScope,
+  ) => void;
 }
 
 export function ActivityMobileControls({
@@ -26,13 +28,11 @@ export function ActivityMobileControls({
   searchQuery,
   onSearchQueryChange,
   accountScope,
-  onAccountScopeChange,
   selectedActivityTypes,
-  onActivityTypesChange,
   dateRange,
-  onDateRangeChange,
   isCompactView,
   onCompactViewChange,
+  onFilterChange,
 }: ActivityMobileControlsProps) {
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
 
@@ -86,11 +86,9 @@ export function ActivityMobileControls({
         accountScope={accountScope}
         accounts={accounts}
         portfolios={portfolios}
-        setAccountScope={onAccountScopeChange}
         selectedActivityTypes={selectedActivityTypes}
-        setSelectedActivityTypes={onActivityTypesChange}
         dateRange={dateRange}
-        setDateRange={onDateRangeChange}
+        setFilters={onFilterChange}
       />
     </>
   );
