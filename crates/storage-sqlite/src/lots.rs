@@ -719,6 +719,19 @@ impl LotRepositoryTrait for LotsRepository {
         start_date_exclusive: NaiveDate,
         end_date_inclusive: NaiveDate,
     ) -> Result<Vec<LotDisposal>> {
+        self.get_lot_disposals_for_accounts_in_date_range_sync(
+            account_ids,
+            start_date_exclusive,
+            end_date_inclusive,
+        )
+    }
+
+    fn get_lot_disposals_for_accounts_in_date_range_sync(
+        &self,
+        account_ids: &[String],
+        start_date_exclusive: NaiveDate,
+        end_date_inclusive: NaiveDate,
+    ) -> Result<Vec<LotDisposal>> {
         use crate::schema::lot_disposals::dsl;
 
         if account_ids.is_empty() {

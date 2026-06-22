@@ -1680,7 +1680,7 @@ mod tests {
     }
 
     #[test]
-    fn test_trade_amount_policy_transfer_in_keeps_existing_amount_behavior() {
+    fn test_trade_amount_policy_transfer_in_prefers_unit_price_over_legacy_amount() {
         let mock_fx_service = Arc::new(MockFxService::new());
         let account_currency = "USD";
         let base_currency = Arc::new(RwLock::new(account_currency.to_string()));
@@ -1696,6 +1696,46 @@ mod tests {
             "AAPL",
             dec!(10),
             dec!(99.76),
+            dec!(4.90),
+            account_currency,
+            target_date_str,
+        );
+        transfer_in.amount = Some(dec!(9976));
+
+        let result =
+            calculator.calculate_next_holdings(&previous_snapshot, &[transfer_in], target_date);
+        assert!(result.is_ok(), "Calculation failed: {:?}", result.err());
+        let next_state = result.unwrap().snapshot;
+
+        let position = next_state.positions.get("AAPL").unwrap();
+        assert_eq!(position.quantity, dec!(10));
+        assert_eq!(position.average_cost, dec!(100.25));
+        assert_eq!(position.total_cost_basis, dec!(1002.50));
+        assert_eq!(position.lots[0].acquisition_price, dec!(99.76));
+        assert_eq!(
+            next_state.cash_balances.get(account_currency),
+            Some(&dec!(-4.90))
+        );
+        assert_eq!(next_state.net_contribution, dec!(1002.50));
+    }
+
+    #[test]
+    fn test_trade_amount_policy_transfer_in_uses_amount_as_last_resort_when_unit_price_missing() {
+        let mock_fx_service = Arc::new(MockFxService::new());
+        let account_currency = "USD";
+        let base_currency = Arc::new(RwLock::new(account_currency.to_string()));
+        let calculator = create_calculator(mock_fx_service, base_currency);
+
+        let target_date_str = "2025-03-10";
+        let target_date = NaiveDate::from_str(target_date_str).unwrap();
+        let previous_snapshot = create_initial_snapshot("acc_1", account_currency, "2025-03-09");
+
+        let mut transfer_in = create_default_activity(
+            "act_transfer_in_amount_fallback",
+            ActivityType::TransferIn,
+            "AAPL",
+            dec!(10),
+            Decimal::ZERO,
             dec!(4.90),
             account_currency,
             target_date_str,
@@ -2490,8 +2530,10 @@ mod tests {
         // This conversion will also fail. Fallback uses 1:1 rate.
         // So, 2015 EUR position cost basis becomes 2015 CAD for the snapshot's cost_basis field.
         let expected_snapshot_cost_basis_cad = position_ads.total_cost_basis; // Fallback: 2015 EUR treated as 2015 CAD
-        assert_eq!(next_state.cost_basis, expected_snapshot_cost_basis_cad,
-            "Snapshot cost_basis mismatch. Expected fallback to use unconverted position currency value if final conversion fails.");
+        assert_eq!(
+            next_state.cost_basis, expected_snapshot_cost_basis_cad,
+            "Snapshot cost_basis mismatch. Expected fallback to use unconverted position currency value if final conversion fails."
+        );
 
         assert_eq!(
             next_state.net_contribution,
@@ -5082,6 +5124,24 @@ mod tests {
         assert_eq!(lot.acquisition_date, buy.activity_date);
         assert_eq!(lot.acquisition_price, dec!(100));
         assert_eq!(lot.quantity, dec!(10));
+
+        let disposals = calculator.take_lot_disposals("acc_a", "FIFO");
+        assert_eq!(disposals.len(), 1);
+        let disposal = &disposals[0];
+        assert_eq!(disposal.disposal_activity_id, "xfer_out");
+        assert_eq!(Decimal::from_str(&disposal.cost_basis).unwrap(), dec!(1005));
+        assert_eq!(
+            Decimal::from_str(&disposal.cost_basis_base).unwrap(),
+            dec!(1005)
+        );
+        assert_eq!(
+            Decimal::from_str(&disposal.realized_pnl).unwrap(),
+            Decimal::ZERO
+        );
+        assert_eq!(
+            Decimal::from_str(&disposal.realized_pnl_base).unwrap(),
+            Decimal::ZERO
+        );
     }
 
     #[test]
@@ -5255,6 +5315,80 @@ mod tests {
         assert_eq!(pos.total_cost_basis, dec!(1505));
         assert_eq!(pos.lots.len(), 1);
         assert_eq!(pos.lots[0].acquisition_price, dec!(150));
+    }
+
+    #[test]
+    fn test_external_transfer_in_ignores_legacy_amount_when_unit_price_is_present() {
+        let mock_fx_service = MockFxService::new();
+        let base_currency = Arc::new(RwLock::new("USD".to_string()));
+        let calculator = create_calculator(Arc::new(mock_fx_service), base_currency);
+
+        let prev = create_initial_snapshot("acc_b", "USD", "2023-05-31");
+        let transfer_date = NaiveDate::from_str("2023-06-01").unwrap();
+        let mut transfer_in = create_transfer_activity(
+            "ext_xfer_in_legacy_amount",
+            ActivityType::TransferIn,
+            "AAPL",
+            dec!(10),
+            dec!(150),
+            dec!(5),
+            "USD",
+            "2023-06-01",
+            "acc_b",
+            None,
+        );
+        transfer_in.amount = Some(dec!(5000));
+
+        let result = calculator
+            .calculate_next_holdings(&prev, &[transfer_in], transfer_date)
+            .unwrap();
+
+        let pos = result
+            .snapshot
+            .positions
+            .get("AAPL")
+            .expect("Should have AAPL");
+        assert_eq!(pos.quantity, dec!(10));
+        assert_eq!(pos.total_cost_basis, dec!(1505));
+        assert_eq!(pos.average_cost, dec!(150.5));
+        assert_eq!(pos.lots[0].acquisition_price, dec!(150));
+    }
+
+    #[test]
+    fn test_external_transfer_in_uses_legacy_amount_as_last_resort_lot_basis_without_unit_price() {
+        let mock_fx_service = MockFxService::new();
+        let base_currency = Arc::new(RwLock::new("USD".to_string()));
+        let calculator = create_calculator(Arc::new(mock_fx_service), base_currency);
+
+        let prev = create_initial_snapshot("acc_b", "USD", "2023-05-31");
+        let transfer_date = NaiveDate::from_str("2023-06-01").unwrap();
+        let mut transfer_in = create_transfer_activity(
+            "ext_xfer_in_legacy_amount_no_price",
+            ActivityType::TransferIn,
+            "AAPL",
+            dec!(10),
+            dec!(150),
+            Decimal::ZERO,
+            "USD",
+            "2023-06-01",
+            "acc_b",
+            None,
+        );
+        transfer_in.unit_price = None;
+        transfer_in.amount = Some(dec!(5000));
+
+        let result = calculator
+            .calculate_next_holdings(&prev, &[transfer_in], transfer_date)
+            .unwrap();
+
+        let pos = result
+            .snapshot
+            .positions
+            .get("AAPL")
+            .expect("Should have AAPL");
+        assert_eq!(pos.quantity, dec!(10));
+        assert_eq!(pos.total_cost_basis, dec!(5000));
+        assert_eq!(pos.lots[0].acquisition_price, dec!(500));
     }
 
     #[test]

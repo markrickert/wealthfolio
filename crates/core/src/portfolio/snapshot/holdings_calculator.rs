@@ -5,6 +5,7 @@ use crate::constants::DECIMAL_PRECISION;
 use crate::errors::{CalculatorError, Error, Result};
 use crate::fx::FxServiceTrait;
 use crate::lots::{extract_lot_records_with_cost_basis_method, LotClosure, LotDisposal, LotRecord};
+use crate::portfolio::economic_events::{ActivityEconomicsResolver, TransferBoundary};
 use crate::portfolio::snapshot::AccountStateSnapshot;
 use crate::portfolio::snapshot::HoldingsCalculationResult;
 use crate::portfolio::snapshot::HoldingsCalculationWarning;
@@ -55,16 +56,17 @@ fn should_use_activity_amount(activity: &Activity, asset_info: &AssetPositionInf
         return false;
     }
 
-    let is_buy_or_sell = matches!(
-        ActivityType::from_str(&activity.activity_type),
-        Ok(ActivityType::Buy | ActivityType::Sell)
-    );
+    if ActivityEconomicsResolver::is_security_transfer(activity) {
+        return false;
+    }
+
+    let activity_type = ActivityType::from_str(&activity.activity_type);
+    let has_qty = activity.quantity.is_some_and(|qty| !qty.is_zero());
+    let has_unit_price = activity.unit_price.is_some_and(|price| !price.is_zero());
+    let is_buy_or_sell = matches!(activity_type, Ok(ActivityType::Buy | ActivityType::Sell));
     if !is_buy_or_sell {
         return true;
     }
-
-    let has_qty = activity.quantity.is_some_and(|qty| !qty.is_zero());
-    let has_unit_price = activity.unit_price.is_some_and(|price| !price.is_zero());
 
     asset_info.is_bond || !has_qty || !has_unit_price
 }
@@ -580,9 +582,13 @@ impl HoldingsCalculator {
                 }
                 Err(e) => {
                     error!(
-                         "Holdings Calc (Book Cost): Failed to convert {} {} to {} on {}: {}. Using original unconverted cost for snapshot.",
-                         position.total_cost_basis, position_currency, account_currency, target_date, e
-                     );
+                        "Holdings Calc (Book Cost): Failed to convert {} {} to {} on {}: {}. Using original unconverted cost for snapshot.",
+                        position.total_cost_basis,
+                        position_currency,
+                        account_currency,
+                        target_date,
+                        e
+                    );
                     if position_currency != &account_currency {
                         final_cost_basis_acct += position.total_cost_basis;
                     }
@@ -948,7 +954,12 @@ impl HoldingsCalculator {
                 Err(e) => {
                     warn!(
                         "Holdings Calc (NetContrib Credit Bonus {}): Failed conversion {} {}->{} on {}: {}. Base contribution not updated.",
-                        activity.id, activity_amount, activity_currency, &base_ccy, activity_date, e
+                        activity.id,
+                        activity_amount,
+                        activity_currency,
+                        &base_ccy,
+                        activity_date,
+                        e
                     );
                     Decimal::ZERO
                 }
@@ -1083,8 +1094,18 @@ impl HoldingsCalculator {
                     .get(asset_id)
                     .cloned()
                     .unwrap_or_else(|| AssetPositionInfo::fallback(activity_currency));
-
-                let lot_unit_price = effective_unit_price(activity, &asset_info);
+                let compiled_economics =
+                    ActivityEconomicsResolver::compile_activity_with_unit_multiplier(
+                        activity,
+                        None,
+                        TransferBoundary::External,
+                        asset_info.contract_multiplier,
+                    );
+                let lot_unit_price = if activity.qty().is_zero() {
+                    Decimal::ZERO
+                } else {
+                    compiled_economics.lot_cost_basis_value / activity.qty()
+                };
                 let (unit_price_for_lot, fee_for_lot, fx_rate_used) = if needs_conversion {
                     let (converted_price, converted_fee, fx_rate) = self
                         .convert_to_position_currency(
@@ -1209,6 +1230,15 @@ impl HoldingsCalculator {
 
                 let reduction = position.reduce_lots_fifo(activity.qty())?;
                 let cost_basis_removed = reduction.cost_basis_removed;
+                self.record_lot_disposals(
+                    &state.account_id,
+                    asset_id,
+                    activity,
+                    &reduction.removed_lots,
+                    cost_basis_removed,
+                    reduction.quantity_reduced,
+                    &position_currency,
+                );
 
                 // Record fully consumed lots as closed
                 let close_date = activity_date.to_string();
@@ -1454,7 +1484,13 @@ impl HoldingsCalculator {
             Err(e) => {
                 warn!(
                     "Holdings Calc ({} {}): Failed conversion {} {}->{} on {}: {}. Using original amount.",
-                    context, activity.id, amount, activity_currency, account_currency, activity_date, e
+                    context,
+                    activity.id,
+                    amount,
+                    activity_currency,
+                    account_currency,
+                    activity_date,
+                    e
                 );
                 amount // Fallback to original amount
             }
@@ -1529,7 +1565,13 @@ impl HoldingsCalculator {
             Err(e) => {
                 warn!(
                     "Holdings Calc ({} {}): Failed conversion {} {}->{} on {}: {}. Using original amount.",
-                    context, activity.id, amount, position_currency, account_currency, activity_date, e
+                    context,
+                    activity.id,
+                    amount,
+                    position_currency,
+                    account_currency,
+                    activity_date,
+                    e
                 );
                 amount // Fallback to original amount
             }

@@ -222,6 +222,15 @@ pub trait LotRepositoryTrait: Send + Sync {
         Ok(disposals)
     }
 
+    /// Synchronous variant for read paths that cannot become async without
+    /// changing the public valuation API.
+    fn get_lot_disposals_for_accounts_in_date_range_sync(
+        &self,
+        account_ids: &[String],
+        start_date_exclusive: NaiveDate,
+        end_date_inclusive: NaiveDate,
+    ) -> Result<Vec<LotDisposal>>;
+
     /// Returns total quantity per asset across all open lots (all accounts).
     /// Used for quote sync planning — determines which assets need price data.
     async fn get_open_position_quantities(&self) -> Result<HashMap<String, Decimal>>;

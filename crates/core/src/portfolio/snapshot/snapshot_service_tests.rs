@@ -884,6 +884,15 @@ mod tests {
             Ok(HashMap::new())
         }
 
+        fn get_lot_disposals_for_accounts_in_date_range_sync(
+            &self,
+            _account_ids: &[String],
+            _start_date_exclusive: NaiveDate,
+            _end_date_inclusive: NaiveDate,
+        ) -> AppResult<Vec<LotDisposal>> {
+            Ok(Vec::new())
+        }
+
         fn count_lots(&self) -> AppResult<i64> {
             Ok(0)
         }
@@ -1003,6 +1012,26 @@ mod tests {
 
         async fn get_open_position_quantities(&self) -> AppResult<HashMap<String, Decimal>> {
             Ok(HashMap::new())
+        }
+
+        fn get_lot_disposals_for_accounts_in_date_range_sync(
+            &self,
+            account_ids: &[String],
+            start_date_exclusive: NaiveDate,
+            end_date_inclusive: NaiveDate,
+        ) -> AppResult<Vec<LotDisposal>> {
+            Ok(self
+                .synced_disposals
+                .read()
+                .unwrap()
+                .iter()
+                .filter(|disposal| account_ids.contains(&disposal.account_id))
+                .filter(|disposal| {
+                    NaiveDate::parse_from_str(&disposal.disposal_date, "%Y-%m-%d")
+                        .is_ok_and(|date| date > start_date_exclusive && date <= end_date_inclusive)
+                })
+                .cloned()
+                .collect())
         }
 
         fn count_lots(&self) -> AppResult<i64> {
@@ -1826,7 +1855,11 @@ mod tests {
 
         // Second keyframe should include the second deposit, but the dividend should have no impact on net contribution.
         let second_frame = &frames_sorted[1];
-        assert_eq!(second_frame.net_contribution, dec!(15000), "Second keyframe should reflect both deposits, ignoring the dividend for net contribution calculation.");
+        assert_eq!(
+            second_frame.net_contribution,
+            dec!(15000),
+            "Second keyframe should reflect both deposits, ignoring the dividend for net contribution calculation."
+        );
         assert_eq!(second_frame.snapshot_date, d2);
     }
 

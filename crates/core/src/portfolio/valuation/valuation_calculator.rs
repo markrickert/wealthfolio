@@ -1,8 +1,9 @@
 use crate::errors::{Error, Result};
 use crate::fx::currency::{normalize_amount, normalize_currency_code};
 use crate::fx::FxError;
+use crate::portfolio::economic_events::BasisStatus;
 use crate::portfolio::snapshot::AccountStateSnapshot;
-use crate::portfolio::valuation::{DailyAccountValuation, ExternalFlowSource};
+use crate::portfolio::valuation::{DailyAccountValuation, ExternalFlowSource, ValuationStatus};
 use crate::quotes::Quote;
 
 use chrono::{NaiveDate, Utc};
@@ -39,16 +40,13 @@ pub fn calculate_valuation(
     let normalized_base_currency = normalize_currency_code(base_currency);
 
     // --- 1. Calculate Market Values (Account Currency) ---
-    // Returns (total_investment_value, performance_eligible_value).
-    // performance_eligible_value excludes holdings that are not part of TWR/IRR.
-    let (total_investment_market_value_acct_ccy, performance_eligible_value_acct_ccy) =
-        calculate_investment_market_value_acct(
-            holdings_snapshot,
-            quotes_today,
-            fx_rates_today,
-            target_date,
-            normalized_account_currency,
-        )?;
+    let investment_valuation = calculate_investment_market_value_acct(
+        holdings_snapshot,
+        quotes_today,
+        fx_rates_today,
+        target_date,
+        normalized_account_currency,
+    )?;
 
     let total_cash_value_acct_ccy = calculate_cash_value_acct(
         holdings_snapshot,
@@ -59,14 +57,15 @@ pub fn calculate_valuation(
 
     // Total market value in account currency (investments + cash)
     let total_market_value_acct_ccy =
-        total_investment_market_value_acct_ccy + total_cash_value_acct_ccy;
+        investment_valuation.total_market_value + total_cash_value_acct_ccy;
     let cost_basis_acct_ccy = calculate_cost_basis_acct(
         holdings_snapshot,
         fx_rates_today,
         target_date,
         normalized_account_currency,
     )?;
-    let net_contribution_acct_ccy = holdings_snapshot.net_contribution; // Get net deposit
+    let book_basis_acct_ccy = cost_basis_acct_ccy + total_cash_value_acct_ccy;
+    let net_contribution_acct_ccy = holdings_snapshot.net_contribution;
 
     // --- 2. Get Base Currency FX Rate ---
     let fx_rate_to_base = match get_rate_from_map(
@@ -91,7 +90,7 @@ pub fn calculate_valuation(
     };
 
     let cash_balance_base = total_cash_value_acct_ccy * fx_rate_to_base;
-    let investment_market_value_base = total_investment_market_value_acct_ccy * fx_rate_to_base;
+    let investment_market_value_base = investment_valuation.total_market_value * fx_rate_to_base;
     let total_value_base = cash_balance_base + investment_market_value_base;
     let cost_basis_base = calculate_cost_basis_base(
         holdings_snapshot,
@@ -100,9 +99,12 @@ pub fn calculate_valuation(
         target_date,
         normalized_base_currency,
     )?;
+    let book_basis_base = cost_basis_base + cash_balance_base;
     let net_contribution_base = holdings_snapshot.net_contribution_base;
-    let performance_eligible_value_base =
-        (performance_eligible_value_acct_ccy + total_cash_value_acct_ccy) * fx_rate_to_base;
+    let performance_eligible_value_base = (investment_valuation.performance_eligible_market_value
+        + total_cash_value_acct_ccy)
+        * fx_rate_to_base;
+    let value_status = investment_valuation.value_status(total_cash_value_acct_ccy);
 
     // --- 3. Construct Result using DailyAccountValuation structure ---
     let metrics = DailyAccountValuation {
@@ -113,19 +115,23 @@ pub fn calculate_valuation(
         base_currency: base_currency.to_string(),
         fx_rate_to_base,
         cash_balance: total_cash_value_acct_ccy,
-        investment_market_value: total_investment_market_value_acct_ccy,
+        investment_market_value: investment_valuation.total_market_value,
         total_value: total_market_value_acct_ccy,
         cost_basis: cost_basis_acct_ccy,
+        book_basis: book_basis_acct_ccy,
         net_contribution: net_contribution_acct_ccy,
         cash_balance_base,
         investment_market_value_base,
         total_value_base,
         cost_basis_base,
+        book_basis_base,
         net_contribution_base,
         external_inflow_base: Decimal::ZERO,
         external_outflow_base: Decimal::ZERO,
         external_flow_source: ExternalFlowSource::Unknown,
         performance_eligible_value_base,
+        value_status,
+        basis_status: investment_valuation.basis_status,
         calculated_at: Utc::now(),
     };
 
@@ -224,23 +230,48 @@ fn calculate_cost_basis_acct(
     Ok(total)
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct InvestmentValuation {
+    total_market_value: Decimal,
+    performance_eligible_market_value: Decimal,
+    priced_positions: u32,
+    unpriced_positions: u32,
+    basis_status: BasisStatus,
+}
+
+impl InvestmentValuation {
+    fn value_status(&self, cash_value: Decimal) -> ValuationStatus {
+        if self.unpriced_positions == 0 {
+            ValuationStatus::Complete
+        } else if self.priced_positions == 0 && cash_value.is_zero() {
+            ValuationStatus::Unavailable
+        } else {
+            ValuationStatus::PartialUnpriced
+        }
+    }
+}
+
 /// Helper to calculate the total market value of investment positions in the account currency.
 /// Alternative assets are net-worth-only and are excluded from investment valuation.
-/// Returns (total_investment_value, performance_eligible_value).
 fn calculate_investment_market_value_acct(
     holdings_snapshot: &AccountStateSnapshot,
     quotes_today: &HashMap<String, Quote>,
     fx_rates_today: &DailyFxRateMap,
     target_date: NaiveDate,
     account_currency: &str,
-) -> Result<(Decimal, Decimal)> {
+) -> Result<InvestmentValuation> {
     let mut total_position_market_value = Decimal::ZERO;
     let mut performance_eligible_market_value = Decimal::ZERO;
+    let mut priced_positions = 0;
+    let mut unpriced_positions = 0;
+    let mut basis_status = BasisStatus::NotApplicable;
 
     for (asset_id, position) in &holdings_snapshot.positions {
-        if position.is_alternative {
+        if position.is_alternative || position.quantity.is_zero() {
             continue;
         }
+
+        basis_status = basis_status.combine(position.basis_status());
 
         if let Some(quote) = quotes_today.get(asset_id) {
             let (normalized_price, normalized_quote_currency) =
@@ -260,18 +291,25 @@ fn calculate_investment_market_value_acct(
             let market_value =
                 position.quantity * normalized_price * position.contract_multiplier * quote_fx_rate;
             total_position_market_value += market_value;
-            performance_eligible_market_value += market_value;
+            priced_positions += 1;
+            if position.basis_status() == BasisStatus::Complete {
+                performance_eligible_market_value += market_value;
+            }
         } else {
+            unpriced_positions += 1;
             warn!(
                 "Missing quote for asset {} on date {}. Position market value treated as ZERO.",
                 asset_id, target_date
             );
         }
     }
-    Ok((
-        total_position_market_value,
+    Ok(InvestmentValuation {
+        total_market_value: total_position_market_value,
         performance_eligible_market_value,
-    ))
+        priced_positions,
+        unpriced_positions,
+        basis_status,
+    })
 }
 
 /// Helper to calculate the total value of cash balances in the account currency.
@@ -351,6 +389,126 @@ mod tests {
     use rust_decimal_macros::dec;
     use std::collections::VecDeque;
 
+    fn test_position(asset_id: &str, quantity: Decimal, cost_basis: Decimal) -> Position {
+        let now = Utc::now();
+        Position {
+            id: format!("POS-{asset_id}-acc_1"),
+            account_id: "acc_1".to_string(),
+            asset_id: asset_id.to_string(),
+            quantity,
+            average_cost: if quantity.is_zero() {
+                Decimal::ZERO
+            } else {
+                cost_basis / quantity
+            },
+            total_cost_basis: cost_basis,
+            currency: "USD".to_string(),
+            inception_date: now,
+            lots: VecDeque::new(),
+            created_at: now,
+            last_updated: now,
+            is_alternative: false,
+            contract_multiplier: Decimal::ONE,
+        }
+    }
+
+    fn test_snapshot(positions: HashMap<String, Position>, cash: Decimal) -> AccountStateSnapshot {
+        AccountStateSnapshot {
+            id: "acc_1_2026-06-01".to_string(),
+            account_id: "acc_1".to_string(),
+            snapshot_date: NaiveDate::from_ymd_opt(2026, 6, 1).unwrap(),
+            currency: "USD".to_string(),
+            positions,
+            cash_balances: if cash.is_zero() {
+                HashMap::new()
+            } else {
+                HashMap::from([("USD".to_string(), cash)])
+            },
+            cost_basis: Decimal::ZERO,
+            net_contribution: Decimal::ZERO,
+            net_contribution_base: Decimal::ZERO,
+            cash_total_account_currency: cash,
+            cash_total_base_currency: cash,
+            calculated_at: Utc::now().naive_utc(),
+            source: SnapshotSource::Calculated,
+        }
+    }
+
+    fn test_quote(asset_id: &str, close: Decimal) -> Quote {
+        Quote {
+            id: format!("quote-{asset_id}"),
+            asset_id: asset_id.to_string(),
+            timestamp: Utc::now(),
+            open: close,
+            high: close,
+            low: close,
+            close,
+            adjclose: close,
+            volume: Decimal::ZERO,
+            currency: "USD".to_string(),
+            data_source: "MANUAL".to_string(),
+            created_at: Utc::now(),
+            notes: None,
+        }
+    }
+
+    #[test]
+    fn partial_unpriced_position_is_typed_not_silent_zero() {
+        let target_date = NaiveDate::from_ymd_opt(2026, 6, 1).unwrap();
+        let positions = HashMap::from([
+            (
+                "PRICED".to_string(),
+                test_position("PRICED", dec!(2), dec!(100)),
+            ),
+            (
+                "UNPRICED".to_string(),
+                test_position("UNPRICED", dec!(3), dec!(150)),
+            ),
+        ]);
+        let snapshot = test_snapshot(positions, dec!(25));
+        let quotes_today = HashMap::from([("PRICED".to_string(), test_quote("PRICED", dec!(80)))]);
+
+        let result = calculate_valuation(
+            &snapshot,
+            &quotes_today,
+            &HashMap::new(),
+            &HashMap::new(),
+            target_date,
+            "USD",
+        )
+        .unwrap();
+
+        assert_eq!(result.investment_market_value, dec!(160));
+        assert_eq!(result.total_value, dec!(185));
+        assert_eq!(result.value_status, ValuationStatus::PartialUnpriced);
+        assert_eq!(result.basis_status, BasisStatus::Complete);
+    }
+
+    #[test]
+    fn fully_unpriced_position_is_unavailable_not_complete_zero() {
+        let target_date = NaiveDate::from_ymd_opt(2026, 6, 1).unwrap();
+        let positions = HashMap::from([(
+            "MANUAL".to_string(),
+            test_position("MANUAL", dec!(3), dec!(150)),
+        )]);
+        let snapshot = test_snapshot(positions, Decimal::ZERO);
+
+        let result = calculate_valuation(
+            &snapshot,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            target_date,
+            "USD",
+        )
+        .unwrap();
+
+        assert_eq!(result.investment_market_value, Decimal::ZERO);
+        assert_eq!(result.total_value, Decimal::ZERO);
+        assert_eq!(result.value_status, ValuationStatus::Unavailable);
+        assert_eq!(result.basis_status, BasisStatus::Complete);
+    }
+
     #[test]
     fn test_calculate_valuation_with_zero_cost_basis_position() {
         let target_date = NaiveDate::from_ymd_opt(2024, 6, 4).unwrap();
@@ -422,6 +580,7 @@ mod tests {
         assert_eq!(result.investment_market_value, dec!(0.0000329));
         assert_eq!(result.total_value, dec!(0.0000329));
         assert_eq!(result.cost_basis, dec!(0));
+        assert_eq!(result.performance_eligible_value_base, Decimal::ZERO);
         assert_eq!(result.fx_rate_to_base, dec!(1));
     }
 
@@ -551,6 +710,79 @@ mod tests {
         assert_eq!(result.cash_balance, dec!(5988.44572355));
         assert_eq!(result.cash_balance_base, dec!(5988.44572355));
         assert_eq!(result.total_value_base, dec!(5988.44572355));
+    }
+
+    #[test]
+    fn non_calculated_snapshot_derives_book_basis_without_overwriting_net_contribution() {
+        let target_date = NaiveDate::from_ymd_opt(2026, 5, 22).unwrap();
+        let now = Utc::now();
+        let mut positions = HashMap::new();
+        positions.insert(
+            "AAPL".to_string(),
+            Position {
+                id: "POS-AAPL-acc_1".to_string(),
+                account_id: "acc_1".to_string(),
+                asset_id: "AAPL".to_string(),
+                quantity: dec!(100),
+                average_cost: dec!(50),
+                total_cost_basis: dec!(5000),
+                currency: "CAD".to_string(),
+                inception_date: now,
+                lots: VecDeque::new(),
+                created_at: now,
+                last_updated: now,
+                is_alternative: false,
+                contract_multiplier: Decimal::ONE,
+            },
+        );
+        let snapshot = AccountStateSnapshot {
+            id: "acc_1_2026-05-22".to_string(),
+            account_id: "acc_1".to_string(),
+            snapshot_date: target_date,
+            currency: "CAD".to_string(),
+            positions,
+            cash_balances: HashMap::from([("CAD".to_string(), dec!(250))]),
+            cost_basis: dec!(5000),
+            net_contribution: Decimal::ZERO,
+            net_contribution_base: Decimal::ZERO,
+            cash_total_account_currency: Decimal::ZERO,
+            cash_total_base_currency: Decimal::ZERO,
+            calculated_at: now.naive_utc(),
+            source: SnapshotSource::ManualEntry,
+        };
+        let quote = Quote {
+            id: "quote-aapl".to_string(),
+            asset_id: "AAPL".to_string(),
+            timestamp: now,
+            open: dec!(200),
+            high: dec!(200),
+            low: dec!(200),
+            close: dec!(200),
+            adjclose: dec!(200),
+            volume: Decimal::ZERO,
+            currency: "CAD".to_string(),
+            data_source: "MANUAL".to_string(),
+            created_at: now,
+            notes: None,
+        };
+
+        let result = calculate_valuation(
+            &snapshot,
+            &HashMap::from([("AAPL".to_string(), quote)]),
+            &HashMap::new(),
+            &HashMap::new(),
+            target_date,
+            "CAD",
+        )
+        .unwrap();
+
+        assert_eq!(result.investment_market_value, dec!(20000));
+        assert_eq!(result.cash_balance, dec!(250));
+        assert_eq!(result.total_value, dec!(20250));
+        assert_eq!(result.book_basis, dec!(5250));
+        assert_eq!(result.book_basis_base, dec!(5250));
+        assert_eq!(result.net_contribution, Decimal::ZERO);
+        assert_eq!(result.net_contribution_base, Decimal::ZERO);
     }
 
     #[test]

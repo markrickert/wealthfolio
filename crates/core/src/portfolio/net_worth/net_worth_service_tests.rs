@@ -8,11 +8,13 @@ use crate::assets::{
 };
 use crate::errors::Result;
 use crate::fx::{ExchangeRate, FxServiceTrait, NewExchangeRate};
+use crate::portfolio::economic_events::BasisStatus;
 use crate::portfolio::snapshot::{
     AccountStateSnapshot, Position, SnapshotRepositoryTrait, SnapshotSource,
 };
 use crate::portfolio::valuation::{
     DailyAccountValuation, ExternalFlowSource, NegativeBalanceInfo, ValuationRepositoryTrait,
+    ValuationStatus,
 };
 use crate::quotes::{
     LatestQuotePair, LatestQuoteSnapshot, ProviderInfo, Quote, QuoteImport, QuoteServiceTrait,
@@ -1029,16 +1031,24 @@ fn create_total_valuation(
         investment_market_value: total_value,
         total_value,
         cost_basis: net_contribution,
+        book_basis: net_contribution,
         net_contribution,
         cash_balance_base: Decimal::ZERO,
         investment_market_value_base: total_value,
         total_value_base: total_value,
         cost_basis_base: net_contribution,
+        book_basis_base: net_contribution,
         net_contribution_base: net_contribution,
         external_inflow_base: Decimal::ZERO,
         external_outflow_base: Decimal::ZERO,
         external_flow_source: ExternalFlowSource::Unknown,
         performance_eligible_value_base: total_value,
+        value_status: ValuationStatus::Complete,
+        basis_status: if total_value.is_zero() {
+            BasisStatus::NotApplicable
+        } else {
+            BasisStatus::Complete
+        },
         calculated_at: Utc::now(),
     }
 }
@@ -1059,16 +1069,20 @@ fn create_account_valuation(
         investment_market_value: Decimal::ZERO,
         total_value,
         cost_basis: Decimal::ZERO,
+        book_basis: total_value,
         net_contribution: Decimal::ZERO,
         cash_balance_base: total_value,
         investment_market_value_base: Decimal::ZERO,
         total_value_base: total_value,
         cost_basis_base: Decimal::ZERO,
+        book_basis_base: total_value,
         net_contribution_base: Decimal::ZERO,
         external_inflow_base: Decimal::ZERO,
         external_outflow_base: Decimal::ZERO,
         external_flow_source: ExternalFlowSource::Unknown,
         performance_eligible_value_base: total_value,
+        value_status: ValuationStatus::Complete,
+        basis_status: BasisStatus::NotApplicable,
         calculated_at: Utc::now(),
     }
 }

@@ -10,6 +10,7 @@ use crate::activities::Activity;
 use crate::constants::QUANTITY_THRESHOLD;
 
 use crate::errors::{CalculatorError, Result};
+use crate::portfolio::economic_events::BasisStatus;
 
 // Helper function from previous examples
 pub fn is_quantity_significant(quantity: &Decimal) -> bool {
@@ -141,6 +142,14 @@ impl Lot {
         Decimal::ONE
     }
 
+    pub fn basis_status(&self) -> BasisStatus {
+        if self.quantity > Decimal::ZERO && self.cost_basis > Decimal::ZERO {
+            BasisStatus::Complete
+        } else {
+            BasisStatus::Unknown
+        }
+    }
+
     /// Returns the lot's `split_ratio`, falling back to ONE if it deserializes
     /// as zero from a pre-split-ratio snapshot.
     pub fn effective_split_ratio(&self) -> Decimal {
@@ -209,6 +218,40 @@ pub enum Holding {
 }
 
 impl Position {
+    pub fn basis_status(&self) -> BasisStatus {
+        if self.is_alternative || self.quantity.is_zero() {
+            return BasisStatus::NotApplicable;
+        }
+
+        if self.lots.is_empty() {
+            return if self.total_cost_basis > Decimal::ZERO {
+                BasisStatus::Complete
+            } else {
+                BasisStatus::Unknown
+            };
+        }
+
+        let mut has_complete = false;
+        let mut has_unknown = false;
+        for lot in &self.lots {
+            if lot.quantity <= Decimal::ZERO {
+                continue;
+            }
+            match lot.basis_status() {
+                BasisStatus::Complete => has_complete = true,
+                BasisStatus::Unknown | BasisStatus::PartialUnknown => has_unknown = true,
+                BasisStatus::NotApplicable => {}
+            }
+        }
+
+        match (has_complete, has_unknown) {
+            (true, false) => BasisStatus::Complete,
+            (true, true) => BasisStatus::PartialUnknown,
+            (false, true) => BasisStatus::Unknown,
+            (false, false) => BasisStatus::NotApplicable,
+        }
+    }
+
     // Simplified constructor
     pub fn new(
         account_id: String,
@@ -282,7 +325,10 @@ impl Position {
         } else {
             // Zero, negative, or insignificant quantity
             if !self.quantity.is_zero() && !self.quantity.is_sign_negative() {
-                warn!("Position {} quantity ({}) became insignificant after recalculation. Average cost zeroed.", self.id, self.quantity);
+                warn!(
+                    "Position {} quantity ({}) became insignificant after recalculation. Average cost zeroed.",
+                    self.id, self.quantity
+                );
             }
             if (self.quantity.is_zero() || self.quantity.is_sign_negative())
                 && !self.lots.is_empty()
@@ -562,7 +608,10 @@ impl Position {
             .sum();
 
         if !is_quantity_significant(&available_effective) || available_effective <= Decimal::ZERO {
-            warn!("Attempting to reduce position {} which has zero/insignificant effective quantity {}. Skipping reduction.", self.id, available_effective);
+            warn!(
+                "Attempting to reduce position {} which has zero/insignificant effective quantity {}. Skipping reduction.",
+                self.id, available_effective
+            );
             return Ok(FifoReductionResult {
                 quantity_reduced: Decimal::ZERO,
                 cost_basis_removed: Decimal::ZERO,
