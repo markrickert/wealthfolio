@@ -9,6 +9,7 @@ use std::sync::Arc;
 use crate::env::AiEnvironment;
 use crate::error::AiError;
 use wealthfolio_core::accounts::{account_supports_purpose, AccountPurpose};
+use wealthfolio_core::portfolio::performance::PerformanceResult as CorePerformanceResult;
 
 // ============================================================================
 // Tool Arguments and Output
@@ -41,11 +42,30 @@ pub struct GetPerformanceOutput {
     pub period_end_date: Option<String>,
     pub currency: String,
     pub mode: String,
+    pub basis_status: String,
+    pub summary: PerformanceSummaryOutput,
     pub returns: PerformanceReturnsOutput,
     pub attribution: PerformanceAttributionOutput,
     pub risk: PerformanceRiskOutput,
     pub data_quality: PerformanceDataQualityOutput,
     pub is_mixed_tracking_mode: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PerformanceSummaryOutput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amount: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub percent: Option<f64>,
+    pub method: String,
+    pub basis: String,
+    pub quality: String,
+    pub amount_status: String,
+    pub percent_status: String,
+    pub basis_status: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -104,6 +124,42 @@ pub struct PerformanceDataQualityOutput {
     pub warnings: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub not_applicable_reasons: Vec<String>,
+}
+
+impl PerformanceSummaryOutput {
+    fn unavailable(reason: impl Into<String>) -> Self {
+        Self {
+            method: "notApplicable".to_string(),
+            basis: "notApplicable".to_string(),
+            quality: "noData".to_string(),
+            amount_status: "unavailable".to_string(),
+            percent_status: "unavailable".to_string(),
+            basis_status: "notApplicable".to_string(),
+            reasons: vec![reason.into()],
+            ..Default::default()
+        }
+    }
+
+    fn from_metrics(metrics: &CorePerformanceResult) -> Self {
+        Self {
+            amount: metrics.summary.amount.and_then(|v| v.to_f64()),
+            percent: metrics.summary.percent.and_then(|v| v.to_f64()),
+            method: serialized_value(&metrics.summary.method, "notApplicable"),
+            basis: serialized_value(&metrics.summary.basis, "notApplicable"),
+            quality: serialized_value(&metrics.summary.quality, "partial"),
+            amount_status: serialized_value(&metrics.summary.amount_status, "unavailable"),
+            percent_status: serialized_value(&metrics.summary.percent_status, "unavailable"),
+            basis_status: serialized_value(&metrics.summary.basis_status, "notApplicable"),
+            reasons: metrics.summary.reasons.clone(),
+        }
+    }
+}
+
+fn serialized_value<T: Serialize>(value: &T, fallback: &str) -> String {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|value| value.as_str().map(ToString::to_string))
+        .unwrap_or_else(|| fallback.to_string())
 }
 
 // ============================================================================
@@ -191,18 +247,19 @@ impl<E: AiEnvironment + 'static> Tool for GetPerformanceTool<E> {
                 || account.is_archived
                 || !account_supports_purpose(&account.account_type, AccountPurpose::Performance)
             {
+                let reason = "Performance unavailable for this account type.".to_string();
                 return Ok(GetPerformanceOutput {
                     id: account_id.to_string(),
                     period_start_date: start_date.map(|d| d.to_string()),
                     period_end_date: Some(end_date.to_string()),
                     currency: account.currency,
                     mode: "notApplicable".to_string(),
+                    basis_status: "notApplicable".to_string(),
+                    summary: PerformanceSummaryOutput::unavailable(reason.clone()),
                     data_quality: PerformanceDataQualityOutput {
                         status: "noData".to_string(),
                         warnings: Vec::new(),
-                        not_applicable_reasons: vec![
-                            "Performance unavailable for this account type.".to_string(),
-                        ],
+                        not_applicable_reasons: vec![reason],
                     },
                     ..Default::default()
                 });
@@ -253,6 +310,11 @@ impl<E: AiEnvironment + 'static> Tool for GetPerformanceTool<E> {
                 .map_err(|e| AiError::ToolExecutionFailed(e.to_string()))?
         };
 
+        let mode = serialized_value(&metrics.mode, "notApplicable");
+        let basis_status = serialized_value(&metrics.basis_status, "notApplicable");
+        let summary = PerformanceSummaryOutput::from_metrics(&metrics);
+        let data_quality_status = serialized_value(&metrics.data_quality.status, "partial");
+
         Ok(GetPerformanceOutput {
             id: metrics.scope.id,
             period_start_date: metrics.period.start_date.map(|d| d.to_string()),
@@ -262,10 +324,9 @@ impl<E: AiEnvironment + 'static> Tool for GetPerformanceTool<E> {
             } else {
                 metrics.scope.currency
             },
-            mode: serde_json::to_value(metrics.mode)
-                .ok()
-                .and_then(|value| value.as_str().map(ToString::to_string))
-                .unwrap_or_else(|| "notApplicable".to_string()),
+            mode,
+            basis_status,
+            summary,
             returns: PerformanceReturnsOutput {
                 twr: metrics.returns.twr.and_then(|v| v.to_f64()),
                 annualized_twr: metrics.returns.annualized_twr.and_then(|v| v.to_f64()),
@@ -301,10 +362,7 @@ impl<E: AiEnvironment + 'static> Tool for GetPerformanceTool<E> {
                 drawdown_duration_days: metrics.risk.drawdown_duration_days,
             },
             data_quality: PerformanceDataQualityOutput {
-                status: serde_json::to_value(metrics.data_quality.status)
-                    .ok()
-                    .and_then(|value| value.as_str().map(ToString::to_string))
-                    .unwrap_or_else(|| "partial".to_string()),
+                status: data_quality_status,
                 warnings: metrics.data_quality.warnings,
                 not_applicable_reasons: metrics.data_quality.not_applicable_reasons,
             },
@@ -335,6 +393,9 @@ mod tests {
 
         let output = result.unwrap();
         assert_eq!(output.currency, "USD");
+        assert_eq!(output.basis_status, "notApplicable");
+        assert_eq!(output.summary.amount_status, "unavailable");
+        assert_eq!(output.summary.percent_status, "unavailable");
     }
 
     #[tokio::test]
@@ -376,6 +437,9 @@ mod tests {
         assert_eq!(output.currency, "USD");
         assert_eq!(output.returns.twr, None);
         assert_eq!(output.returns.irr, None);
+        assert_eq!(output.basis_status, "notApplicable");
+        assert_eq!(output.summary.amount_status, "unavailable");
+        assert_eq!(output.summary.percent_status, "unavailable");
     }
 
     #[tokio::test]

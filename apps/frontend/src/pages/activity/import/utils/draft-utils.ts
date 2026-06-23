@@ -598,7 +598,10 @@ export function createDraftActivities(
     const fee = parseNumericValue(rawFee, decimalSeparator, thousandsSeparator);
     const comment = rawComment?.trim();
     const fxRate = parseNumericValue(rawFxRate, decimalSeparator, thousandsSeparator);
-    const normalizedSubtype = rawSubtype?.trim().toUpperCase();
+    const signedFxSubtype = signedFxTransferType
+      ? normalizeSignAwareActivityLabel(rawType)
+      : undefined;
+    const normalizedSubtype = rawSubtype?.trim().toUpperCase() ?? signedFxSubtype;
     const subtype =
       normalizedSubtype && normalizedSubtype !== activityType ? normalizedSubtype : undefined;
 

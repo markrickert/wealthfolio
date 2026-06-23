@@ -46,7 +46,7 @@ use wealthfolio_core::{
     portfolio::performance::{
         DataQualityStatus, PerformanceAttribution, PerformanceDataQuality, PerformancePeriod,
         PerformanceResult, PerformanceReturns, PerformanceRisk, PerformanceScopeDescriptor,
-        PerformanceServiceTrait, PerformanceSummaryProfile, ReturnMethod,
+        PerformanceServiceTrait, PerformanceSummary, PerformanceSummaryProfile, ReturnMethod,
     },
     quotes::{
         LatestQuotePair, LatestQuoteSnapshot, ProviderInfo, Quote, QuoteImport, QuoteServiceTrait,
@@ -1426,6 +1426,7 @@ fn mock_performance_result(id: &str) -> PerformanceResult {
             not_applicable_reasons: Vec::new(),
         },
         basis_status: BasisStatus::NotApplicable,
+        summary: PerformanceSummary::default(),
         series: Vec::new(),
         is_holdings_mode: false,
         is_mixed_tracking_mode: false,

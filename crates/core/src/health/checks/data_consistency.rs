@@ -506,10 +506,6 @@ fn build_unknown_performance_flow_issue(
         "types".to_string(),
         serde_json::json!("TRANSFER_IN,TRANSFER_OUT"),
     );
-    query.insert(
-        "q".to_string(),
-        serde_json::json!("InternalSecurityTransfer"),
-    );
 
     let mut dates: Vec<_> = issues.iter().filter_map(|i| i.activity_date).collect();
     dates.sort_unstable();
@@ -961,10 +957,7 @@ mod tests {
             navigate_query.get("types"),
             Some(&serde_json::json!("TRANSFER_IN,TRANSFER_OUT"))
         );
-        assert_eq!(
-            navigate_query.get("q"),
-            Some(&serde_json::json!("InternalSecurityTransfer"))
-        );
+        assert!(navigate_query.get("q").is_none());
         assert_eq!(
             navigate_query.get("account"),
             Some(&serde_json::json!("acc_tfsa"))

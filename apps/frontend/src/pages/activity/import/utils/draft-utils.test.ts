@@ -257,10 +257,14 @@ describe("createDraftActivities explicit activity mapping", () => {
     expect(drafts).toHaveLength(2);
     expect(drafts[0].activityType).toBe(ActivityType.TRANSFER_IN);
     expect(drafts[0].amount).toBe("32.93");
+    expect(drafts[0].subtype).toBe("FXEXCHANGE");
     expect(drafts[0].isExternal).toBe(false);
     expect(drafts[1].activityType).toBe(ActivityType.TRANSFER_OUT);
     expect(drafts[1].amount).toBe("24.33");
+    expect(drafts[1].subtype).toBe("FXEXCHANGE");
     expect(drafts[1].isExternal).toBe(false);
+    expect(draftToActivityImport(drafts[0]).subtype).toBe("FXEXCHANGE");
+    expect(draftToActivityImport(drafts[1]).subtype).toBe("FXEXCHANGE");
   });
 
   it("infers Wealthsimple internal security transfer direction from signed quantity", () => {
