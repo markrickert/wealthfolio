@@ -103,7 +103,7 @@ pub struct AccountStateSnapshot {
 
     // --- Calculated Aggregates (Account Currency) ---
     #[serde(default)]
-    pub cost_basis: Decimal, // Sum of cost basis of all positions
+    pub cost_basis: Decimal, // Historical book cost of all positions in account currency
     #[serde(default)]
     pub net_contribution: Decimal, // Cumulative net deposits in account currency
     #[serde(default)]

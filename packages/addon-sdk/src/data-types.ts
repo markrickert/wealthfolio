@@ -746,6 +746,9 @@ export interface DateRange {
 
 export type TimePeriod = '1D' | '1W' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | '5Y' | 'ALL';
 
+export type ValuationStatus = 'complete' | 'partialUnpriced' | 'unavailable';
+export type BasisStatus = 'complete' | 'partialUnknown' | 'unknown' | 'notApplicable';
+
 export interface AccountValuation {
   id: string;
   accountId: string;
@@ -766,12 +769,21 @@ export interface AccountValuation {
   externalInflowBase: number;
   externalOutflowBase: number;
   externalFlowSource:
+    | 'NO_FLOW'
     | 'UNKNOWN'
+    | 'CASH_AMOUNT'
+    | 'QUOTE_DERIVED_MARKET_VALUE'
+    | 'COST_BASIS_FALLBACK'
+    | 'REMOVED_LOT_BASIS_FALLBACK'
+    | 'LEGACY_ACTIVITY_AMOUNT_FALLBACK'
+    | 'UNKNOWN_BOUNDARY_TRANSFER'
     | 'ACTIVITY_DERIVED'
     | 'STORED_GROSS'
     | 'NET_CONTRIBUTION_FALLBACK'
     | 'MIXED';
   performanceEligibleValueBase: number;
+  valueStatus: ValuationStatus;
+  basisStatus: BasisStatus;
   calculatedAt: string;
 }
 
@@ -866,6 +878,8 @@ export interface PerformanceResult {
   attribution: PerformanceAttribution;
   risk: PerformanceRisk;
   dataQuality: PerformanceDataQuality;
+  basisStatus?: BasisStatus;
+  summary?: PerformanceSummary;
   series: ReturnData[];
   isHoldingsMode?: boolean;
   isMixedTrackingMode?: boolean;
@@ -889,6 +903,25 @@ export type ReturnMethod =
   | 'valueReturn'
   | 'symbolPriceBased'
   | 'notApplicable';
+
+export type PerformanceSummaryBasis =
+  | 'marketValue'
+  | 'bookBasis'
+  | 'mixed'
+  | 'notApplicable';
+export type PerformanceSummaryStatus = 'complete' | 'unavailable';
+
+export interface PerformanceSummary {
+  amount?: number | null;
+  percent?: number | null;
+  method: ReturnMethod;
+  basis: PerformanceSummaryBasis;
+  quality: PerformanceDataQuality['status'];
+  amountStatus: PerformanceSummaryStatus;
+  percentStatus: PerformanceSummaryStatus;
+  basisStatus: BasisStatus;
+  reasons: string[];
+}
 
 export interface PerformanceReturns {
   twr?: number | null;

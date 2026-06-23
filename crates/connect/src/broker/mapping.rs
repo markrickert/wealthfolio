@@ -560,6 +560,7 @@ pub fn map_broker_activity(
             .or(activity.id.clone()),
         source_group_id: activity.source_group_id.clone(),
         idempotency_key: None,
+        import_run_id: None,
     })
 }
 

@@ -848,6 +848,7 @@ mod tests {
                         .and_hms_opt(0, 0, 0)
                         .unwrap(),
                 ),
+                acquisition_local_date: None,
                 quantity: dec!(10),
                 original_quantity: dec!(10),
                 cost_basis: dec!(1500),
@@ -855,6 +856,10 @@ mod tests {
                 acquisition_fees: dec!(5),
                 original_acquisition_fees: dec!(5),
                 fx_rate_to_position: None,
+                fx_rate_to_account: None,
+                account_currency: None,
+                fx_rate_to_base: None,
+                base_currency: None,
                 source_activity_id: None,
                 split_ratio: Decimal::ONE,
             }]),
@@ -984,6 +989,56 @@ mod tests {
             next_state.net_contribution,
             previous_snapshot.net_contribution
         ); // Buy does not change net contribution
+    }
+
+    #[test]
+    fn test_cost_basis_keeps_acquisition_fx_after_fx_rate_changes() {
+        let mut mock_fx_service = MockFxService::new();
+        let buy_date_str = "2023-01-03";
+        let later_date_str = "2023-01-06";
+        let buy_date = NaiveDate::from_str(buy_date_str).unwrap();
+        let later_date = NaiveDate::from_str(later_date_str).unwrap();
+        let account_currency = "CAD";
+        let activity_currency = "USD";
+
+        add_usd_cad_rates(&mut mock_fx_service, buy_date_str);
+        add_usd_cad_rates(&mut mock_fx_service, later_date_str);
+
+        let base_currency = Arc::new(RwLock::new(account_currency.to_string()));
+        let calculator = create_calculator(Arc::new(mock_fx_service), base_currency);
+        let previous_snapshot =
+            create_initial_snapshot("acc_fx_basis", account_currency, "2023-01-02");
+
+        let buy_activity_usd = create_default_activity(
+            "act_buy_usd_basis",
+            ActivityType::Buy,
+            "MSFT",
+            dec!(10),
+            dec!(100),
+            dec!(10),
+            activity_currency,
+            buy_date_str,
+        );
+
+        let after_buy = calculator
+            .calculate_next_holdings(&previous_snapshot, &[buy_activity_usd], buy_date)
+            .unwrap()
+            .snapshot;
+        let after_fx_move = calculator
+            .calculate_next_holdings(&after_buy, &[], later_date)
+            .unwrap()
+            .snapshot;
+
+        let position = after_fx_move.positions.get("MSFT").unwrap();
+        let historical_cost_basis = position.total_cost_basis * usd_cad_rate(buy_date_str);
+        assert_eq!(after_fx_move.cost_basis, historical_cost_basis);
+
+        let current_fx_cash_total = after_fx_move.cash_balances.get(activity_currency).unwrap()
+            * usd_cad_rate(later_date_str);
+        assert_eq!(
+            after_fx_move.cash_total_account_currency,
+            current_fx_cash_total
+        );
     }
 
     #[test]
@@ -1680,7 +1735,7 @@ mod tests {
     }
 
     #[test]
-    fn test_trade_amount_policy_transfer_in_keeps_existing_amount_behavior() {
+    fn test_trade_amount_policy_transfer_in_prefers_unit_price_over_legacy_amount() {
         let mock_fx_service = Arc::new(MockFxService::new());
         let account_currency = "USD";
         let base_currency = Arc::new(RwLock::new(account_currency.to_string()));
@@ -1696,6 +1751,46 @@ mod tests {
             "AAPL",
             dec!(10),
             dec!(99.76),
+            dec!(4.90),
+            account_currency,
+            target_date_str,
+        );
+        transfer_in.amount = Some(dec!(9976));
+
+        let result =
+            calculator.calculate_next_holdings(&previous_snapshot, &[transfer_in], target_date);
+        assert!(result.is_ok(), "Calculation failed: {:?}", result.err());
+        let next_state = result.unwrap().snapshot;
+
+        let position = next_state.positions.get("AAPL").unwrap();
+        assert_eq!(position.quantity, dec!(10));
+        assert_eq!(position.average_cost, dec!(100.25));
+        assert_eq!(position.total_cost_basis, dec!(1002.50));
+        assert_eq!(position.lots[0].acquisition_price, dec!(99.76));
+        assert_eq!(
+            next_state.cash_balances.get(account_currency),
+            Some(&dec!(-4.90))
+        );
+        assert_eq!(next_state.net_contribution, dec!(1002.50));
+    }
+
+    #[test]
+    fn test_trade_amount_policy_transfer_in_uses_amount_as_last_resort_when_unit_price_missing() {
+        let mock_fx_service = Arc::new(MockFxService::new());
+        let account_currency = "USD";
+        let base_currency = Arc::new(RwLock::new(account_currency.to_string()));
+        let calculator = create_calculator(mock_fx_service, base_currency);
+
+        let target_date_str = "2025-03-10";
+        let target_date = NaiveDate::from_str(target_date_str).unwrap();
+        let previous_snapshot = create_initial_snapshot("acc_1", account_currency, "2025-03-09");
+
+        let mut transfer_in = create_default_activity(
+            "act_transfer_in_amount_fallback",
+            ActivityType::TransferIn,
+            "AAPL",
+            dec!(10),
+            Decimal::ZERO,
             dec!(4.90),
             account_currency,
             target_date_str,
@@ -2490,8 +2585,10 @@ mod tests {
         // This conversion will also fail. Fallback uses 1:1 rate.
         // So, 2015 EUR position cost basis becomes 2015 CAD for the snapshot's cost_basis field.
         let expected_snapshot_cost_basis_cad = position_ads.total_cost_basis; // Fallback: 2015 EUR treated as 2015 CAD
-        assert_eq!(next_state.cost_basis, expected_snapshot_cost_basis_cad,
-            "Snapshot cost_basis mismatch. Expected fallback to use unconverted position currency value if final conversion fails.");
+        assert_eq!(
+            next_state.cost_basis, expected_snapshot_cost_basis_cad,
+            "Snapshot cost_basis mismatch. Expected fallback to use unconverted position currency value if final conversion fails."
+        );
 
         assert_eq!(
             next_state.net_contribution,
@@ -3560,6 +3657,7 @@ mod tests {
                         .and_hms_opt(0, 0, 0)
                         .unwrap(),
                 ),
+                acquisition_local_date: None,
                 quantity: dec!(20),
                 original_quantity: dec!(20),
                 cost_basis: dec!(2000),
@@ -3567,6 +3665,10 @@ mod tests {
                 acquisition_fees: dec!(0),
                 original_acquisition_fees: dec!(0),
                 fx_rate_to_position: None,
+                fx_rate_to_account: None,
+                account_currency: None,
+                fx_rate_to_base: None,
+                base_currency: None,
                 source_activity_id: None,
                 split_ratio: Decimal::ONE,
             }]),
@@ -3883,6 +3985,10 @@ mod tests {
             next_state.net_contribution, expected_net_contribution,
             "Net contribution should reflect transfer amount"
         );
+        assert_eq!(
+            next_state.net_contribution_base, expected_net_contribution,
+            "Base net contribution should use the activity fx_rate, not the FxService rate"
+        );
     }
 
     // ==================================================================================
@@ -4058,6 +4164,7 @@ mod tests {
             id: "lot_1".to_string(),
             position_id: "pos_1".to_string(),
             acquisition_date: Utc::now(),
+            acquisition_local_date: None,
             quantity: dec!(10),
             original_quantity: dec!(10),
             cost_basis: dec!(1000),
@@ -4065,6 +4172,10 @@ mod tests {
             acquisition_fees: dec!(0),
             original_acquisition_fees: dec!(0),
             fx_rate_to_position: None,
+            fx_rate_to_account: None,
+            account_currency: None,
+            fx_rate_to_base: None,
+            base_currency: None,
             source_activity_id: None,
             split_ratio: Decimal::ONE,
         }]);
@@ -4195,6 +4306,7 @@ mod tests {
             id: "lot_2".to_string(),
             position_id: "pos_2".to_string(),
             acquisition_date: Utc::now(),
+            acquisition_local_date: None,
             quantity: dec!(20),
             original_quantity: dec!(20),
             cost_basis: dec!(2000),
@@ -4202,6 +4314,10 @@ mod tests {
             acquisition_fees: dec!(0),
             original_acquisition_fees: dec!(0),
             fx_rate_to_position: None,
+            fx_rate_to_account: None,
+            account_currency: None,
+            fx_rate_to_base: None,
+            base_currency: None,
             source_activity_id: None,
             split_ratio: Decimal::ONE,
         }]);
@@ -4343,6 +4459,119 @@ mod tests {
             next_state.net_contribution, expected_net_contribution,
             "Net contribution should use fx_rate to convert position currency (USD) to account currency (CAD)"
         );
+        assert_eq!(
+            next_state.net_contribution_base, expected_net_contribution,
+            "Base net contribution should preserve the explicit transfer fx_rate even without an FxService rate"
+        );
+        assert_eq!(
+            next_state.cost_basis, expected_net_contribution,
+            "Book cost should preserve the activity fx_rate instead of re-querying historical FX"
+        );
+
+        let lot = position
+            .lots
+            .front()
+            .expect("transfer should create one lot");
+        assert_eq!(lot.fx_rate_to_account, Some(activity_fx_rate));
+        assert_eq!(lot.account_currency.as_deref(), Some(account_currency));
+        assert_eq!(lot.fx_rate_to_base, Some(activity_fx_rate));
+        assert_eq!(lot.base_currency.as_deref(), Some(account_currency));
+
+        let lot_records = calculator.extract_lot_records_with_base(&next_state, "FIFO");
+        assert_eq!(lot_records.len(), 1);
+        assert_eq!(lot_records[0].fx_rate_to_base, activity_fx_rate.to_string());
+        assert_eq!(
+            Decimal::from_str(&lot_records[0].remaining_cost_basis_base).unwrap(),
+            expected_net_contribution
+        );
+    }
+
+    #[test]
+    fn test_asset_transfer_out_uses_stored_lot_fx_for_net_contribution() {
+        let mut mock_fx_service = MockFxService::new();
+        let account_currency = "CAD";
+        let activity_currency = "USD";
+        let base_currency = Arc::new(RwLock::new(account_currency.to_string()));
+
+        let transfer_in_date_str = "2023-03-10";
+        let transfer_out_date_str = "2023-03-12";
+        let transfer_in_date = NaiveDate::from_str(transfer_in_date_str).unwrap();
+        let transfer_out_date = NaiveDate::from_str(transfer_out_date_str).unwrap();
+
+        let original_book_fx_rate = dec!(1.40);
+        let transfer_out_service_rate = dec!(1.20);
+        mock_fx_service.add_bidirectional_rate(
+            activity_currency,
+            account_currency,
+            transfer_in_date,
+            original_book_fx_rate,
+        );
+        mock_fx_service.add_bidirectional_rate(
+            activity_currency,
+            account_currency,
+            transfer_out_date,
+            transfer_out_service_rate,
+        );
+
+        let calculator = create_calculator(Arc::new(mock_fx_service), base_currency);
+        let previous_snapshot =
+            create_initial_snapshot("acc_transfer_out_book_fx", account_currency, "2023-03-09");
+
+        let transfer_in_activity = create_activity_with_fx_rate(
+            "act_transfer_in_book_fx",
+            ActivityType::TransferIn,
+            "AAPL",
+            dec!(1),
+            dec!(100),
+            dec!(0),
+            activity_currency,
+            transfer_in_date_str,
+            Some(original_book_fx_rate),
+        );
+
+        let after_transfer_in = calculator
+            .calculate_next_holdings(
+                &previous_snapshot,
+                &[transfer_in_activity],
+                transfer_in_date,
+            )
+            .unwrap()
+            .snapshot;
+        let expected_book_cost = dec!(100) * original_book_fx_rate;
+        assert_eq!(after_transfer_in.net_contribution, expected_book_cost);
+        assert_eq!(after_transfer_in.net_contribution_base, expected_book_cost);
+
+        let transfer_out_activity = create_activity_with_fx_rate(
+            "act_transfer_out_book_fx",
+            ActivityType::TransferOut,
+            "AAPL",
+            dec!(1),
+            dec!(0),
+            dec!(0),
+            activity_currency,
+            transfer_out_date_str,
+            None,
+        );
+
+        let after_transfer_out = calculator
+            .calculate_next_holdings(
+                &after_transfer_in,
+                &[transfer_out_activity],
+                transfer_out_date,
+            )
+            .unwrap()
+            .snapshot;
+
+        assert_eq!(
+            after_transfer_out.net_contribution,
+            Decimal::ZERO,
+            "Transfer out should remove the original book contribution, not the transfer-date FX value"
+        );
+        assert_eq!(
+            after_transfer_out.net_contribution_base,
+            Decimal::ZERO,
+            "Base net contribution should remove the stored lot book contribution"
+        );
     }
 
     #[test]
@@ -4417,6 +4646,15 @@ mod tests {
             Some(&expected_cad_cash),
             "Cash booked in account currency using activity fx_rate"
         );
+        assert_eq!(
+            next_state.cost_basis,
+            dec!(1505) * activity_fx_rate,
+            "Book cost should preserve the activity fx_rate for explicit FX trades"
+        );
+
+        let lot = position.lots.front().expect("buy should create one lot");
+        assert_eq!(lot.fx_rate_to_account, Some(activity_fx_rate));
+        assert_eq!(lot.account_currency.as_deref(), Some(account_currency));
     }
 
     // =========================================================================
@@ -4537,6 +4775,7 @@ mod tests {
                     id: "lot_1".to_string(),
                     position_id: "pos_aapl".to_string(),
                     acquisition_date: Utc::now(),
+                    acquisition_local_date: None,
                     quantity: dec!(10),
                     original_quantity: dec!(10),
                     cost_basis: dec!(1500),
@@ -4544,6 +4783,10 @@ mod tests {
                     acquisition_fees: dec!(0),
                     original_acquisition_fees: dec!(0),
                     fx_rate_to_position: None,
+                    fx_rate_to_account: None,
+                    account_currency: None,
+                    fx_rate_to_base: None,
+                    base_currency: None,
                     source_activity_id: None,
                     split_ratio: Decimal::ONE,
                 }]),
@@ -5082,6 +5325,24 @@ mod tests {
         assert_eq!(lot.acquisition_date, buy.activity_date);
         assert_eq!(lot.acquisition_price, dec!(100));
         assert_eq!(lot.quantity, dec!(10));
+
+        let disposals = calculator.take_lot_disposals("acc_a", "FIFO");
+        assert_eq!(disposals.len(), 1);
+        let disposal = &disposals[0];
+        assert_eq!(disposal.disposal_activity_id, "xfer_out");
+        assert_eq!(Decimal::from_str(&disposal.cost_basis).unwrap(), dec!(1005));
+        assert_eq!(
+            Decimal::from_str(&disposal.cost_basis_base).unwrap(),
+            dec!(1005)
+        );
+        assert_eq!(
+            Decimal::from_str(&disposal.realized_pnl).unwrap(),
+            Decimal::ZERO
+        );
+        assert_eq!(
+            Decimal::from_str(&disposal.realized_pnl_base).unwrap(),
+            Decimal::ZERO
+        );
     }
 
     #[test]
@@ -5255,6 +5516,80 @@ mod tests {
         assert_eq!(pos.total_cost_basis, dec!(1505));
         assert_eq!(pos.lots.len(), 1);
         assert_eq!(pos.lots[0].acquisition_price, dec!(150));
+    }
+
+    #[test]
+    fn test_external_transfer_in_ignores_legacy_amount_when_unit_price_is_present() {
+        let mock_fx_service = MockFxService::new();
+        let base_currency = Arc::new(RwLock::new("USD".to_string()));
+        let calculator = create_calculator(Arc::new(mock_fx_service), base_currency);
+
+        let prev = create_initial_snapshot("acc_b", "USD", "2023-05-31");
+        let transfer_date = NaiveDate::from_str("2023-06-01").unwrap();
+        let mut transfer_in = create_transfer_activity(
+            "ext_xfer_in_legacy_amount",
+            ActivityType::TransferIn,
+            "AAPL",
+            dec!(10),
+            dec!(150),
+            dec!(5),
+            "USD",
+            "2023-06-01",
+            "acc_b",
+            None,
+        );
+        transfer_in.amount = Some(dec!(5000));
+
+        let result = calculator
+            .calculate_next_holdings(&prev, &[transfer_in], transfer_date)
+            .unwrap();
+
+        let pos = result
+            .snapshot
+            .positions
+            .get("AAPL")
+            .expect("Should have AAPL");
+        assert_eq!(pos.quantity, dec!(10));
+        assert_eq!(pos.total_cost_basis, dec!(1505));
+        assert_eq!(pos.average_cost, dec!(150.5));
+        assert_eq!(pos.lots[0].acquisition_price, dec!(150));
+    }
+
+    #[test]
+    fn test_external_transfer_in_uses_legacy_amount_as_last_resort_lot_basis_without_unit_price() {
+        let mock_fx_service = MockFxService::new();
+        let base_currency = Arc::new(RwLock::new("USD".to_string()));
+        let calculator = create_calculator(Arc::new(mock_fx_service), base_currency);
+
+        let prev = create_initial_snapshot("acc_b", "USD", "2023-05-31");
+        let transfer_date = NaiveDate::from_str("2023-06-01").unwrap();
+        let mut transfer_in = create_transfer_activity(
+            "ext_xfer_in_legacy_amount_no_price",
+            ActivityType::TransferIn,
+            "AAPL",
+            dec!(10),
+            dec!(150),
+            Decimal::ZERO,
+            "USD",
+            "2023-06-01",
+            "acc_b",
+            None,
+        );
+        transfer_in.unit_price = None;
+        transfer_in.amount = Some(dec!(5000));
+
+        let result = calculator
+            .calculate_next_holdings(&prev, &[transfer_in], transfer_date)
+            .unwrap();
+
+        let pos = result
+            .snapshot
+            .positions
+            .get("AAPL")
+            .expect("Should have AAPL");
+        assert_eq!(pos.quantity, dec!(10));
+        assert_eq!(pos.total_cost_basis, dec!(5000));
+        assert_eq!(pos.lots[0].acquisition_price, dec!(500));
     }
 
     #[test]

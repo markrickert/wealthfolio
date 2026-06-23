@@ -400,7 +400,8 @@ pub async fn initialize_context(
             quote_service.clone(),
             fx_service.clone(),
         )
-        .with_activity_repository(activity_repository.clone(), timezone.clone()),
+        .with_activity_repository(activity_repository.clone(), timezone.clone())
+        .with_lot_repository(lots_repository.clone()),
     );
 
     let performance_service = Arc::new(

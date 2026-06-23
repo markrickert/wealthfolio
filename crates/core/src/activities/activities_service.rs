@@ -188,16 +188,15 @@ impl ActivityService {
         activity: &ActivityUpdate,
         existing: &Activity,
     ) -> bool {
-        if activity.amount.is_some()
-            || !PRICE_BEARING_ACTIVITY_TYPES.contains(&activity.activity_type.as_str())
-        {
+        if activity.amount.is_some() {
             return false;
         }
 
         let asset_id = activity.get_symbol_id().or(existing.asset_id.as_deref());
-        if activity.activity_type == ACTIVITY_TYPE_TRANSFER_IN
-            && !is_securities_transfer(&activity.activity_type, asset_id)
-        {
+        let derives_amount_from_quantity_price = PRICE_BEARING_ACTIVITY_TYPES
+            .contains(&activity.activity_type.as_str())
+            || is_securities_transfer(&activity.activity_type, asset_id);
+        if !derives_amount_from_quantity_price {
             return false;
         }
         if self.is_bond_asset(asset_id) {
@@ -789,6 +788,13 @@ impl ActivityService {
         let (score, confidence) = Self::transfer_candidate_score(day_diff);
         let mut reasons = Vec::new();
         let mut warnings = Vec::new();
+        let is_same_account_cash_fx =
+            crate::activities::is_same_account_cash_fx_conversion(source, candidate)
+                || crate::activities::is_same_account_cash_fx_conversion(candidate, source);
+
+        if source.account_id == candidate.account_id && !is_same_account_cash_fx {
+            return None;
+        }
 
         if source_is_security || candidate_is_security {
             let source_asset = Self::non_cash_transfer_asset_key(source)?;
@@ -827,6 +833,25 @@ impl ActivityService {
             return Some(TransferMatchCandidate {
                 activity: candidate.clone(),
                 match_kind: "security".to_string(),
+                confidence,
+                score,
+                reasons,
+                warnings,
+            });
+        }
+
+        if is_same_account_cash_fx {
+            reasons.push("Same account".to_string());
+            reasons.push("Cash FX conversion".to_string());
+            if day_diff == 0 {
+                reasons.push("Same date".to_string());
+            } else {
+                warnings.push(format!("Dates differ by {} day(s).", day_diff));
+            }
+
+            return Some(TransferMatchCandidate {
+                activity: candidate.clone(),
+                match_kind: "cash_fx_conversion".to_string(),
                 confidence,
                 score,
                 reasons,
@@ -1033,6 +1058,7 @@ impl ActivityService {
                 source_record_id: None,
                 source_group_id: Some(group_id.clone()),
                 idempotency_key: None,
+                import_run_id: None,
             },
             NewActivity {
                 id: None,
@@ -1055,6 +1081,7 @@ impl ActivityService {
                 source_record_id: None,
                 source_group_id: Some(group_id),
                 idempotency_key: None,
+                import_run_id: None,
             },
         ]
     }
@@ -1431,7 +1458,7 @@ impl ActivityService {
     /// and `DataSource::Broker` for MARKET-mode assets (coexists with provider quotes).
     ///
     /// Only called for activity types where `unit_price` represents the asset's
-    /// market price (BUY, SELL, TRANSFER_IN). Income activities (DIVIDEND,
+    /// market price (BUY, SELL). Income activities (DIVIDEND,
     /// INTEREST) store payment amounts in `unit_price`, not asset prices.
     async fn create_quote_from_activity(
         &self,
@@ -2183,11 +2210,11 @@ impl ActivityService {
         activity.amount = activity.amount.map(|v| v.abs());
         activity.fee = activity.fee.map(|v| v.abs());
 
-        // Securities transfers derive monetary value from quantity × unit_price at
-        // read time. Any inbound `amount` is redundant and has historically been
-        // a source of corruption (e.g. amount = qty² × unit_price stored on the
-        // row). Clear it only when unit_price is present so legacy imports that
-        // carry qty + amount (no unit_price) keep their monetary value.
+        // Securities transfer `unit_price` is book cost basis. Transfer-date
+        // market value is derived from quotes by valuation. Any inbound `amount`
+        // is redundant when unit_price is present and has historically corrupted
+        // rows (e.g. amount = qty² × unit_price). Clear it only when unit_price
+        // is present so legacy imports that carry qty + amount keep their value.
         if is_securities_transfer(&activity.activity_type, resolved_asset_id.as_deref())
             && activity.unit_price.is_some()
         {
@@ -3905,7 +3932,6 @@ impl ActivityServiceTrait for ActivityService {
             .into_iter()
             .filter(|candidate| {
                 candidate.id != source.id
-                    && candidate.account_id != source.account_id
                     && candidate.is_posted()
                     && transfer_resolution
                         .pair_for_activity(&candidate.id)
@@ -4945,9 +4971,21 @@ impl ActivityServiceTrait for ActivityService {
         );
         let import_run_id = import_run.id.clone();
 
-        if let Some(ref repo) = self.import_run_repository {
-            if let Err(e) = repo.create(import_run.clone()).await {
-                warn!("Failed to create import run: {}", e);
+        let import_run_created = if let Some(ref repo) = self.import_run_repository {
+            match repo.create(import_run.clone()).await {
+                Ok(_) => true,
+                Err(e) => {
+                    warn!("Failed to create import run: {}", e);
+                    false
+                }
+            }
+        } else {
+            false
+        };
+
+        if import_run_created {
+            for activity in &mut insertable_new_activities {
+                activity.import_run_id = Some(import_run_id.clone());
             }
         }
 
@@ -5684,9 +5722,10 @@ impl ActivityService {
                 activity.status = Some(ActivityStatus::Draft);
             }
 
-            // Securities transfers derive monetary value from quantity × unit_price;
-            // never persist an inbound `amount` for them when unit_price is present
-            // (see prepare_new_activity). Legacy imports with qty + amount and no
+            // Securities transfer `unit_price` is book cost basis; valuation
+            // derives transfer-date market value from quotes. Never persist an
+            // inbound `amount` for them when unit_price is present (see
+            // prepare_new_activity). Legacy imports with qty + amount and no
             // unit_price keep their monetary value.
             if is_securities_transfer(&activity.activity_type, resolved_asset_id.as_deref())
                 && activity.unit_price.is_some()
@@ -5758,7 +5797,8 @@ impl ActivityService {
     }
 
     /// Links matching TRANSFER_IN and TRANSFER_OUT activities by setting a shared source_group_id.
-    /// Matches are based on same date, currency, symbol, and amount.
+    /// Standard transfers match on same date, currency, symbol, and amount.
+    /// Same-account cash FX conversions match on same date/account with different currencies.
     fn link_imported_transfer_pairs(
         &self,
         validated_activities: &[ActivityImport],
@@ -5772,6 +5812,15 @@ impl ActivityService {
             amount: Decimal,
         }
 
+        #[derive(Debug, Clone)]
+        struct ImportedFxMetadata {
+            source_currency: String,
+            destination_currency: String,
+            source_amount: Decimal,
+            destination_amount: Decimal,
+            implied_rate: Decimal,
+        }
+
         fn parse_activity_date(date_str: &str) -> Option<NaiveDate> {
             if let Ok(dt) = DateTime::parse_from_rfc3339(date_str) {
                 return Some(dt.date_naive());
@@ -5779,13 +5828,17 @@ impl ActivityService {
             NaiveDate::parse_from_str(date_str, "%Y-%m-%d").ok()
         }
 
-        fn transfer_match_key(activity: &ActivityImport) -> Option<TransferMatchKey> {
-            let date = parse_activity_date(&activity.date)?;
-            let amount = activity.amount.or_else(|| {
+        fn transfer_amount(activity: &ActivityImport) -> Option<Decimal> {
+            activity.amount.or_else(|| {
                 let quantity = activity.quantity?;
                 let unit_price = activity.unit_price?;
                 Some(quantity * unit_price)
-            })?;
+            })
+        }
+
+        fn transfer_match_key(activity: &ActivityImport) -> Option<TransferMatchKey> {
+            let date = parse_activity_date(&activity.date)?;
+            let amount = transfer_amount(activity)?;
             if amount.is_zero() {
                 return None;
             }
@@ -5797,9 +5850,90 @@ impl ActivityService {
             })
         }
 
-        fn set_transfer_flow_external(
+        fn is_cash_transfer_import(activity: &ActivityImport) -> bool {
+            let symbol = activity.symbol.trim();
+            let asset_id = activity.asset_id.as_deref().unwrap_or("").trim();
+            (symbol.is_empty() || is_cash_symbol(symbol))
+                && (asset_id.is_empty() || is_cash_symbol(asset_id))
+        }
+
+        fn normalize_import_label(value: &str) -> String {
+            value
+                .trim()
+                .chars()
+                .filter(|c| !matches!(c, ' ' | '_' | '-'))
+                .flat_map(char::to_uppercase)
+                .collect()
+        }
+
+        fn is_fx_import_label(value: &str) -> bool {
+            matches!(
+                normalize_import_label(value).as_str(),
+                "FXEXCHANGE"
+                    | "FXCONVERSION"
+                    | "CURRENCYEXCHANGE"
+                    | "CURRENCYCONVERSION"
+                    | "FOREIGNEXCHANGE"
+                    | "FOREIGNEXCHANGECONVERSION"
+            )
+        }
+
+        fn has_fx_import_provenance(activity: &ActivityImport) -> bool {
+            activity.subtype.as_deref().is_some_and(is_fx_import_label)
+                || activity.comment.as_deref().is_some_and(is_fx_import_label)
+        }
+
+        fn is_explicit_internal_fx_import(activity: &ActivityImport) -> bool {
+            activity.is_external == Some(false) && has_fx_import_provenance(activity)
+        }
+
+        fn same_account_cash_fx_metadata(
+            transfer_in: &ActivityImport,
+            transfer_out: &ActivityImport,
+        ) -> Option<ImportedFxMetadata> {
+            if !is_explicit_internal_fx_import(transfer_in)
+                || !is_explicit_internal_fx_import(transfer_out)
+            {
+                return None;
+            }
+            let in_account = transfer_in.account_id.as_deref()?;
+            let out_account = transfer_out.account_id.as_deref()?;
+            if in_account != out_account {
+                return None;
+            }
+            if parse_activity_date(&transfer_in.date)? != parse_activity_date(&transfer_out.date)? {
+                return None;
+            }
+            if !is_cash_transfer_import(transfer_in) || !is_cash_transfer_import(transfer_out) {
+                return None;
+            }
+            if transfer_in
+                .currency
+                .trim()
+                .eq_ignore_ascii_case(transfer_out.currency.trim())
+            {
+                return None;
+            }
+
+            let destination_amount = transfer_amount(transfer_in)?.abs();
+            let source_amount = transfer_amount(transfer_out)?.abs();
+            if destination_amount.is_zero() || source_amount.is_zero() {
+                return None;
+            }
+
+            Some(ImportedFxMetadata {
+                source_currency: transfer_out.currency.clone(),
+                destination_currency: transfer_in.currency.clone(),
+                source_amount,
+                destination_amount,
+                implied_rate: destination_amount / source_amount,
+            })
+        }
+
+        fn set_transfer_metadata(
             metadata: Option<String>,
             is_external: bool,
+            fx_metadata: Option<&ImportedFxMetadata>,
         ) -> Option<String> {
             let mut value = metadata
                 .and_then(|metadata| serde_json::from_str::<serde_json::Value>(&metadata).ok())
@@ -5812,14 +5946,30 @@ impl ActivityService {
             let object = value
                 .as_object_mut()
                 .expect("transfer metadata value should be an object");
-            let flow = object
-                .entry("flow")
-                .or_insert_with(|| serde_json::json!({}));
-            if !flow.is_object() {
-                *flow = serde_json::json!({});
+            {
+                let flow = object
+                    .entry("flow")
+                    .or_insert_with(|| serde_json::json!({}));
+                if !flow.is_object() {
+                    *flow = serde_json::json!({});
+                }
+                if let Some(flow_object) = flow.as_object_mut() {
+                    flow_object.insert("is_external".to_string(), serde_json::json!(is_external));
+                }
             }
-            if let Some(flow_object) = flow.as_object_mut() {
-                flow_object.insert("is_external".to_string(), serde_json::json!(is_external));
+
+            if let Some(fx_metadata) = fx_metadata {
+                object.insert(
+                    "fx".to_string(),
+                    serde_json::json!({
+                        "sourceCurrency": fx_metadata.source_currency.as_str(),
+                        "destinationCurrency": fx_metadata.destination_currency.as_str(),
+                        "sourceAmount": fx_metadata.source_amount.to_string(),
+                        "destinationAmount": fx_metadata.destination_amount.to_string(),
+                        "impliedRate": fx_metadata.implied_rate.to_string(),
+                        "rateSource": "implied_from_import"
+                    }),
+                );
             }
 
             Some(value.to_string())
@@ -5840,8 +5990,29 @@ impl ActivityService {
             matches!((in_account, out_account), (Some(in_account), Some(out_account)) if in_account == out_account)
         }
 
+        fn apply_transfer_link(
+            new_activities: &mut [NewActivity],
+            in_idx: usize,
+            out_idx: usize,
+            fx_metadata: Option<&ImportedFxMetadata>,
+        ) {
+            let group_id = Uuid::new_v4().to_string();
+            if let Some(activity) = new_activities.get_mut(in_idx) {
+                activity.source_group_id = Some(group_id.clone());
+                activity.metadata =
+                    set_transfer_metadata(activity.metadata.take(), false, fx_metadata);
+            }
+            if let Some(activity) = new_activities.get_mut(out_idx) {
+                activity.source_group_id = Some(group_id);
+                activity.metadata =
+                    set_transfer_metadata(activity.metadata.take(), false, fx_metadata);
+            }
+        }
+
         let mut transfer_in: HashMap<TransferMatchKey, Vec<usize>> = HashMap::new();
         let mut transfer_out: HashMap<TransferMatchKey, Vec<usize>> = HashMap::new();
+        let mut transfer_in_indices = Vec::new();
+        let mut transfer_out_indices = Vec::new();
 
         for (idx, activity) in validated_activities.iter().enumerate() {
             let activity_type = activity.activity_type.as_str();
@@ -5854,12 +6025,15 @@ impl ActivityService {
             if let Some(key) = transfer_match_key(activity) {
                 if activity_type == ACTIVITY_TYPE_TRANSFER_IN {
                     transfer_in.entry(key).or_default().push(idx);
+                    transfer_in_indices.push(idx);
                 } else {
                     transfer_out.entry(key).or_default().push(idx);
+                    transfer_out_indices.push(idx);
                 }
             }
         }
 
+        let mut linked_indices = HashSet::new();
         for (key, in_indices) in transfer_in {
             if let Some(out_indices) = transfer_out.get(&key) {
                 let mut used_out_indices = HashSet::new();
@@ -5871,19 +6045,39 @@ impl ActivityService {
                         continue;
                     };
                     used_out_indices.insert(out_idx);
-                    let group_id = Uuid::new_v4().to_string();
-                    if let Some(activity) = new_activities.get_mut(in_idx) {
-                        activity.source_group_id = Some(group_id.clone());
-                        activity.metadata =
-                            set_transfer_flow_external(activity.metadata.take(), false);
-                    }
-                    if let Some(activity) = new_activities.get_mut(out_idx) {
-                        activity.source_group_id = Some(group_id);
-                        activity.metadata =
-                            set_transfer_flow_external(activity.metadata.take(), false);
-                    }
+                    linked_indices.insert(in_idx);
+                    linked_indices.insert(out_idx);
+                    apply_transfer_link(new_activities, in_idx, out_idx, None);
                 }
             }
+        }
+
+        let mut used_fx_out_indices = HashSet::new();
+        for in_idx in transfer_in_indices {
+            if linked_indices.contains(&in_idx) {
+                continue;
+            }
+            let Some((out_idx, fx_metadata)) = transfer_out_indices
+                .iter()
+                .copied()
+                .filter(|out_idx| {
+                    !linked_indices.contains(out_idx) && !used_fx_out_indices.contains(out_idx)
+                })
+                .find_map(|out_idx| {
+                    same_account_cash_fx_metadata(
+                        validated_activities.get(in_idx)?,
+                        validated_activities.get(out_idx)?,
+                    )
+                    .map(|metadata| (out_idx, metadata))
+                })
+            else {
+                continue;
+            };
+
+            used_fx_out_indices.insert(out_idx);
+            linked_indices.insert(in_idx);
+            linked_indices.insert(out_idx);
+            apply_transfer_link(new_activities, in_idx, out_idx, Some(&fx_metadata));
         }
     }
 }

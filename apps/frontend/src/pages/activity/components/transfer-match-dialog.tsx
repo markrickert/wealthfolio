@@ -33,6 +33,7 @@ import {
 } from "@wealthfolio/ui";
 import { ActivityTypeBadge } from "./activity-type-badge";
 import type { NewActivityFormValues } from "./forms/schemas";
+import { isSameAccountCashFxConversion, nonCashTransferAssetKey } from "./transfer-link-utils";
 import { useActivityMutations } from "../hooks/use-activity-mutations";
 
 export type TransferDialogActivity = Activity | ActivityDetails;
@@ -156,11 +157,7 @@ function normalizeActivity(
 }
 
 function assetKey(activity: NormalizedTransferActivity): string | undefined {
-  const raw = (activity.assetId ?? activity.assetSymbol ?? "").trim();
-  if (!raw) return undefined;
-  const key = raw.toUpperCase();
-  if (key === "CASH" || key.startsWith("$CASH") || key.startsWith("CASH:")) return undefined;
-  return key;
+  return nonCashTransferAssetKey(activity);
 }
 
 function amountValue(activity: NormalizedTransferActivity): number | undefined {
@@ -180,6 +177,7 @@ function sameExactShape(
   source: NormalizedTransferActivity,
   candidate: NormalizedTransferActivity,
 ): boolean {
+  if (isSameAccountCashFxConversion(source, candidate)) return true;
   if (isSecurityTransfer(source) || isSecurityTransfer(candidate)) {
     return (
       assetKey(source) === assetKey(candidate) &&
@@ -195,6 +193,9 @@ function canLinkCandidate(
   source: NormalizedTransferActivity,
   candidate: NormalizedTransferActivity,
 ): boolean {
+  if (source.accountId === candidate.accountId) {
+    return isSameAccountCashFxConversion(source, candidate);
+  }
   if (isSecurityTransfer(source) || isSecurityTransfer(candidate)) {
     return (
       assetKey(source) === assetKey(candidate) &&
@@ -237,6 +238,9 @@ function manualWarnings(
   const warnings: string[] = [];
   const diff = dateDiffDays(source.date, candidate.date);
   if (diff && diff > 0) warnings.push(`Dates differ by ${diff} day${diff === 1 ? "" : "s"}.`);
+  if (isSameAccountCashFxConversion(source, candidate)) {
+    return warnings;
+  }
   if (source.currency !== candidate.currency) {
     warnings.push(`Currencies differ (${source.currency} / ${candidate.currency}).`);
   }
@@ -555,7 +559,6 @@ export function TransferMatchDialog({
         const candidate = normalizeActivity(activity, accountMap);
         const candidateAccount = accountMap.get(candidate.accountId);
         if (candidate.id === source.id) return false;
-        if (candidate.accountId === source.accountId) return false;
         if (manualLinkedCandidateIds.has(candidate.id)) return false;
         if (manualGroupCheckPendingIds.has(candidate.id)) return false;
         if (candidate.activityType !== oppositeType) return false;
@@ -572,9 +575,11 @@ export function TransferMatchDialog({
       .sort((left, right) => activitySortKey(right).localeCompare(activitySortKey(left)))
       .map((activity) => {
         const candidate = normalizeActivity(activity, accountMap);
-        const reasons = sameExactShape(source, candidate)
-          ? [isSecurityTransfer(source) ? "Same asset and quantity" : "Same amount and currency"]
-          : ["Eligible opposite transfer"];
+        const reasons = isSameAccountCashFxConversion(source, candidate)
+          ? ["Same-account FX conversion"]
+          : sameExactShape(source, candidate)
+            ? [isSecurityTransfer(source) ? "Same asset and quantity" : "Same amount and currency"]
+            : ["Eligible opposite transfer"];
         const warnings = manualWarnings(source, candidate);
         if (candidate.sourceGroupId) {
           warnings.push("Existing stale transfer link will be replaced.");

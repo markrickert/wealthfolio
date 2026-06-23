@@ -406,7 +406,8 @@ pub async fn build_state(config: &Config) -> anyhow::Result<Arc<AppState>> {
             quote_service.clone(),
             fx_service.clone(),
         )
-        .with_activity_repository(activity_repository.clone(), timezone.clone()),
+        .with_activity_repository(activity_repository.clone(), timezone.clone())
+        .with_lot_repository(lots_repository.clone()),
     );
 
     let net_worth_service: Arc<dyn NetWorthServiceTrait + Send + Sync> =

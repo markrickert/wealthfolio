@@ -1,3 +1,4 @@
+use crate::portfolio::economic_events::BasisStatus;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -64,7 +65,8 @@ pub struct PerformanceReturns {
 pub enum PerformanceSummaryProfile {
     #[default]
     Full,
-    Headline,
+    #[serde(alias = "headline")]
+    Summary,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -143,6 +145,54 @@ impl PerformanceDataQuality {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum PerformanceSummaryBasis {
+    MarketValue,
+    BookBasis,
+    Mixed,
+    #[default]
+    NotApplicable,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum PerformanceSummaryStatus {
+    Complete,
+    #[default]
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PerformanceSummary {
+    pub amount: Option<Decimal>,
+    pub percent: Option<Decimal>,
+    pub method: ReturnMethod,
+    pub basis: PerformanceSummaryBasis,
+    pub quality: DataQualityStatus,
+    pub amount_status: PerformanceSummaryStatus,
+    pub percent_status: PerformanceSummaryStatus,
+    pub basis_status: BasisStatus,
+    pub reasons: Vec<String>,
+}
+
+impl Default for PerformanceSummary {
+    fn default() -> Self {
+        Self {
+            amount: None,
+            percent: None,
+            method: ReturnMethod::NotApplicable,
+            basis: PerformanceSummaryBasis::NotApplicable,
+            quality: DataQualityStatus::NotApplicable,
+            amount_status: PerformanceSummaryStatus::Unavailable,
+            percent_status: PerformanceSummaryStatus::Unavailable,
+            basis_status: BasisStatus::NotApplicable,
+            reasons: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PerformanceResult {
@@ -153,6 +203,10 @@ pub struct PerformanceResult {
     pub attribution: PerformanceAttribution,
     pub risk: PerformanceRisk,
     pub data_quality: PerformanceDataQuality,
+    #[serde(default)]
+    pub basis_status: BasisStatus,
+    #[serde(default, alias = "headline")]
+    pub summary: PerformanceSummary,
     pub series: Vec<ReturnData>,
     #[serde(default)]
     pub is_holdings_mode: bool,
@@ -172,4 +226,79 @@ pub struct SimplePerformanceMetrics {
     pub total_gain_loss_amount: Option<Decimal>,
     pub cumulative_return_percent: Option<Decimal>,
     pub portfolio_weight: Option<Decimal>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::portfolio::economic_events::BasisStatus;
+    use chrono::NaiveDate;
+    use serde_json::json;
+
+    #[test]
+    fn performance_result_serializes_typed_summary_contract() {
+        let result = PerformanceResult {
+            scope: PerformanceScopeDescriptor {
+                id: "scope-1".to_string(),
+                currency: "CAD".to_string(),
+            },
+            period: PerformancePeriod {
+                start_date: Some(NaiveDate::from_ymd_opt(2026, 6, 1).unwrap()),
+                end_date: Some(NaiveDate::from_ymd_opt(2026, 6, 30).unwrap()),
+            },
+            mode: ReturnMethod::ValueReturn,
+            returns: PerformanceReturns {
+                twr: None,
+                annualized_twr: None,
+                irr: None,
+                annualized_irr: None,
+                value_return: Some(Decimal::new(12, 2)),
+                annualized_value_return: None,
+            },
+            attribution: PerformanceAttribution::default(),
+            risk: PerformanceRisk {
+                volatility: None,
+                max_drawdown: None,
+                peak_date: None,
+                trough_date: None,
+                recovery_date: None,
+                drawdown_duration_days: None,
+            },
+            data_quality: PerformanceDataQuality {
+                status: DataQualityStatus::Partial,
+                warnings: vec!["display warning".to_string()],
+                not_applicable_reasons: vec!["display reason".to_string()],
+            },
+            basis_status: BasisStatus::PartialUnknown,
+            summary: PerformanceSummary {
+                amount: Some(Decimal::new(1234, 2)),
+                percent: None,
+                method: ReturnMethod::ValueReturn,
+                basis: PerformanceSummaryBasis::Mixed,
+                quality: DataQualityStatus::Partial,
+                amount_status: PerformanceSummaryStatus::Complete,
+                percent_status: PerformanceSummaryStatus::Unavailable,
+                basis_status: BasisStatus::PartialUnknown,
+                reasons: vec!["display reason".to_string()],
+            },
+            series: Vec::new(),
+            is_holdings_mode: false,
+            is_mixed_tracking_mode: true,
+        };
+
+        let value = serde_json::to_value(&result).expect("performance result should serialize");
+
+        assert_eq!(value["mode"], json!("valueReturn"));
+        assert_eq!(value["basisStatus"], json!("partialUnknown"));
+        assert_eq!(value["isMixedTrackingMode"], json!(true));
+        assert!(value.get("headline").is_none());
+        assert!(value["summary"].get("componentCoverage").is_none());
+        assert_eq!(value["summary"]["method"], json!("valueReturn"));
+        assert_eq!(value["summary"]["basis"], json!("mixed"));
+        assert_eq!(value["summary"]["quality"], json!("partial"));
+        assert_eq!(value["summary"]["amountStatus"], json!("complete"));
+        assert_eq!(value["summary"]["percentStatus"], json!("unavailable"));
+        assert_eq!(value["summary"]["basisStatus"], json!("partialUnknown"));
+        assert_eq!(value["summary"]["reasons"][0], json!("display reason"));
+    }
 }

@@ -440,7 +440,7 @@ describe("scope-based routing — performance filters", () => {
       scopes: [{ accountIds: ["acc_2", "acc_1"] }],
       startDate: "2026-01-01",
       endDate: "2026-01-31",
-      profile: "headline",
+      profile: "summary",
     });
 
     const { url, method, body } = lastCall(mock);
@@ -450,7 +450,7 @@ describe("scope-based routing — performance filters", () => {
       scopes: [{ accountIds: ["acc_2", "acc_1"] }],
       startDate: "2026-01-01",
       endDate: "2026-01-31",
-      profile: "headline",
+      profile: "summary",
     });
   });
 });

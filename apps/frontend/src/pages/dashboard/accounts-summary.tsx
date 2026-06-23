@@ -4,7 +4,7 @@ import { calculatePerformanceSummaries, performanceSummaryScopeKey } from "@/ada
 import { useAccounts } from "@/hooks/use-accounts";
 import { useCurrentAccountValuations } from "@/hooks/use-current-account-valuations";
 import { AccountPurpose } from "@/lib/constants";
-import { performanceHeadlineReturn, performancePeriodPnl } from "@/lib/performance";
+import { performanceSummaryReturn, performancePeriodPnl } from "@/lib/performance";
 import { QueryKeys } from "@/lib/query-keys";
 import { useSettingsContext } from "@/lib/settings-provider";
 import type {
@@ -165,7 +165,6 @@ const AccountSummaryComponent = React.memo(
                 value={gainAmountToDisplay}
                 currency={gainDisplayCurrency}
                 displayCurrency={false}
-                showSign={false}
               />
               <Separator orientation="vertical" className="h-3 md:h-4" />
             </>
@@ -355,7 +354,7 @@ export const AccountsSummary = React.memo(
         endDate,
       ],
       queryFn: () =>
-        calculatePerformanceSummaries(performanceScopes, startDate, endDate, "headline"),
+        calculatePerformanceSummaries(performanceScopes, startDate, endDate, "summary"),
       enabled: datesReady && performanceScopes.length > 0,
       staleTime: 30 * 1000,
       retry: 1,
@@ -394,7 +393,7 @@ export const AccountsSummary = React.memo(
         const totalValueBaseCurrency = valuation.totalValueBase;
 
         const gainLossBaseCurrency = performancePeriodPnl(perf);
-        const gainPercent = performanceHeadlineReturn(perf);
+        const gainPercent = performanceSummaryReturn(perf);
 
         return {
           accountName: acc.name,
@@ -507,7 +506,7 @@ export const AccountsSummary = React.memo(
             );
 
             const totalGainLossAmountBase = performancePeriodPnl(groupPerformance);
-            const groupTotalReturnPercentBase = performanceHeadlineReturn(groupPerformance);
+            const groupTotalReturnPercentBase = performanceSummaryReturn(groupPerformance);
 
             actualGroups.push({
               accountName: groupName,

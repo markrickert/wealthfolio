@@ -222,6 +222,15 @@ pub trait LotRepositoryTrait: Send + Sync {
         Ok(disposals)
     }
 
+    /// Synchronous variant for read paths that cannot become async without
+    /// changing the public valuation API.
+    fn get_lot_disposals_for_accounts_in_date_range_sync(
+        &self,
+        account_ids: &[String],
+        start_date_exclusive: NaiveDate,
+        end_date_inclusive: NaiveDate,
+    ) -> Result<Vec<LotDisposal>>;
+
     /// Returns total quantity per asset across all open lots (all accounts).
     /// Used for quote sync planning — determines which assets need price data.
     async fn get_open_position_quantities(&self) -> Result<HashMap<String, Decimal>>;
@@ -395,7 +404,7 @@ pub fn extract_lot_records_with_cost_basis_method(
                 id: lot.id.clone(),
                 account_id: snapshot.account_id.clone(),
                 asset_id: position.asset_id.clone(),
-                open_date: lot.acquisition_date.format("%Y-%m-%d").to_string(),
+                open_date: lot.acquisition_date_key().to_string(),
                 open_activity_id: lot.source_activity_id.clone(),
                 original_quantity: orig_qty.to_string(),
                 remaining_quantity: lot.quantity.to_string(),
@@ -493,6 +502,7 @@ mod tests {
             acquisition_date: Utc
                 .with_ymd_and_hms(date_ymd.0, date_ymd.1, date_ymd.2, 0, 0, 0)
                 .unwrap(),
+            acquisition_local_date: None,
             quantity: qty,
             original_quantity: qty,
             cost_basis: qty * price + fee,
@@ -500,6 +510,10 @@ mod tests {
             acquisition_fees: fee,
             original_acquisition_fees: fee,
             fx_rate_to_position: None,
+            fx_rate_to_account: None,
+            account_currency: None,
+            fx_rate_to_base: None,
+            base_currency: None,
             source_activity_id: None,
             split_ratio: Decimal::ONE,
         }

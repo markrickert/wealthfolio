@@ -13,7 +13,11 @@ import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
 import { Icons } from "@wealthfolio/ui";
 import { Alert, AlertDescription } from "@wealthfolio/ui/components/ui/alert";
 import { PerformanceResult } from "@/lib/types";
-import { performancePeriodPnl } from "@/lib/performance";
+import {
+  performancePeriodPnl,
+  performanceSummaryReturn,
+  shouldDisplayAnnualizedPerformanceReturn,
+} from "@/lib/performance";
 import { cn } from "@/lib/utils";
 import React from "react";
 
@@ -52,11 +56,11 @@ export const PerformanceGrid: React.FC<PerformanceGridProps> = ({
       <div className={cn("w-full", className)}>
         <Card className="border-none p-0 shadow-none">
           <CardContent className="p-0">
-            <div className="grid grid-cols-2 gap-5">
-              {[...Array(4)].map((_, index) => (
+            <div className="grid grid-cols-2 gap-3">
+              {Array.from({ length: 4 }, (_, index) => (
                 <div
                   key={index}
-                  className="border-muted/30 bg-muted/30 flex min-h-24 flex-col items-center justify-center space-y-2 rounded-md border p-4 md:p-6"
+                  className="border-muted/30 bg-muted/30 flex min-h-16 flex-col items-center justify-center space-y-1 rounded-md border p-2.5"
                 >
                   <Skeleton className="h-3 w-32" />
                   <Skeleton className="h-5 w-16" />
@@ -74,13 +78,22 @@ export const PerformanceGrid: React.FC<PerformanceGridProps> = ({
   const twrAnnualized = performance.returns.annualizedTwr ?? undefined;
   const irrValue = performance.returns.irr ?? undefined;
   const irrAnnualized = performance.returns.annualizedIrr ?? undefined;
-  const valueReturn = performance.returns.valueReturn ?? undefined;
+  const shouldDisplayAnnualized = shouldDisplayAnnualizedPerformanceReturn(performance);
+  const showAnnualizedTwr = shouldDisplayAnnualized && twrAnnualized !== undefined;
+  const showAnnualizedIrr = shouldDisplayAnnualized && irrAnnualized !== undefined;
+  const twrDisplayValue = showAnnualizedTwr ? twrAnnualized : twrValue;
+  const irrDisplayValue = showAnnualizedIrr ? irrAnnualized : irrValue;
+  const twrInfoText = showAnnualizedTwr
+    ? `${TIME_WEIGHTED_RETURN_INFO} Hover the value to see cumulative TWR.`
+    : TIME_WEIGHTED_RETURN_INFO;
+  const irrInfoText = showAnnualizedIrr
+    ? `${IRR_RETURN_INFO} Hover the value to see the selected-period IRR.`
+    : IRR_RETURN_INFO;
+  const holdingsValueReturn = performanceSummaryReturn(performance) ?? undefined;
   const periodPnl = performancePeriodPnl(performance) ?? undefined;
   const volatility = performance.risk.volatility ?? undefined;
   const maxDrawdown = performance.risk.maxDrawdown ?? undefined;
-  const notApplicableReasons = performance.dataQuality.notApplicableReasons ?? [];
-  const reasonFor = (needle: string) =>
-    notApplicableReasons.find((reason) => reason.toLowerCase().includes(needle.toLowerCase()));
+  const unavailableReason = performance.dataQuality.notApplicableReasons?.[0];
 
   // For HOLDINGS mode accounts:
   // - TWR/IRR are NOT available (require cash flow tracking)
@@ -90,40 +103,40 @@ export const PerformanceGrid: React.FC<PerformanceGridProps> = ({
       <div className={cn("w-full", className)}>
         <Card className="border-none p-0 shadow-none">
           <CardContent className="p-0">
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-2 gap-3">
               <MetricDisplay
                 label="Value Return"
-                value={valueReturn}
-                emptyReason={reasonFor("value return")}
+                value={holdingsValueReturn}
+                emptyReason={unavailableReason}
                 infoText={VALUE_RETURN_INFO}
                 isPercentage={true}
-                className="border-muted/30 bg-muted/30 rounded-md border"
+                className="border-muted/30 bg-muted/30 min-h-16 rounded-md border p-2.5"
               />
               <MetricDisplay
                 label="Total P&L"
                 value={periodPnl}
-                emptyReason={reasonFor("P&L") ?? reasonFor("performance")}
+                emptyReason={unavailableReason}
                 infoText="Total profit or loss over the selected period."
                 isPercentage={false}
                 currency={performance.scope.currency}
-                className="border-muted/30 bg-muted/30 rounded-md border"
+                className="border-muted/30 bg-muted/30 min-h-16 rounded-md border p-2.5"
               />
               <MetricDisplay
                 label="Volatility"
                 value={volatility}
-                emptyReason={reasonFor("volatility")}
+                emptyReason={unavailableReason}
                 infoText={HOLDINGS_MODE_VOLATILITY_INFO}
                 isPercentage={true}
                 tone="neutral"
-                className="border-muted/30 bg-muted/30 rounded-md border"
+                className="border-muted/30 bg-muted/30 min-h-16 rounded-md border p-2.5"
               />
               <MetricDisplay
                 label="Max Drawdown"
                 value={maxDrawdown}
-                emptyReason={reasonFor("drawdown")}
+                emptyReason={unavailableReason}
                 infoText={HOLDINGS_MODE_MAX_DRAWDOWN_INFO}
                 isPercentage={true}
-                className="border-muted/30 bg-muted/30 rounded-md border"
+                className="border-muted/30 bg-muted/30 min-h-16 rounded-md border p-2.5"
               />
             </div>
           </CardContent>
@@ -136,41 +149,43 @@ export const PerformanceGrid: React.FC<PerformanceGridProps> = ({
     <div className={cn("w-full", className)}>
       <Card className="border-none p-0 shadow-none">
         <CardContent className="p-0">
-          <div className="grid grid-cols-2 gap-5">
+          <div className="grid grid-cols-2 gap-3">
             <MetricDisplay
-              label="Time Weighted Return"
-              value={twrValue}
-              annualizedValue={twrAnnualized}
-              emptyReason={reasonFor("TWR")}
-              infoText={TIME_WEIGHTED_RETURN_INFO}
+              label={showAnnualizedTwr ? "Annualized TWR" : "Time Weighted Return"}
+              value={twrDisplayValue}
+              secondaryValue={showAnnualizedTwr ? twrValue : undefined}
+              secondaryValueLabel={showAnnualizedTwr ? "Cumulative TWR" : undefined}
+              emptyReason={unavailableReason}
+              infoText={twrInfoText}
               isPercentage={true}
-              className="border-muted/30 bg-muted/30 rounded-md border"
+              className="border-muted/30 bg-muted/30 min-h-16 rounded-md border p-2.5"
             />
             <MetricDisplay
-              label="IRR"
-              value={irrValue}
-              annualizedValue={irrAnnualized}
-              emptyReason={reasonFor("IRR")}
-              infoText={IRR_RETURN_INFO}
+              label={showAnnualizedIrr ? "Annualized IRR" : "IRR"}
+              value={irrDisplayValue}
+              secondaryValue={showAnnualizedIrr ? irrValue : undefined}
+              secondaryValueLabel={showAnnualizedIrr ? "Period IRR" : undefined}
+              emptyReason={unavailableReason}
+              infoText={irrInfoText}
               isPercentage={true}
-              className="border-muted/30 bg-muted/30 rounded-md border"
+              className="border-muted/30 bg-muted/30 min-h-16 rounded-md border p-2.5"
             />
             <MetricDisplay
               label="Volatility"
               value={volatility}
-              emptyReason={reasonFor("volatility")}
+              emptyReason={unavailableReason}
               infoText={VOLATILITY_INFO}
               isPercentage={true}
               tone="neutral"
-              className="border-muted/30 bg-muted/30 rounded-md border"
+              className="border-muted/30 bg-muted/30 min-h-16 rounded-md border p-2.5"
             />
             <MetricDisplay
               label="Max Drawdown"
               value={maxDrawdown}
-              emptyReason={reasonFor("drawdown")}
+              emptyReason={unavailableReason}
               infoText={MAX_DRAWDOWN_INFO}
               isPercentage={true}
-              className="border-muted/30 bg-muted/30 rounded-md border"
+              className="border-muted/30 bg-muted/30 min-h-16 rounded-md border p-2.5"
             />
           </div>
         </CardContent>

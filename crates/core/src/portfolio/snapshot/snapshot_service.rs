@@ -772,7 +772,10 @@ impl SnapshotService {
             if !account_ids_with_activity.contains(acc_id)
                 && !matches!(mode, SnapshotRecalcMode::Full)
             {
-                debug!("Skipping account {} for range determination: no activities and not forcing full.", acc_id);
+                debug!(
+                    "Skipping account {} for range determination: no activities and not forcing full.",
+                    acc_id
+                );
                 continue;
             }
 
@@ -883,8 +886,10 @@ impl SnapshotService {
                     overall_min_calc_date = effective_start_date;
                 }
             } else {
-                debug!("Skipping account {} for calculation: effective_start_date {} is after calculation_end_date {}.",
-                       acc_id, effective_start_date, calculation_end_date);
+                debug!(
+                    "Skipping account {} for calculation: effective_start_date {} is after calculation_end_date {}.",
+                    acc_id, effective_start_date, calculation_end_date
+                );
             }
         }
 
@@ -1240,7 +1245,10 @@ impl SnapshotServiceTrait for SnapshotService {
                 // No snapshot found before start date.
                 // If there are no keyframes at all in the requested range, we can't reconstruct.
                 if keyframes_map.is_empty() {
-                    debug!("No snapshot found before start date {} and no keyframes in range for account {}. Returning empty.", start_date, account_id);
+                    debug!(
+                        "No snapshot found before start date {} and no keyframes in range for account {}. Returning empty.",
+                        start_date, account_id
+                    );
                     return Ok(Vec::new());
                 }
 

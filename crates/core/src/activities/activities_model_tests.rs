@@ -286,6 +286,7 @@ mod tests {
             source_record_id: None,
             source_group_id: None,
             idempotency_key: None,
+            import_run_id: None,
         }
     }
 
@@ -792,6 +793,7 @@ mod tests {
             source_record_id: None,
             source_group_id: None,
             idempotency_key: None,
+            import_run_id: None,
         };
 
         assert_eq!(activity.get_quote_ccy(), Some("GBp"));

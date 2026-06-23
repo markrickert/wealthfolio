@@ -5,7 +5,7 @@ import { useCurrentValuation } from "@/hooks/use-current-account-valuations";
 import { useHoldings } from "@/hooks/use-holdings";
 import { useValuationHistory } from "@/hooks/use-valuation-history";
 import { HoldingType, isAlternativeAssetKind } from "@/lib/constants";
-import { performanceHeadlineReturn, performancePeriodPnl } from "@/lib/performance";
+import { performanceSummaryReturn, performancePeriodPnl } from "@/lib/performance";
 import { QueryKeys } from "@/lib/query-keys";
 import { useSettingsContext } from "@/lib/settings-provider";
 import { DateRange, TimePeriod } from "@/lib/types";
@@ -125,7 +125,7 @@ export function DashboardContent() {
         startDate,
         endDate,
         filter: { type: "all" },
-        profile: "headline",
+        profile: "summary",
       }),
     enabled: datesReady,
     staleTime: 30 * 1000,
@@ -133,7 +133,7 @@ export function DashboardContent() {
   });
 
   const gainLossAmount = performancePeriodPnl(portfolioPerformance);
-  const simpleReturn = performanceHeadlineReturn(portfolioPerformance);
+  const simpleReturn = performanceSummaryReturn(portfolioPerformance);
   const isCurrentValuationUnavailable =
     !isCurrentValuationLoading && !portfolioCurrentValuation && Boolean(currentValuationError);
   const portfolioSourceDataAsOf =

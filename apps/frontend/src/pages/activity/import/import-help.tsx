@@ -76,10 +76,9 @@ function ActivitiesHelpContent() {
 
           <div className="border-green-500 bg-green-50 p-3 dark:bg-green-900/50">
             <p className="text-sm">
-              <strong className="text-green-700 dark:text-green-300">💰 Amount field:</strong> For
-              cash activities (DIVIDEND, DEPOSIT, WITHDRAWAL, TAX, FEE, INTEREST, TRANSFER_IN,
-              TRANSFER_OUT), amount is preferred when provided, otherwise calculated from quantity ×
-              unitPrice.
+              <strong className="text-green-700 dark:text-green-300">💰 Amount field:</strong> Use
+              amount for cash activities and cash transfers. Security transfers use quantity and
+              cost basis; market value is derived from quotes.
             </p>
           </div>
 

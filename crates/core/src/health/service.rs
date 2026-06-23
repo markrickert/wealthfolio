@@ -4,10 +4,10 @@
 //! and handles fix actions.
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use chrono::{Duration, NaiveDate, Utc};
 use log::{debug, info, warn};
 use rust_decimal::Decimal;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -15,12 +15,16 @@ use crate::accounts::{
     account_types, is_liability_account_type, Account, AccountServiceTrait, TrackingMode,
 };
 use crate::activities::{Activity, ActivityServiceTrait, TransferPairResolution};
-use crate::assets::{Asset, AssetServiceTrait};
+use crate::assets::{Asset, AssetKind, AssetServiceTrait};
 use crate::errors::Result;
 use crate::lots::LotRepositoryTrait;
-use crate::portfolio::holdings::HoldingsServiceTrait;
+use crate::portfolio::economic_events::BasisStatus;
+use crate::portfolio::holdings::{HoldingType, HoldingsServiceTrait};
 use crate::portfolio::performance::is_external_transfer;
-use crate::portfolio::valuation::ValuationServiceTrait;
+use crate::portfolio::snapshot::{AccountStateSnapshot, SnapshotServiceTrait};
+use crate::portfolio::valuation::{
+    DailyAccountValuation, ExternalFlowSource, ValuationServiceTrait, ValuationStatus,
+};
 use crate::quotes::QuoteServiceTrait;
 use crate::taxonomies::TaxonomyServiceTrait;
 use crate::utils::time_utils::{activity_date_in_tz, parse_user_timezone_or_default};
@@ -60,6 +64,13 @@ pub struct HealthService {
     consistency_check: DataConsistencyCheck,
     account_config_check: AccountConfigurationCheck,
     transfer_integrity_check: TransferIntegrityCheck,
+}
+
+fn is_price_staleness_candidate(
+    holding_type: &HoldingType,
+    asset_kind: Option<&AssetKind>,
+) -> bool {
+    !matches!(holding_type, HoldingType::Cash) && !matches!(asset_kind, Some(AssetKind::Fx))
 }
 
 impl HealthService {
@@ -251,13 +262,14 @@ impl HealthService {
         asset_service: Arc<dyn AssetServiceTrait>,
         taxonomy_service: Arc<dyn TaxonomyServiceTrait>,
         valuation_service: Arc<dyn ValuationServiceTrait>,
+        snapshot_service: Arc<dyn SnapshotServiceTrait>,
         activity_service: Arc<dyn ActivityServiceTrait>,
         lot_repository: Arc<dyn LotRepositoryTrait>,
         configured_timezone: Option<&str>,
         client_timezone: Option<&str>,
     ) -> Result<HealthStatus> {
         // Gather holdings data from all accounts
-        let accounts = account_service.get_active_accounts()?;
+        let accounts = account_service.get_active_non_archived_accounts()?;
 
         // Use a map to consolidate holdings by asset_id (same asset in multiple accounts)
         let mut holdings_map: HashMap<String, AssetHoldingInfo> = HashMap::new();
@@ -287,6 +299,11 @@ impl HealthService {
                             holding.base_currency.clone(),
                         ))
                         .or_default() += mv;
+                }
+
+                if !is_price_staleness_candidate(&holding.holding_type, holding.asset_kind.as_ref())
+                {
+                    continue;
                 }
 
                 if let Some(ref instrument) = holding.instrument {
@@ -396,6 +413,7 @@ impl HealthService {
 
         // Detect accounts with negative portfolio balance in their history.
         // Exclude cash and credit-card accounts; card debt is an expected liability.
+        let all_account_ids: Vec<String> = accounts.iter().map(|a| a.id.clone()).collect();
         let account_ids: Vec<String> = accounts
             .iter()
             .filter(|a| {
@@ -494,6 +512,15 @@ impl HealthService {
             &account_name_map,
             effective_timezone,
         );
+        let valuation_quality_issues = gather_valuation_quality_issues(
+            valuation_service.as_ref(),
+            snapshot_service.as_ref(),
+            asset_service.as_ref(),
+            &all_account_ids,
+            &account_name_map,
+        )
+        .await;
+        consistency_issues.extend(valuation_quality_issues);
         let missing_lot_disposal_sells = gather_missing_lot_disposal_sells(
             activity_service.as_ref(),
             lot_repository.as_ref(),
@@ -592,6 +619,7 @@ fn invalid_transfer_groups_from_activities(
     let tz = parse_user_timezone_or_default(timezone.unwrap_or_default());
     let resolution = TransferPairResolution::from_activities(activities);
     let by_id: HashMap<&str, &Activity> = activities.iter().map(|a| (a.id.as_str(), a)).collect();
+    let eligible_account_ids: HashSet<&str> = account_names.keys().map(String::as_str).collect();
 
     let mut groups: Vec<InvalidTransferGroupInfo> = resolution
         .invalid_groups()
@@ -602,6 +630,7 @@ fn invalid_transfer_groups_from_activities(
                 .iter()
                 .filter_map(|id| by_id.get(id.as_str()).copied())
                 .filter(|act| act.is_posted() && !is_external_transfer(act))
+                .filter(|act| eligible_account_ids.contains(act.account_id.as_str()))
                 .map(|act| transfer_leg_detail(act, account_names, tz))
                 .collect();
             (!legs.is_empty()).then(|| InvalidTransferGroupInfo {
@@ -615,11 +644,26 @@ fn invalid_transfer_groups_from_activities(
         if activity.is_posted()
             && resolution.is_ungrouped_transfer(&activity.id)
             && !is_external_transfer(activity)
+            && eligible_account_ids.contains(activity.account_id.as_str())
         {
             groups.push(InvalidTransferGroupInfo {
                 group_id: format!("ungrouped:{}", activity.id),
                 legs: vec![transfer_leg_detail(activity, account_names, tz)],
             });
+        }
+    }
+
+    for pair in resolution.pairs() {
+        for activity in [&pair.transfer_in, &pair.transfer_out] {
+            if activity.is_posted()
+                && is_external_transfer(activity)
+                && eligible_account_ids.contains(activity.account_id.as_str())
+            {
+                groups.push(InvalidTransferGroupInfo {
+                    group_id: format!("conflicting_external_marker:{}", activity.id),
+                    legs: vec![transfer_leg_detail(activity, account_names, tz)],
+                });
+            }
         }
     }
 
@@ -797,6 +841,443 @@ fn missing_lot_disposal_sells_from_data(
             })
         })
         .collect()
+}
+
+async fn gather_valuation_quality_issues(
+    valuation_service: &dyn ValuationServiceTrait,
+    snapshot_service: &dyn SnapshotServiceTrait,
+    asset_service: &dyn AssetServiceTrait,
+    account_ids: &[String],
+    account_name_map: &HashMap<String, String>,
+) -> Vec<ConsistencyIssueInfo> {
+    if account_ids.is_empty() {
+        return Vec::new();
+    }
+
+    let histories = valuation_service
+        .get_historical_valuations_by_account(account_ids, None, None)
+        .unwrap_or_else(|error| {
+            warn!("Failed to check generated valuation quality: {}", error);
+            HashMap::new()
+        });
+    let snapshots_by_account = valuation_snapshots_by_account(snapshot_service, account_ids);
+    let expected_dates_by_account = expected_valuation_dates_by_account(&snapshots_by_account);
+
+    let mut issues = valuation_quality_issues_from_histories(
+        &histories,
+        Some(&expected_dates_by_account),
+        account_name_map,
+    );
+
+    issues.extend(
+        valuation_basis_issues_from_snapshots(
+            &histories,
+            &snapshots_by_account,
+            account_name_map,
+            asset_service,
+        )
+        .await,
+    );
+
+    issues
+}
+
+fn valuation_snapshots_by_account(
+    snapshot_service: &dyn SnapshotServiceTrait,
+    account_ids: &[String],
+) -> HashMap<String, Vec<AccountStateSnapshot>> {
+    let mut snapshots_by_account = HashMap::new();
+
+    for account_id in account_ids {
+        match snapshot_service.get_daily_holdings_snapshots(account_id, None, None) {
+            Ok(mut snapshots) => {
+                snapshots.sort_by_key(|snapshot| snapshot.snapshot_date);
+                if !snapshots.is_empty() {
+                    snapshots_by_account.insert(account_id.clone(), snapshots);
+                }
+            }
+            Err(error) => {
+                warn!(
+                    "Failed to check generated valuation coverage for account {}: {}",
+                    account_id, error
+                );
+            }
+        }
+    }
+
+    snapshots_by_account
+}
+
+fn expected_valuation_dates_by_account(
+    snapshots_by_account: &HashMap<String, Vec<AccountStateSnapshot>>,
+) -> HashMap<String, HashSet<NaiveDate>> {
+    snapshots_by_account
+        .iter()
+        .map(|(account_id, snapshots)| {
+            (
+                account_id.clone(),
+                snapshots
+                    .iter()
+                    .map(|snapshot| snapshot.snapshot_date)
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+fn valuation_quality_issues_from_histories(
+    histories: &HashMap<String, Vec<DailyAccountValuation>>,
+    expected_dates_by_account: Option<&HashMap<String, HashSet<NaiveDate>>>,
+    account_name_map: &HashMap<String, String>,
+) -> Vec<ConsistencyIssueInfo> {
+    let mut issues = Vec::new();
+
+    let mut account_ids: HashSet<String> = histories.keys().cloned().collect();
+    if let Some(expected_dates_by_account) = expected_dates_by_account {
+        account_ids.extend(expected_dates_by_account.keys().cloned());
+    }
+    let mut account_ids: Vec<String> = account_ids.into_iter().collect();
+    account_ids.sort();
+
+    for account_id in account_ids {
+        let account_name = account_name_map
+            .get(&account_id)
+            .cloned()
+            .unwrap_or_else(|| account_id.clone());
+        let history = histories
+            .get(&account_id)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+
+        if let Some(expected_dates_by_account) = expected_dates_by_account {
+            if let Some(expected_dates) = expected_dates_by_account.get(&account_id) {
+                let valuation_dates: HashSet<NaiveDate> =
+                    history.iter().map(|row| row.valuation_date).collect();
+                let mut missing_dates: Vec<NaiveDate> = expected_dates
+                    .iter()
+                    .copied()
+                    .filter(|date| !valuation_dates.contains(date))
+                    .collect();
+                missing_dates.sort_unstable();
+
+                for date in missing_dates {
+                    issues.push(missing_valuation_issue(&account_id, date, &account_name));
+                }
+            }
+        }
+
+        for row in history {
+            if row.value_status != ValuationStatus::Complete {
+                issues.push(valuation_quality_issue(
+                    super::checks::ConsistencyIssueType::IncompleteValuationValue,
+                    row,
+                    &account_name,
+                ));
+            }
+
+            if matches!(
+                row.external_flow_source,
+                ExternalFlowSource::Unknown | ExternalFlowSource::UnknownBoundaryTransfer
+            ) {
+                issues.push(valuation_quality_issue(
+                    super::checks::ConsistencyIssueType::UnknownPerformanceFlowSource,
+                    row,
+                    &account_name,
+                ));
+            }
+        }
+    }
+
+    issues
+}
+
+#[derive(Debug)]
+struct BasisAssetIssue {
+    account_id: String,
+    account_name: String,
+    asset_id: String,
+    first_date: NaiveDate,
+    last_date: NaiveDate,
+    valuation_days: usize,
+    basis_status: BasisStatus,
+}
+
+async fn valuation_basis_issues_from_snapshots(
+    histories: &HashMap<String, Vec<DailyAccountValuation>>,
+    snapshots_by_account: &HashMap<String, Vec<AccountStateSnapshot>>,
+    account_name_map: &HashMap<String, String>,
+    asset_service: &dyn AssetServiceTrait,
+) -> Vec<ConsistencyIssueInfo> {
+    let basis_issues =
+        basis_asset_issues_from_snapshots(histories, snapshots_by_account, account_name_map);
+
+    let asset_ids: Vec<String> = basis_issues
+        .iter()
+        .map(|issue| issue.asset_id.clone())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let assets_by_id: HashMap<String, Asset> = asset_service
+        .get_assets_by_asset_ids(&asset_ids)
+        .await
+        .unwrap_or_else(|error| {
+            warn!(
+                "Failed to load assets for incomplete cost-basis health check: {}",
+                error
+            );
+            Vec::new()
+        })
+        .into_iter()
+        .map(|asset| (asset.id.clone(), asset))
+        .collect();
+
+    let mut issues: Vec<_> = basis_issues
+        .into_iter()
+        .map(|issue| basis_asset_consistency_issue(issue, &assets_by_id))
+        .collect();
+    issues.extend(unmapped_incomplete_basis_row_fallbacks(
+        histories,
+        snapshots_by_account,
+        account_name_map,
+    ));
+    issues
+}
+
+fn basis_asset_issues_from_snapshots(
+    histories: &HashMap<String, Vec<DailyAccountValuation>>,
+    snapshots_by_account: &HashMap<String, Vec<AccountStateSnapshot>>,
+    account_name_map: &HashMap<String, String>,
+) -> Vec<BasisAssetIssue> {
+    let mut issues: HashMap<(String, String), BasisAssetIssue> = HashMap::new();
+
+    for (account_id, history) in histories {
+        let Some(snapshots) = snapshots_by_account.get(account_id) else {
+            continue;
+        };
+        if snapshots.is_empty() {
+            continue;
+        }
+
+        let account_name = account_name_map
+            .get(account_id)
+            .cloned()
+            .unwrap_or_else(|| account_id.clone());
+        let mut rows: Vec<&DailyAccountValuation> = history
+            .iter()
+            .filter(|row| {
+                matches!(
+                    row.basis_status,
+                    BasisStatus::PartialUnknown | BasisStatus::Unknown
+                )
+            })
+            .collect();
+        rows.sort_by_key(|row| row.valuation_date);
+
+        let mut snapshot_idx = 0usize;
+        for row in rows {
+            while snapshot_idx + 1 < snapshots.len()
+                && snapshots[snapshot_idx + 1].snapshot_date <= row.valuation_date
+            {
+                snapshot_idx += 1;
+            }
+            if snapshots[snapshot_idx].snapshot_date > row.valuation_date {
+                continue;
+            }
+
+            for position in snapshots[snapshot_idx].positions.values() {
+                let position_status = position.basis_status();
+                if !matches!(
+                    position_status,
+                    BasisStatus::PartialUnknown | BasisStatus::Unknown
+                ) {
+                    continue;
+                }
+
+                let key = (account_id.clone(), position.asset_id.clone());
+                issues
+                    .entry(key)
+                    .and_modify(|issue| {
+                        issue.first_date = issue.first_date.min(row.valuation_date);
+                        issue.last_date = issue.last_date.max(row.valuation_date);
+                        issue.valuation_days += 1;
+                        issue.basis_status = issue.basis_status.combine(position_status);
+                    })
+                    .or_insert_with(|| BasisAssetIssue {
+                        account_id: account_id.clone(),
+                        account_name: account_name.clone(),
+                        asset_id: position.asset_id.clone(),
+                        first_date: row.valuation_date,
+                        last_date: row.valuation_date,
+                        valuation_days: 1,
+                        basis_status: position_status,
+                    });
+            }
+        }
+    }
+
+    let mut issues: Vec<_> = issues.into_values().collect();
+    issues.sort_by(|a, b| {
+        a.account_name
+            .cmp(&b.account_name)
+            .then_with(|| a.asset_id.cmp(&b.asset_id))
+    });
+    issues
+}
+
+fn basis_asset_consistency_issue(
+    issue: BasisAssetIssue,
+    assets_by_id: &HashMap<String, Asset>,
+) -> ConsistencyIssueInfo {
+    let asset = assets_by_id.get(&issue.asset_id);
+    let symbol = asset
+        .and_then(|asset| asset.display_code.clone())
+        .unwrap_or_else(|| issue.asset_id.clone());
+    let asset_name = asset.and_then(|asset| asset.name.clone());
+    let status = basis_status_display(issue.basis_status);
+
+    ConsistencyIssueInfo {
+        issue_type: super::checks::ConsistencyIssueType::IncompleteValuationBasis,
+        record_id: format!(
+            "{}:{}:{}:{}",
+            issue.account_id, issue.asset_id, issue.first_date, issue.last_date
+        ),
+        description: format!(
+            "{} in {} - {} cost basis from {} to {} ({} valuation days)",
+            symbol,
+            issue.account_name,
+            status,
+            issue.first_date,
+            issue.last_date,
+            issue.valuation_days
+        ),
+        account_id: Some(issue.account_id),
+        asset_id: Some(issue.asset_id),
+        first_negative_date: None,
+        cash_balance: None,
+        total_value_at_date: None,
+        account_currency: None,
+        activity_date: Some(issue.first_date),
+        asset_symbol: Some(symbol),
+        asset_name,
+        quantity: None,
+        proceeds: None,
+    }
+}
+
+fn unmapped_incomplete_basis_row_fallbacks(
+    histories: &HashMap<String, Vec<DailyAccountValuation>>,
+    snapshots_by_account: &HashMap<String, Vec<AccountStateSnapshot>>,
+    account_name_map: &HashMap<String, String>,
+) -> Vec<ConsistencyIssueInfo> {
+    let mut issues = Vec::new();
+    let mut account_ids: Vec<_> = histories.keys().collect();
+    account_ids.sort();
+
+    for account_id in account_ids {
+        let account_name = account_name_map
+            .get(account_id)
+            .cloned()
+            .unwrap_or_else(|| account_id.clone());
+        for row in histories
+            .get(account_id)
+            .into_iter()
+            .flatten()
+            .filter(|row| {
+                matches!(
+                    row.basis_status,
+                    BasisStatus::PartialUnknown | BasisStatus::Unknown
+                )
+            })
+        {
+            let maps_to_position_issue = snapshots_by_account
+                .get(account_id)
+                .and_then(|snapshots| latest_snapshot_on_or_before(snapshots, row.valuation_date))
+                .is_some_and(|snapshot| {
+                    snapshot.positions.values().any(|position| {
+                        matches!(
+                            position.basis_status(),
+                            BasisStatus::PartialUnknown | BasisStatus::Unknown
+                        )
+                    })
+                });
+            if maps_to_position_issue {
+                continue;
+            }
+
+            issues.push(valuation_quality_issue(
+                super::checks::ConsistencyIssueType::IncompleteValuationBasis,
+                row,
+                &account_name,
+            ));
+        }
+    }
+
+    issues
+}
+
+fn latest_snapshot_on_or_before(
+    snapshots: &[AccountStateSnapshot],
+    date: NaiveDate,
+) -> Option<&AccountStateSnapshot> {
+    snapshots
+        .iter()
+        .take_while(|snapshot| snapshot.snapshot_date <= date)
+        .last()
+}
+
+fn basis_status_display(status: BasisStatus) -> &'static str {
+    match status {
+        BasisStatus::Complete => "complete",
+        BasisStatus::PartialUnknown => "partial",
+        BasisStatus::Unknown => "missing",
+        BasisStatus::NotApplicable => "not applicable",
+    }
+}
+
+fn missing_valuation_issue(
+    account_id: &str,
+    date: NaiveDate,
+    account_name: &str,
+) -> ConsistencyIssueInfo {
+    ConsistencyIssueInfo {
+        issue_type: super::checks::ConsistencyIssueType::MissingGeneratedValuation,
+        record_id: format!("{}:{}", account_id, date),
+        description: account_name.to_string(),
+        account_id: Some(account_id.to_string()),
+        asset_id: None,
+        first_negative_date: None,
+        cash_balance: None,
+        total_value_at_date: None,
+        account_currency: None,
+        activity_date: Some(date),
+        asset_symbol: None,
+        asset_name: None,
+        quantity: None,
+        proceeds: None,
+    }
+}
+
+fn valuation_quality_issue(
+    issue_type: super::checks::ConsistencyIssueType,
+    row: &DailyAccountValuation,
+    account_name: &str,
+) -> ConsistencyIssueInfo {
+    ConsistencyIssueInfo {
+        issue_type,
+        record_id: format!("{}:{}", row.account_id, row.valuation_date),
+        description: account_name.to_string(),
+        account_id: Some(row.account_id.clone()),
+        asset_id: None,
+        first_negative_date: None,
+        cash_balance: None,
+        total_value_at_date: None,
+        account_currency: Some(row.account_currency.clone()),
+        activity_date: Some(row.valuation_date),
+        asset_symbol: None,
+        asset_name: None,
+        quantity: None,
+        proceeds: None,
+    }
 }
 
 fn health_sell_net_proceeds(activity: &Activity, asset: Option<&Asset>) -> Decimal {
@@ -1005,6 +1486,7 @@ impl HealthServiceTrait for HealthService {
         asset_service: Arc<dyn AssetServiceTrait>,
         taxonomy_service: Arc<dyn TaxonomyServiceTrait>,
         valuation_service: Arc<dyn ValuationServiceTrait>,
+        snapshot_service: Arc<dyn SnapshotServiceTrait>,
         activity_service: Arc<dyn ActivityServiceTrait>,
         lot_repository: Arc<dyn LotRepositoryTrait>,
         configured_timezone: Option<&str>,
@@ -1019,6 +1501,7 @@ impl HealthServiceTrait for HealthService {
             asset_service,
             taxonomy_service,
             valuation_service,
+            snapshot_service,
             activity_service,
             lot_repository,
             configured_timezone,
@@ -1035,6 +1518,7 @@ mod tests {
         ActivityStatus, ACTIVITY_TYPE_TRANSFER_IN, ACTIVITY_TYPE_TRANSFER_OUT,
     };
     use crate::assets::{Asset, AssetKind, InstrumentType, QuoteMode};
+    use crate::portfolio::snapshot::Position;
     use chrono::TimeZone;
     use rust_decimal_macros::dec;
     use serde_json::json;
@@ -1201,6 +1685,69 @@ mod tests {
         }
     }
 
+    fn valuation_row(account_id: &str) -> DailyAccountValuation {
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 6, 1).unwrap();
+        valuation_row_on(account_id, date)
+    }
+
+    fn valuation_row_on(account_id: &str, date: NaiveDate) -> DailyAccountValuation {
+        DailyAccountValuation {
+            id: format!("{}_{}", account_id, date),
+            account_id: account_id.to_string(),
+            valuation_date: date,
+            account_currency: "USD".to_string(),
+            base_currency: "USD".to_string(),
+            fx_rate_to_base: dec!(1),
+            cash_balance: Decimal::ZERO,
+            investment_market_value: dec!(100),
+            total_value: dec!(100),
+            cost_basis: dec!(90),
+            book_basis: dec!(90),
+            net_contribution: dec!(90),
+            cash_balance_base: Decimal::ZERO,
+            investment_market_value_base: dec!(100),
+            total_value_base: dec!(100),
+            cost_basis_base: dec!(90),
+            book_basis_base: dec!(90),
+            net_contribution_base: dec!(90),
+            external_inflow_base: Decimal::ZERO,
+            external_outflow_base: Decimal::ZERO,
+            external_flow_source: ExternalFlowSource::NoFlow,
+            performance_eligible_value_base: dec!(100),
+            value_status: ValuationStatus::Complete,
+            basis_status: BasisStatus::Complete,
+            calculated_at: Utc::now(),
+        }
+    }
+
+    fn snapshot_with_positions(
+        account_id: &str,
+        snapshot_date: NaiveDate,
+        positions: HashMap<String, Position>,
+    ) -> AccountStateSnapshot {
+        AccountStateSnapshot {
+            id: AccountStateSnapshot::stable_id(account_id, snapshot_date),
+            account_id: account_id.to_string(),
+            snapshot_date,
+            currency: "USD".to_string(),
+            positions,
+            ..Default::default()
+        }
+    }
+
+    fn position_with_basis_status(account_id: &str, asset_id: &str, has_basis: bool) -> Position {
+        let mut position = Position::new(
+            account_id.to_string(),
+            asset_id.to_string(),
+            "USD".to_string(),
+            Utc.with_ymd_and_hms(2026, 6, 1, 12, 0, 0).unwrap(),
+        );
+        position.quantity = dec!(2);
+        position.total_cost_basis = if has_basis { dec!(200) } else { Decimal::ZERO };
+        position.average_cost = if has_basis { dec!(100) } else { Decimal::ZERO };
+        position
+    }
+
     #[test]
     fn ungrouped_non_external_transfer_is_reported_to_health_center() {
         let account_names = HashMap::from([("acc_tfsa".to_string(), "TFSA".to_string())]);
@@ -1220,6 +1767,235 @@ mod tests {
         assert_eq!(groups[0].legs.len(), 1);
         assert_eq!(groups[0].legs[0].account_name, "TFSA");
         assert_eq!(groups[0].legs[0].activity_type, ACTIVITY_TYPE_TRANSFER_IN);
+    }
+
+    #[test]
+    fn transfer_integrity_ignores_accounts_outside_health_scope() {
+        let account_names = HashMap::from([("active".to_string(), "Active".to_string())]);
+        let activities = vec![transfer_activity(
+            "archived-transfer",
+            "archived",
+            ACTIVITY_TYPE_TRANSFER_IN,
+            None,
+            false,
+            ActivityStatus::Posted,
+        )];
+
+        let groups = invalid_transfer_groups_from_activities(&activities, &account_names, None);
+
+        assert!(groups.is_empty());
+    }
+
+    #[test]
+    fn valuation_quality_rows_are_reported_to_health_center() {
+        let mut row = valuation_row("acc_tfsa");
+        row.value_status = ValuationStatus::PartialUnpriced;
+        row.basis_status = BasisStatus::PartialUnknown;
+        row.external_flow_source = ExternalFlowSource::UnknownBoundaryTransfer;
+        let histories = HashMap::from([("acc_tfsa".to_string(), vec![row])]);
+        let account_names = HashMap::from([("acc_tfsa".to_string(), "TFSA".to_string())]);
+
+        let consistency_issues =
+            valuation_quality_issues_from_histories(&histories, None, &account_names);
+
+        assert!(consistency_issues.iter().any(|issue| {
+            issue.issue_type
+                == crate::health::checks::ConsistencyIssueType::IncompleteValuationValue
+                && issue.account_id.as_deref() == Some("acc_tfsa")
+                && issue.activity_date == Some(chrono::NaiveDate::from_ymd_opt(2026, 6, 1).unwrap())
+        }));
+        assert!(consistency_issues.iter().any(|issue| {
+            issue.issue_type
+                == crate::health::checks::ConsistencyIssueType::UnknownPerformanceFlowSource
+        }));
+
+        let check = DataConsistencyCheck::new();
+        let ctx = HealthContext::new(HealthConfig::default(), "USD", 100_000.0);
+        let health_issues = check.analyze(&consistency_issues, &ctx);
+
+        assert!(health_issues.iter().any(|issue| {
+            issue.id.starts_with("incomplete_valuation_value:")
+                && issue.details.as_deref().is_some_and(|details| {
+                    details.contains("TFSA") && details.contains("2026-06-01")
+                })
+        }));
+        assert!(health_issues.iter().any(|issue| {
+            issue.id.starts_with("unknown_performance_flow_source:")
+                && issue.severity == crate::health::Severity::Error
+        }));
+    }
+
+    #[test]
+    fn incomplete_basis_rows_are_reported_as_actionable_positions() {
+        let mut row_1 = valuation_row_on("acc_tfsa", NaiveDate::from_ymd_opt(2026, 6, 1).unwrap());
+        row_1.basis_status = BasisStatus::PartialUnknown;
+        let mut row_2 = valuation_row_on("acc_tfsa", NaiveDate::from_ymd_opt(2026, 6, 2).unwrap());
+        row_2.basis_status = BasisStatus::PartialUnknown;
+        let histories = HashMap::from([("acc_tfsa".to_string(), vec![row_1, row_2])]);
+        let snapshots_by_account = HashMap::from([(
+            "acc_tfsa".to_string(),
+            vec![snapshot_with_positions(
+                "acc_tfsa",
+                NaiveDate::from_ymd_opt(2026, 6, 1).unwrap(),
+                HashMap::from([
+                    (
+                        "asset_aapl".to_string(),
+                        position_with_basis_status("acc_tfsa", "asset_aapl", false),
+                    ),
+                    (
+                        "asset_msft".to_string(),
+                        position_with_basis_status("acc_tfsa", "asset_msft", true),
+                    ),
+                ]),
+            )],
+        )]);
+        let account_names = HashMap::from([("acc_tfsa".to_string(), "TFSA".to_string())]);
+
+        let basis_issues =
+            basis_asset_issues_from_snapshots(&histories, &snapshots_by_account, &account_names);
+
+        assert_eq!(basis_issues.len(), 1);
+        assert_eq!(basis_issues[0].asset_id, "asset_aapl");
+        assert_eq!(
+            basis_issues[0].first_date,
+            NaiveDate::from_ymd_opt(2026, 6, 1).unwrap()
+        );
+        assert_eq!(
+            basis_issues[0].last_date,
+            NaiveDate::from_ymd_opt(2026, 6, 2).unwrap()
+        );
+        assert_eq!(basis_issues[0].valuation_days, 2);
+
+        let assets_by_id = HashMap::from([("asset_aapl".to_string(), health_asset("asset_aapl"))]);
+        let consistency_issue =
+            basis_asset_consistency_issue(basis_issues.into_iter().next().unwrap(), &assets_by_id);
+
+        assert_eq!(
+            consistency_issue.issue_type,
+            crate::health::checks::ConsistencyIssueType::IncompleteValuationBasis
+        );
+        assert_eq!(consistency_issue.asset_id.as_deref(), Some("asset_aapl"));
+        assert!(consistency_issue
+            .description
+            .contains("AAPL in TFSA - missing cost basis from 2026-06-01 to 2026-06-02"));
+
+        let check = DataConsistencyCheck::new();
+        let ctx = HealthContext::new(HealthConfig::default(), "USD", 100_000.0);
+        let health_issues = check.analyze(&[consistency_issue], &ctx);
+
+        assert_eq!(health_issues.len(), 1);
+        assert_eq!(health_issues[0].title, "Cost basis coverage is incomplete");
+        assert_eq!(health_issues[0].affected_count, 1);
+        assert!(health_issues[0]
+            .affected_items
+            .as_ref()
+            .is_some_and(|items| items[0].symbol.as_deref() == Some("AAPL")));
+    }
+
+    #[test]
+    fn incomplete_basis_fallback_keeps_unmapped_rows_when_other_rows_map_to_positions() {
+        let mut mapped_row =
+            valuation_row_on("acc_tfsa", NaiveDate::from_ymd_opt(2026, 6, 1).unwrap());
+        mapped_row.basis_status = BasisStatus::PartialUnknown;
+        let mut unmapped_row =
+            valuation_row_on("acc_margin", NaiveDate::from_ymd_opt(2026, 6, 2).unwrap());
+        unmapped_row.basis_status = BasisStatus::Unknown;
+        let histories = HashMap::from([
+            ("acc_tfsa".to_string(), vec![mapped_row]),
+            ("acc_margin".to_string(), vec![unmapped_row]),
+        ]);
+        let snapshots_by_account = HashMap::from([(
+            "acc_tfsa".to_string(),
+            vec![snapshot_with_positions(
+                "acc_tfsa",
+                NaiveDate::from_ymd_opt(2026, 6, 1).unwrap(),
+                HashMap::from([(
+                    "asset_aapl".to_string(),
+                    position_with_basis_status("acc_tfsa", "asset_aapl", false),
+                )]),
+            )],
+        )]);
+        let account_names = HashMap::from([
+            ("acc_tfsa".to_string(), "TFSA".to_string()),
+            ("acc_margin".to_string(), "Margin".to_string()),
+        ]);
+
+        let asset_issues =
+            basis_asset_issues_from_snapshots(&histories, &snapshots_by_account, &account_names);
+        let fallback_issues = unmapped_incomplete_basis_row_fallbacks(
+            &histories,
+            &snapshots_by_account,
+            &account_names,
+        );
+
+        assert_eq!(asset_issues.len(), 1);
+        assert_eq!(asset_issues[0].account_id, "acc_tfsa");
+        assert_eq!(fallback_issues.len(), 1);
+        assert_eq!(
+            fallback_issues[0].issue_type,
+            crate::health::checks::ConsistencyIssueType::IncompleteValuationBasis
+        );
+        assert_eq!(fallback_issues[0].account_id.as_deref(), Some("acc_margin"));
+        assert_eq!(
+            fallback_issues[0].activity_date,
+            Some(NaiveDate::from_ymd_opt(2026, 6, 2).unwrap())
+        );
+        assert!(fallback_issues[0].asset_id.is_none());
+    }
+
+    #[test]
+    fn price_staleness_input_excludes_cash_and_fx_infrastructure_assets() {
+        assert!(!is_price_staleness_candidate(&HoldingType::Cash, None));
+        assert!(!is_price_staleness_candidate(
+            &HoldingType::Security,
+            Some(&AssetKind::Fx)
+        ));
+        assert!(is_price_staleness_candidate(
+            &HoldingType::Security,
+            Some(&AssetKind::Investment)
+        ));
+        assert!(is_price_staleness_candidate(
+            &HoldingType::AlternativeAsset,
+            Some(&AssetKind::Other)
+        ));
+    }
+
+    #[test]
+    fn missing_generated_valuation_dates_are_reported_to_health_center() {
+        let row = valuation_row("acc_tfsa");
+        let histories = HashMap::from([("acc_tfsa".to_string(), vec![row])]);
+        let account_names = HashMap::from([("acc_tfsa".to_string(), "TFSA".to_string())]);
+        let expected_dates = HashMap::from([(
+            "acc_tfsa".to_string(),
+            HashSet::from([
+                NaiveDate::from_ymd_opt(2026, 6, 1).unwrap(),
+                NaiveDate::from_ymd_opt(2026, 6, 2).unwrap(),
+            ]),
+        )]);
+
+        let consistency_issues = valuation_quality_issues_from_histories(
+            &histories,
+            Some(&expected_dates),
+            &account_names,
+        );
+
+        assert!(consistency_issues.iter().any(|issue| {
+            issue.issue_type
+                == crate::health::checks::ConsistencyIssueType::MissingGeneratedValuation
+                && issue.account_id.as_deref() == Some("acc_tfsa")
+                && issue.activity_date == Some(NaiveDate::from_ymd_opt(2026, 6, 2).unwrap())
+        }));
+
+        let check = DataConsistencyCheck::new();
+        let ctx = HealthContext::new(HealthConfig::default(), "USD", 100_000.0);
+        let health_issues = check.analyze(&consistency_issues, &ctx);
+
+        assert!(health_issues.iter().any(|issue| {
+            issue.id.starts_with("missing_generated_valuation:")
+                && issue.details.as_deref().is_some_and(|details| {
+                    details.contains("TFSA") && details.contains("2026-06-02")
+                })
+        }));
     }
 
     #[test]
@@ -1309,6 +2085,39 @@ mod tests {
         let groups = invalid_transfer_groups_from_activities(&activities, &account_names, None);
 
         assert!(groups.is_empty());
+    }
+
+    #[test]
+    fn valid_paired_transfer_with_external_marker_is_reported_as_conflicting_metadata() {
+        let account_names = HashMap::from([
+            ("acc_cash".to_string(), "Cash".to_string()),
+            ("acc_tfsa".to_string(), "TFSA".to_string()),
+        ]);
+        let activities = vec![
+            transfer_activity(
+                "paired-out",
+                "acc_cash",
+                ACTIVITY_TYPE_TRANSFER_OUT,
+                Some("transfer-group-1"),
+                true,
+                ActivityStatus::Posted,
+            ),
+            transfer_activity(
+                "paired-in",
+                "acc_tfsa",
+                ACTIVITY_TYPE_TRANSFER_IN,
+                Some("transfer-group-1"),
+                false,
+                ActivityStatus::Posted,
+            ),
+        ];
+
+        let groups = invalid_transfer_groups_from_activities(&activities, &account_names, None);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].group_id, "conflicting_external_marker:paired-out");
+        assert_eq!(groups[0].legs.len(), 1);
+        assert_eq!(groups[0].legs[0].account_name, "Cash");
     }
 
     #[test]

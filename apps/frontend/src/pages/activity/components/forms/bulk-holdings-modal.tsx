@@ -147,10 +147,9 @@ export const BulkHoldingsModal = ({
         }),
         quantity: Number(holding.sharesOwned),
         unitPrice: Number(holding.averageCost),
-        // Securities transfers derive value from qty × unitPrice at display time.
-        // Sending a precomputed amount here is redundant and has produced corrupted
-        // rows in the wild (e.g. amount = qty² × unitPrice); leave it null so the
-        // backend stores NULL and readers fall back to qty × unitPrice.
+        // Unit price is book cost basis. Transfer-date market value is derived
+        // from quotes by the valuation resolver; do not persist a synthetic
+        // amount here.
         amount: null,
         currency,
         fee: 0,

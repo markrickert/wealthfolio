@@ -13,11 +13,11 @@ import React, { useState } from "react";
 
 // Explanatory texts for info popovers
 export const TIME_WEIGHTED_RETURN_INFO =
-  "Time-Weighted Return (TWR) measures the compound growth rate of a portfolio, ignoring the impact of cash flows (deposits/withdrawals). It isolates the performance of the underlying investments.";
+  "Time-weighted return (TWR) measures investment performance after removing the effect of deposits and withdrawals. Periods under one year are shown as selected-period returns; periods of one year or longer are shown annualized when available.";
 export const IRR_RETURN_INFO =
-  "Internal Rate of Return (IRR) measures selected-period money-weighted performance using the size and timing of external cash flows. Annualized IRR shows the XIRR equivalent per year.";
+  "Internal rate of return (IRR) measures money-weighted performance using the size and timing of external cash flows. For periods of one year or longer, annualized XIRR is the standard display.";
 export const SIMPLE_RETURN_INFO =
-  "Simple return measures value growth over the selected period after adjusting for external cash flows. It is not time weighted.";
+  "Simple return compares total gain or loss with net contributions. It is cumulative and not time weighted.";
 export const VALUE_RETURN_INFO =
   "Value return measures the change in account value over the selected period when transaction-level cash flows are not available.";
 export const PRICE_RETURN_INFO =
@@ -27,7 +27,7 @@ export const VOLATILITY_INFO =
 export const MAX_DRAWDOWN_INFO =
   "Maximum Drawdown represents the largest percentage decline from a peak to a subsequent trough in portfolio value during the specified period. It indicates downside risk.";
 export const ANNUALIZED_RETURN_INFO =
-  "Annualized Return shows the geometric average amount of money earned by an investment each year over the selected period, as if the returns were compounded annually.";
+  "Annualized return is the average yearly compounded rate for the selected period. It is not the cumulative total gain or loss.";
 
 // Holdings mode specific info texts.
 export const HOLDINGS_MODE_VOLATILITY_INFO =
@@ -40,6 +40,8 @@ export interface MetricDisplayProps {
   value?: number; // Made optional as performance-page might only need label and info
   infoText: string;
   annualizedValue?: number | null;
+  secondaryValue?: number | null;
+  secondaryValueLabel?: string;
   isPercentage?: boolean;
   currency?: string;
   className?: string;
@@ -54,6 +56,8 @@ export const MetricDisplay: React.FC<MetricDisplayProps> = ({
   value,
   infoText,
   annualizedValue,
+  secondaryValue,
+  secondaryValueLabel,
   isPercentage = true,
   currency = "USD",
   className,
@@ -88,40 +92,63 @@ export const MetricDisplay: React.FC<MetricDisplayProps> = ({
     );
 
   const labelContent = labelComponent ?? (
-    <div className="text-muted-foreground flex w-full items-center justify-center text-xs">
-      <span className="text-center">{label}</span>
+    <>
+      <div className="text-muted-foreground flex w-full items-center justify-center text-xs">
+        <span className="text-center">{label}</span>
+      </div>
       <Popover>
         <PopoverTrigger asChild>
           <Button
             variant="ghost"
             size="icon"
-            className="ml-1 hidden h-4 w-4 rounded-full p-0 md:inline-flex"
+            className="text-muted-foreground hover:text-foreground absolute right-2 top-2 hidden h-4 w-4 rounded-full p-0 md:inline-flex"
           >
             <Icons.Info className="h-3 w-3" />
             <span className="sr-only">More info about {label}</span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-60 text-xs" side="top" align="center">
+        <PopoverContent className="w-60 text-xs" side="top" align="end">
           {infoText}
         </PopoverContent>
       </Popover>
-    </div>
+    </>
   );
+
+  const formatTooltipValue = (tooltipValue: number) =>
+    isPercentage ? (
+      <GainPercent value={tooltipValue} animated={false} />
+    ) : (
+      <GainAmount value={tooltipValue} currency={currency} displayCurrency={false} />
+    );
+
+  const valueTooltipRows =
+    value === undefined
+      ? []
+      : [
+          annualizedValue !== undefined && annualizedValue !== null
+            ? { label: "Annualized", value: annualizedValue }
+            : null,
+          secondaryValue !== undefined && secondaryValue !== null
+            ? { label: secondaryValueLabel ?? "Related", value: secondaryValue }
+            : null,
+        ].filter((row): row is { label: string; value: number } => row !== null);
 
   const content = (
     <>
       {labelContent}
 
-      {annualizedValue !== undefined && annualizedValue !== null && value !== undefined ? (
+      {valueTooltipRows.length > 0 ? (
         <TooltipProvider delayDuration={100}>
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="cursor-help">{displayValue}</div>
             </TooltipTrigger>
-            <TooltipContent>
-              <p className="text-xs">
-                Annualized: <GainPercent value={annualizedValue} animated={false} />
-              </p>
+            <TooltipContent className="space-y-1">
+              {valueTooltipRows.map((row) => (
+                <p key={row.label} className="text-xs">
+                  {row.label}: {formatTooltipValue(row.value)}
+                </p>
+              ))}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -143,7 +170,7 @@ export const MetricDisplay: React.FC<MetricDisplayProps> = ({
         <div
           className={cn(
             "flex min-h-16 flex-col items-center justify-center space-y-1 p-4 md:cursor-default md:p-4",
-            "cursor-pointer md:cursor-auto",
+            "relative cursor-pointer md:cursor-auto",
             className,
           )}
         >

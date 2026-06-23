@@ -14,11 +14,12 @@ use wealthfolio_core::{
         account_supports_purpose, Account, AccountPurpose, AccountServiceTrait, TrackingMode,
     },
     portfolio::{
+        economic_events::BasisStatus,
         income::IncomeSummary,
         performance::{
             DataQualityStatus, PerformanceAttribution, PerformanceDataQuality, PerformancePeriod,
             PerformanceResult, PerformanceReturns, PerformanceRisk, PerformanceScopeDescriptor,
-            PerformanceSummaryProfile, ReturnMethod, SimplePerformanceMetrics,
+            PerformanceSummary, PerformanceSummaryProfile, ReturnMethod, SimplePerformanceMetrics,
         },
     },
     portfolios::AccountScope,
@@ -125,6 +126,7 @@ fn empty_performance_metrics(
     start_date: Option<chrono::NaiveDate>,
     end_date: Option<chrono::NaiveDate>,
 ) -> PerformanceResult {
+    let reason = "Performance unavailable for this account type.".to_string();
     PerformanceResult {
         scope: PerformanceScopeDescriptor {
             id: id.to_string(),
@@ -155,14 +157,30 @@ fn empty_performance_metrics(
         data_quality: PerformanceDataQuality {
             status: DataQualityStatus::NoData,
             warnings: Vec::new(),
-            not_applicable_reasons: vec![
-                "Performance unavailable for this account type.".to_string()
-            ],
+            not_applicable_reasons: vec![reason.clone()],
+        },
+        basis_status: BasisStatus::NotApplicable,
+        summary: PerformanceSummary {
+            quality: DataQualityStatus::NoData,
+            basis_status: BasisStatus::NotApplicable,
+            reasons: vec![reason],
+            ..PerformanceSummary::default()
         },
         series: Vec::new(),
         is_holdings_mode: false,
         is_mixed_tracking_mode: false,
     }
+}
+
+fn sync_performance_summary_quality(result: &mut PerformanceResult) {
+    result.summary.quality = result.data_quality.status.clone();
+    result.summary.reasons = result
+        .data_quality
+        .warnings
+        .iter()
+        .chain(result.data_quality.not_applicable_reasons.iter())
+        .cloned()
+        .collect();
 }
 
 fn performance_account_ids(
@@ -281,6 +299,7 @@ async fn calculate_performance_history(
                     "Requested accounts were excluded because they are inactive, archived, or not eligible for performance."
                         .to_string(),
                 );
+                sync_performance_summary_quality(&mut result);
             }
             return Ok(Json(result));
         }
@@ -304,6 +323,7 @@ async fn calculate_performance_history(
                     .to_string(),
             );
             result.data_quality.status = DataQualityStatus::Partial;
+            sync_performance_summary_quality(&mut result);
         }
         result
     } else {
@@ -369,6 +389,7 @@ async fn calculate_performance_summary(
                     "Requested accounts were excluded because they are inactive, archived, or not eligible for performance."
                         .to_string(),
                 );
+                sync_performance_summary_quality(&mut result);
             }
             return Ok(Json(result));
         }
@@ -393,6 +414,7 @@ async fn calculate_performance_summary(
                     .to_string(),
             );
             result.data_quality.status = DataQualityStatus::Partial;
+            sync_performance_summary_quality(&mut result);
         }
         result
     } else {
@@ -457,6 +479,7 @@ async fn get_performance_summaries(
                     "Requested accounts were excluded because they are inactive, archived, or not eligible for performance."
                         .to_string(),
                 );
+                sync_performance_summary_quality(&mut result);
             }
             results.insert(key.clone(), result);
             continue;
@@ -482,6 +505,7 @@ async fn get_performance_summaries(
                     .to_string(),
             );
             result.data_quality.status = DataQualityStatus::Partial;
+            sync_performance_summary_quality(&mut result);
         }
 
         results.insert(key, result);

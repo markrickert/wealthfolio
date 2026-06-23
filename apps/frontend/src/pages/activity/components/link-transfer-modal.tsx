@@ -70,7 +70,7 @@ export function LinkTransferModal({
           <AlertDialogDescription>
             {isUnlinkMode
               ? "These two activities will become external transfers again."
-              : "These two activities will be paired and treated as a single internal transfer between your accounts."}
+              : "These two activities will be paired and treated as a single internal transfer or currency conversion."}
           </AlertDialogDescription>
         </AlertDialogHeader>
 

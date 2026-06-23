@@ -19,7 +19,7 @@ import { useAccounts } from "@/hooks/use-accounts";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useIsMobileViewport } from "@/hooks/use-platform";
 import { AccountPurpose, PORTFOLIO_SCOPE_ID } from "@/lib/constants";
-import { performancePeriodPnl } from "@/lib/performance";
+import { performancePeriodPnl, performanceSummaryReturn } from "@/lib/performance";
 import { getPerformanceDateRangeForRequest } from "@/lib/performance-date-range";
 import { DateRange, PerformanceResult, TrackedItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -86,36 +86,54 @@ function trackingModeBadge(result: PerformanceResult): {
   return null;
 }
 
-function chartExclusionReason(
-  result: PerformanceResult | undefined,
-  metric: PerformanceMetric,
-): string {
-  if (!result) return "Performance data is not available for this selection.";
-  if (!result.series.length) return "No chart series is available for this period.";
+type ChartExclusionKind = "missingData" | "differentReturnMethod" | "dateOverlap";
 
-  if (metric === "twr" && result.mode === "valueReturn") {
-    return "Holdings-mode accounts use Value Return and are not plotted with TWR.";
-  }
-  if (metric === "valueReturn" && result.mode === "timeWeighted") {
-    return "Transaction-mode accounts use TWR and are not plotted with Value Return.";
-  }
-
-  return "No overlapping chart dates with the selected item.";
+interface ChartExclusion {
+  kind: ChartExclusionKind;
+  message: string;
 }
 
-function comparisonNoticeMessage(reasons: string[]): string {
-  const hasDifferentReturnMethod = reasons.some(
-    (reason) =>
-      reason.includes("Value Return") || reason.includes("TWR") || reason.includes("price return"),
-  );
-  if (hasDifferentReturnMethod) {
+function chartExclusion(
+  result: PerformanceResult | undefined,
+  metric: PerformanceMetric,
+): ChartExclusion {
+  if (!result) {
+    return {
+      kind: "missingData",
+      message: "Performance data is not available for this selection.",
+    };
+  }
+  if (!result.series.length) {
+    return {
+      kind: "missingData",
+      message: "No chart series is available for this period.",
+    };
+  }
+
+  if (metric === "twr" && result.mode === "valueReturn") {
+    return {
+      kind: "differentReturnMethod",
+      message: "Holdings-mode accounts use Value Return and are not plotted with TWR.",
+    };
+  }
+  if (metric === "valueReturn" && result.mode === "timeWeighted") {
+    return {
+      kind: "differentReturnMethod",
+      message: "Transaction-mode accounts use TWR and are not plotted with Value Return.",
+    };
+  }
+
+  return {
+    kind: "dateOverlap",
+    message: "No overlapping chart dates with the selected item.",
+  };
+}
+
+function comparisonNoticeMessage(kinds: ChartExclusionKind[]): string {
+  if (kinds.includes("differentReturnMethod")) {
     return "Different return methods cannot share the same chart. Select a muted chip to switch the chart mode.";
   }
   return "These selected items do not have enough overlapping chart dates with the active chart.";
-}
-
-function isVolatilityMethodologyNote(warning: string): boolean {
-  return warning.toLowerCase().startsWith("volatility is annualized");
 }
 
 function metricPresentation(metric: PerformanceMetric): {
@@ -164,6 +182,9 @@ function metricValue(result: PerformanceResult, metric: PerformanceMetric): numb
     case "irr":
       return result.returns.irr == null ? null : Number(result.returns.irr);
     case "valueReturn":
+      if (result.mode === "valueReturn") {
+        return performanceSummaryReturn(result);
+      }
       return result.returns.valueReturn == null ? null : Number(result.returns.valueReturn);
     case "volatility":
       return result.risk.volatility == null ? null : Number(result.risk.volatility);
@@ -182,6 +203,9 @@ function annualizedMetricValue(
     case "irr":
       return result.returns.annualizedIrr == null ? null : Number(result.returns.annualizedIrr);
     case "valueReturn":
+      if (result.mode === "valueReturn" && performanceSummaryReturn(result) == null) {
+        return null;
+      }
       return result.returns.annualizedValueReturn == null
         ? null
         : Number(result.returns.annualizedValueReturn);
@@ -208,22 +232,8 @@ function annualizedDisplayMetricValue(
   return annualizedMetricValue(result, metric);
 }
 
-function metricNotApplicableReason(
-  result: PerformanceResult,
-  metric: PerformanceMetric,
-): string | undefined {
-  const reasons = result.dataQuality.notApplicableReasons ?? [];
-  const needle =
-    metric === "twr"
-      ? "TWR"
-      : metric === "irr"
-        ? "IRR"
-        : metric === "valueReturn"
-          ? "value return"
-          : metric === "volatility"
-            ? "Volatility"
-            : "drawdown";
-  return reasons.find((reason) => reason.toLowerCase().includes(needle.toLowerCase()));
+function firstNotApplicableReason(result: PerformanceResult): string | undefined {
+  return result.dataQuality.notApplicableReasons?.[0];
 }
 
 function MetricValue({
@@ -309,6 +319,7 @@ interface AttributionRow {
 interface SelectedItemPlotState {
   isPlotted: boolean;
   reason?: string;
+  reasonKind?: ChartExclusionKind;
 }
 
 const PLOTTED_ITEM_STATE: SelectedItemPlotState = { isPlotted: true };
@@ -430,12 +441,6 @@ function AttributionDetailMetric({
       label: "Taxes",
       value: -Number(result.attribution.taxes),
       description: "Tax withholdings on income",
-    },
-    {
-      label: "Unexplained change",
-      value: Number(result.attribution.residual),
-      description:
-        "Difference not explained by available flows, income, gain/loss, FX, fees, and taxes",
     },
   ];
   const flowRows: AttributionRow[] = [
@@ -886,11 +891,13 @@ export default function PerformancePage() {
       selectedItems.map((item) => {
         const isAnchor = item.id === activeChartAnchorId;
         const isPlotted = isLoadingPerformance || hasErrors || isAnchor || chartedIds.has(item.id);
+        const exclusion = isPlotted
+          ? undefined
+          : chartExclusion(resultById.get(item.id), selectedChartMetric);
         const plotState: SelectedItemPlotState = {
           isPlotted,
-          reason: isPlotted
-            ? undefined
-            : chartExclusionReason(resultById.get(item.id), selectedChartMetric),
+          reason: exclusion?.message,
+          reasonKind: exclusion?.kind,
         };
         return [item.id, plotState];
       }),
@@ -911,12 +918,12 @@ export default function PerformancePage() {
   );
   const comparisonNotice = useMemo(() => {
     if (!notPlottedItems.length) return null;
-    const reasons = notPlottedItems
-      .map((item) => itemPlotStateById.get(item.id)?.reason)
-      .filter((reason): reason is string => Boolean(reason));
+    const kinds = notPlottedItems
+      .map((item) => itemPlotStateById.get(item.id)?.reasonKind)
+      .filter((kind): kind is ChartExclusionKind => Boolean(kind));
     return {
       count: notPlottedItems.length,
-      message: comparisonNoticeMessage(reasons),
+      message: comparisonNoticeMessage(kinds),
     };
   }, [itemPlotStateById, notPlottedItems]);
 
@@ -935,8 +942,7 @@ export default function PerformancePage() {
           }
         : metricPresentation(selectedMetric);
     const selectedMetricValue = displayMetricValue(found, selectedMetric);
-    const warnings = found.dataQuality.warnings ?? [];
-    const visibleWarnings = warnings.filter((warning) => !isVolatilityMethodologyNote(warning));
+    const visibleWarnings = found.dataQuality.warnings ?? [];
     return {
       id: found.id,
       name: selectedPerformanceData.name,
@@ -944,7 +950,7 @@ export default function PerformancePage() {
       chartMetric: selectedMetric,
       selectedMetricValue,
       selectedMetricReason:
-        selectedMetricValue == null ? metricNotApplicableReason(found, selectedMetric) : undefined,
+        selectedMetricValue == null ? firstNotApplicableReason(found) : undefined,
       annualizedReturn: annualizedDisplayMetricValue(found, selectedMetric),
       volatility: metricValue(found, "volatility"),
       maxDrawdown: metricValue(found, "drawdown"),

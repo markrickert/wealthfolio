@@ -7,10 +7,12 @@ use crate::{
     accounts::{Account, TrackingMode},
     assets::{Asset, AssetKind, InstrumentType, QuoteMode},
     portfolio::{
+        economic_events::BasisStatus,
         snapshot::{AccountStateSnapshot, Position, SnapshotSource},
         valuation::{
             calculate_current_valuation_response_from_snapshots, filter_current_valuation_accounts,
             unique_account_ids, CurrentValuationRate, DailyAccountValuation, ExternalFlowSource,
+            ValuationStatus,
         },
     },
     quotes::{LatestQuotePair, Quote},
@@ -139,16 +141,20 @@ fn stale_daily_valuation(account_id: &str) -> DailyAccountValuation {
         investment_market_value: dec!(125),
         total_value: dec!(125),
         cost_basis: Decimal::ZERO,
+        book_basis: Decimal::ZERO,
         net_contribution: Decimal::ZERO,
         cash_balance_base: Decimal::ZERO,
         investment_market_value_base: dec!(100),
         total_value_base: dec!(100),
         cost_basis_base: Decimal::ZERO,
+        book_basis_base: Decimal::ZERO,
         net_contribution_base: Decimal::ZERO,
         external_inflow_base: Decimal::ZERO,
         external_outflow_base: Decimal::ZERO,
         external_flow_source: ExternalFlowSource::Unknown,
         performance_eligible_value_base: dec!(100),
+        value_status: ValuationStatus::Complete,
+        basis_status: BasisStatus::Complete,
         calculated_at: DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
     }
 }

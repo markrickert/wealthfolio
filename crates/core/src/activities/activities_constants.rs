@@ -62,12 +62,10 @@ pub const INCOME_ACTIVITY_TYPES: [&str; 2] = [ACTIVITY_TYPE_DIVIDEND, ACTIVITY_T
 
 /// Activity types where `unit_price` represents the asset's per-unit market
 /// price and can be used as a fallback quote. Income activities (DIVIDEND,
-/// INTEREST) store payment amounts, not asset prices.
-pub const PRICE_BEARING_ACTIVITY_TYPES: [&str; 3] = [
-    ACTIVITY_TYPE_BUY,
-    ACTIVITY_TYPE_SELL,
-    ACTIVITY_TYPE_TRANSFER_IN,
-];
+/// INTEREST) store payment amounts, not asset prices. Securities transfers
+/// store book cost basis in `unit_price`; valuation derives transfer market
+/// value from quotes instead.
+pub const PRICE_BEARING_ACTIVITY_TYPES: [&str; 2] = [ACTIVITY_TYPE_BUY, ACTIVITY_TYPE_SELL];
 
 /// Activity types that always require a symbol/asset.
 /// Everything else: symbol is optional (cash-only or dual-use like TRANSFER_IN).
@@ -304,6 +302,14 @@ mod tests {
         assert!(!requires_symbol(ACTIVITY_TYPE_UNKNOWN));
         assert!(!requires_symbol("INVALID"));
         assert!(!requires_symbol(""));
+    }
+
+    #[test]
+    fn test_price_bearing_types_exclude_transfers() {
+        assert!(PRICE_BEARING_ACTIVITY_TYPES.contains(&ACTIVITY_TYPE_BUY));
+        assert!(PRICE_BEARING_ACTIVITY_TYPES.contains(&ACTIVITY_TYPE_SELL));
+        assert!(!PRICE_BEARING_ACTIVITY_TYPES.contains(&ACTIVITY_TYPE_TRANSFER_IN));
+        assert!(!PRICE_BEARING_ACTIVITY_TYPES.contains(&ACTIVITY_TYPE_TRANSFER_OUT));
     }
 
     // ── is_cash_symbol ──────────────────────────────────────────────────

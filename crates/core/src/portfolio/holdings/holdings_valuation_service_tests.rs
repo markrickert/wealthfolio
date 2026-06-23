@@ -717,6 +717,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn security_valuation_with_zero_basis_returns_no_gain_percent() {
+        let (_fx_service, market_data_service, valuation_service) = setup_test_env();
+
+        let latest_quote = create_quote("2024-01-10", dec!(100.0), "CAD");
+        market_data_service.add_quote_pair("ZERO", latest_quote, None);
+
+        let mut holdings = vec![create_holding(
+            "h-zero",
+            HoldingType::Security,
+            "ZERO",
+            dec!(10),
+            "CAD",
+            "CAD",
+            Some(Decimal::ZERO),
+            Some("Zero Basis Corp"),
+        )];
+
+        let result = valuation_service
+            .calculate_holdings_live_valuation(&mut holdings)
+            .await;
+        assert!(result.is_ok());
+
+        let holding = &holdings[0];
+        assert_monetary_value_approx(
+            Some(&holding.market_value),
+            dec!(1000),
+            dec!(1000),
+            TOLERANCE,
+            "Market Value",
+        );
+        assert_monetary_value_approx(
+            holding.unrealized_gain.as_ref(),
+            dec!(1000),
+            dec!(1000),
+            TOLERANCE,
+            "Unrealized Gain",
+        );
+        assert!(holding.unrealized_gain_pct.is_none());
+        assert!(holding.total_gain_pct.is_none());
+    }
+
+    #[tokio::test]
     async fn test_security_valuation_with_fx() {
         let (fx_service, market_data_service, valuation_service) = setup_test_env();
         let usd_cad_rate = fx_service.get_latest_exchange_rate("USD", "CAD").unwrap(); // 1.3
@@ -812,6 +854,48 @@ mod tests {
             TOLERANCE,
             "Day Change Pct",
         );
+    }
+
+    #[tokio::test]
+    async fn security_valuation_with_fx_equal_cost_and_price_has_zero_gain_percent() {
+        let (_fx_service, market_data_service, valuation_service) = setup_test_env();
+
+        let latest_quote = create_quote("2024-01-10", dec!(50.0), "USD");
+        market_data_service.add_quote_pair("FXFLAT", latest_quote, None);
+
+        let mut holdings = vec![create_holding(
+            "h-fx-flat",
+            HoldingType::Security,
+            "FXFLAT",
+            dec!(100),
+            "CAD",
+            "CAD",
+            Some(dec!(6500.0)),
+            Some("FX Flat Corp"),
+        )];
+
+        let result = valuation_service
+            .calculate_holdings_live_valuation(&mut holdings)
+            .await;
+        assert!(result.is_ok());
+
+        let holding = &holdings[0];
+        assert_monetary_value_approx(
+            Some(&holding.market_value),
+            dec!(6500.0),
+            dec!(6500.0),
+            TOLERANCE,
+            "Market Value",
+        );
+        assert_monetary_value_approx(
+            holding.unrealized_gain.as_ref(),
+            Decimal::ZERO,
+            Decimal::ZERO,
+            TOLERANCE,
+            "Unrealized Gain",
+        );
+        assert_eq!(holding.unrealized_gain_pct, Some(Decimal::ZERO));
+        assert_eq!(holding.total_gain_pct, Some(Decimal::ZERO));
     }
 
     #[tokio::test]

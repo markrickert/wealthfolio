@@ -13,6 +13,7 @@ import { isManualSearchResult, quoteModeFromSearchResult } from "@/lib/asset-uti
 import { generateId } from "@/lib/id";
 import { LinkTransferModal } from "../link-transfer-modal";
 import { TransferMatchDialog } from "../transfer-match-dialog";
+import { isSameAccountCashFxConversion } from "../transfer-link-utils";
 import { ActivityDeleteModal } from "../activity-delete-modal";
 import { useActivityMutations } from "../../hooks/use-activity-mutations";
 import { ActivityDataGridPagination } from "./activity-data-grid-pagination";
@@ -550,7 +551,8 @@ export function ActivityDataGrid({
     if (dirtyTransactionIds.has(first.id) || dirtyTransactionIds.has(second.id)) {
       return {
         canLink: false,
-        reason: "Save or discard pending edits on the selected rows before linking",
+        reason:
+          "Save pending edits before linking; FX conversion pairs must be one Transfer Out and one Transfer In",
       } as const;
     }
     const types = new Set([first.activityType, second.activityType]);
@@ -572,10 +574,13 @@ export function ActivityDataGrid({
     }
     const transferIn = first.activityType === ActivityType.TRANSFER_IN ? first : second;
     const transferOut = first.activityType === ActivityType.TRANSFER_OUT ? first : second;
-    if (transferIn.accountId === transferOut.accountId) {
+    if (
+      transferIn.accountId === transferOut.accountId &&
+      !isSameAccountCashFxConversion(transferIn, transferOut)
+    ) {
       return {
         canLink: false,
-        reason: "Both legs share the same account",
+        reason: "Same-account links must be cash FX conversions with different currencies",
       } as const;
     }
     return { canLink: true, transferIn, transferOut } as const;
@@ -635,6 +640,18 @@ export function ActivityDataGrid({
     if (!linkValidation.canLink) return [] as string[];
     const { transferIn, transferOut } = linkValidation;
     const warnings: string[] = [];
+    const sameAccountFx = isSameAccountCashFxConversion(transferIn, transferOut);
+    if (sameAccountFx) {
+      const inDate = new Date(transferIn.date).getTime();
+      const outDate = new Date(transferOut.date).getTime();
+      if (Number.isFinite(inDate) && Number.isFinite(outDate)) {
+        const dayDiff = Math.abs(inDate - outDate) / (1000 * 60 * 60 * 24);
+        if (dayDiff > 7) {
+          warnings.push(`Dates differ by ${Math.round(dayDiff)} days.`);
+        }
+      }
+      return warnings;
+    }
     if (transferIn.currency !== transferOut.currency) {
       warnings.push(
         `Currencies differ (${transferOut.currency} → ${transferIn.currency}). The pair will still be linked.`,

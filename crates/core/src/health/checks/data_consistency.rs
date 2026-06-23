@@ -29,6 +29,14 @@ pub enum ConsistencyIssueType {
     NegativeCashBalance,
     /// A sell activity has no matching lot disposal row for realized P&L attribution
     MissingLotDisposalForSell,
+    /// Holdings snapshots exist for a date but the generated valuation read model has no row
+    MissingGeneratedValuation,
+    /// A generated valuation row has incomplete value coverage
+    IncompleteValuationValue,
+    /// A generated valuation row has incomplete cost-basis coverage
+    IncompleteValuationBasis,
+    /// A generated valuation row has an unknown performance flow boundary
+    UnknownPerformanceFlowSource,
 }
 
 /// Data about a consistency issue.
@@ -432,8 +440,185 @@ impl DataConsistencyCheck {
             health_issues.push(builder.build());
         }
 
+        if let Some(missing_issues) = by_type.get(&ConsistencyIssueType::MissingGeneratedValuation)
+        {
+            health_issues.push(build_valuation_quality_issue(
+                "missing_generated_valuation",
+                missing_issues,
+                Severity::Warning,
+                "Generated valuation history is incomplete",
+                "generated valuation rows are missing",
+                "Some holdings snapshot dates do not have generated valuation rows. Rebuild account history after fixing missing prices, manual valuations, or FX rates.",
+            ));
+        }
+
+        if let Some(value_issues) = by_type.get(&ConsistencyIssueType::IncompleteValuationValue) {
+            health_issues.push(build_valuation_quality_issue(
+                "incomplete_valuation_value",
+                value_issues,
+                Severity::Warning,
+                "Valuation coverage is incomplete",
+                "valuation rows have incomplete market value",
+                "Some generated valuation rows have incomplete market value coverage. Performance protects correctness by marking affected returns unavailable or degraded; review missing prices or manual valuations.",
+            ));
+        }
+
+        if let Some(basis_issues) = by_type.get(&ConsistencyIssueType::IncompleteValuationBasis) {
+            health_issues.push(build_valuation_quality_issue(
+                "incomplete_valuation_basis",
+                basis_issues,
+                Severity::Warning,
+                "Cost basis coverage is incomplete",
+                "positions have incomplete cost basis",
+                "Some positions have missing or partial acquisition cost basis. Market value can still be shown, but gain/loss and cost-basis returns may be unavailable until the related activities are fixed.",
+            ));
+        }
+
+        if let Some(flow_issues) = by_type.get(&ConsistencyIssueType::UnknownPerformanceFlowSource)
+        {
+            health_issues.push(build_unknown_performance_flow_issue(
+                "unknown_performance_flow_source",
+                flow_issues,
+                Severity::Error,
+                "Performance flow boundary is unknown",
+                "valuation rows have unknown transfer classification",
+                "Some generated valuation rows include a transfer or flow whose portfolio boundary is unknown. Review transfer activities on the affected dates and mark each transfer external or link it to its matching account.",
+            ));
+        }
+
         health_issues
     }
+}
+
+fn build_unknown_performance_flow_issue(
+    id_prefix: &str,
+    issues: &[&ConsistencyIssueInfo],
+    severity: Severity,
+    title: &str,
+    plural_title: &str,
+    message: &str,
+) -> HealthIssue {
+    let mut issue =
+        build_valuation_quality_issue(id_prefix, issues, severity, title, plural_title, message);
+    let mut query = serde_json::Map::new();
+
+    query.insert(
+        "types".to_string(),
+        serde_json::json!("TRANSFER_IN,TRANSFER_OUT"),
+    );
+
+    let mut dates: Vec<_> = issues.iter().filter_map(|i| i.activity_date).collect();
+    dates.sort_unstable();
+    if let Some(first_date) = dates.first() {
+        query.insert(
+            "from".to_string(),
+            serde_json::json!(first_date.to_string()),
+        );
+    }
+    if let Some(last_date) = dates.last() {
+        query.insert("to".to_string(), serde_json::json!(last_date.to_string()));
+    }
+
+    let mut account_ids: Vec<_> = issues
+        .iter()
+        .filter_map(|i| i.account_id.as_ref())
+        .collect();
+    account_ids.sort();
+    account_ids.dedup();
+    if let [account_id] = account_ids.as_slice() {
+        query.insert("account".to_string(), serde_json::json!(account_id));
+    }
+
+    issue.navigate_action = Some(NavigateAction {
+        route: "/activities".to_string(),
+        query: Some(serde_json::Value::Object(query)),
+        label: "View Activities".to_string(),
+    });
+    issue
+}
+
+fn build_valuation_quality_issue(
+    id_prefix: &str,
+    issues: &[&ConsistencyIssueInfo],
+    severity: Severity,
+    title: &str,
+    plural_title: &str,
+    message: &str,
+) -> HealthIssue {
+    let mut data_keys: Vec<String> = issues
+        .iter()
+        .map(|i| {
+            format!(
+                "{}:{}",
+                i.record_id,
+                i.activity_date
+                    .map(|d| d.format("%Y-%m-%d").to_string())
+                    .unwrap_or_default()
+            )
+        })
+        .collect();
+    data_keys.sort();
+    let data_hash = compute_data_hash(&data_keys);
+
+    let mut seen_items = std::collections::HashSet::new();
+    let affected_items: Vec<AffectedItem> = issues
+        .iter()
+        .filter_map(|i| {
+            if let Some(asset_id) = i.asset_id.as_ref() {
+                if !seen_items.insert(format!("asset:{asset_id}")) {
+                    return None;
+                }
+                let symbol = i.asset_symbol.clone().unwrap_or_else(|| asset_id.clone());
+                return Some(AffectedItem::asset_with_name(
+                    asset_id.clone(),
+                    symbol,
+                    i.asset_name.clone(),
+                ));
+            }
+
+            let account_id = i.account_id.as_ref()?;
+            if !seen_items.insert(format!("account:{account_id}")) {
+                return None;
+            }
+            Some(AffectedItem::account(
+                account_id.clone(),
+                i.description.clone(),
+            ))
+        })
+        .collect();
+
+    let details = issues
+        .iter()
+        .map(|i| {
+            let date = i
+                .activity_date
+                .map(|d| d.format("%Y-%m-%d").to_string())
+                .unwrap_or_else(|| "unknown date".to_string());
+            format!("{}\nDate: {}", i.description, date)
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    let mut builder = HealthIssue::builder()
+        .id(format!("{}:{}", id_prefix, data_hash))
+        .severity(severity)
+        .category(HealthCategory::DataConsistency)
+        .title(if issues.len() == 1 {
+            title.to_string()
+        } else {
+            format!("{} {}", issues.len(), plural_title)
+        })
+        .message(message)
+        .affected_count(issues.len() as u32)
+        .navigate_action(NavigateAction::to_activities(None))
+        .data_hash(data_hash);
+    if !affected_items.is_empty() {
+        builder = builder.affected_items(affected_items);
+    }
+    if !details.is_empty() {
+        builder = builder.details(details);
+    }
+    builder.build()
 }
 
 impl Default for DataConsistencyCheck {
@@ -694,6 +879,96 @@ mod tests {
                 .as_ref()
                 .and_then(|query| query.get("types")),
             Some(&serde_json::json!("SELL"))
+        );
+    }
+
+    #[test]
+    fn valuation_quality_plural_titles_are_specific() {
+        fn valuation_issue(
+            issue_type: ConsistencyIssueType,
+            record_id: &str,
+        ) -> ConsistencyIssueInfo {
+            ConsistencyIssueInfo {
+                issue_type,
+                record_id: record_id.to_string(),
+                description: "TFSA".to_string(),
+                account_id: Some("acc_tfsa".to_string()),
+                asset_id: None,
+                first_negative_date: None,
+                cash_balance: None,
+                total_value_at_date: None,
+                account_currency: None,
+                activity_date: Some(chrono::NaiveDate::from_ymd_opt(2026, 6, 1).unwrap()),
+                asset_symbol: None,
+                asset_name: None,
+                quantity: None,
+                proceeds: None,
+            }
+        }
+
+        let check = DataConsistencyCheck::new();
+        let ctx = HealthContext::new(HealthConfig::default(), "USD", 100_000.0);
+        let issues_data = vec![
+            valuation_issue(ConsistencyIssueType::MissingGeneratedValuation, "missing-1"),
+            valuation_issue(ConsistencyIssueType::MissingGeneratedValuation, "missing-2"),
+            valuation_issue(ConsistencyIssueType::IncompleteValuationValue, "value-1"),
+            valuation_issue(ConsistencyIssueType::IncompleteValuationValue, "value-2"),
+            valuation_issue(ConsistencyIssueType::IncompleteValuationBasis, "basis-1"),
+            valuation_issue(ConsistencyIssueType::IncompleteValuationBasis, "basis-2"),
+            valuation_issue(ConsistencyIssueType::UnknownPerformanceFlowSource, "flow-1"),
+            valuation_issue(ConsistencyIssueType::UnknownPerformanceFlowSource, "flow-2"),
+        ];
+
+        let issues = check.analyze(&issues_data, &ctx);
+        let title_for = |prefix: &str| {
+            issues
+                .iter()
+                .find(|issue| issue.id.starts_with(prefix))
+                .map(|issue| issue.title.as_str())
+        };
+
+        assert_eq!(
+            title_for("missing_generated_valuation:"),
+            Some("2 generated valuation rows are missing")
+        );
+        assert_eq!(
+            title_for("incomplete_valuation_value:"),
+            Some("2 valuation rows have incomplete market value")
+        );
+        assert_eq!(
+            title_for("incomplete_valuation_basis:"),
+            Some("2 positions have incomplete cost basis")
+        );
+        assert_eq!(
+            title_for("unknown_performance_flow_source:"),
+            Some("2 valuation rows have unknown transfer classification")
+        );
+
+        let unknown_flow_issue = issues
+            .iter()
+            .find(|issue| issue.id.starts_with("unknown_performance_flow_source:"))
+            .expect("unknown flow issue");
+        let navigate_query = unknown_flow_issue
+            .navigate_action
+            .as_ref()
+            .and_then(|action| action.query.as_ref())
+            .expect("unknown flow activity query");
+        assert_eq!(
+            navigate_query.get("types"),
+            Some(&serde_json::json!("TRANSFER_IN,TRANSFER_OUT"))
+        );
+        assert!(navigate_query.get("q").is_none());
+        assert_eq!(
+            navigate_query.get("account"),
+            Some(&serde_json::json!("acc_tfsa"))
+        );
+        assert_eq!(
+            navigate_query.get("from"),
+            Some(&serde_json::json!("2026-06-01"))
+        );
+        assert_eq!(
+            navigate_query.get("to"),
+            Some(&serde_json::json!("2026-06-01"))
         );
     }
 

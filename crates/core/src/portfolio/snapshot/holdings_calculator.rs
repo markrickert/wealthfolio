@@ -5,9 +5,11 @@ use crate::constants::DECIMAL_PRECISION;
 use crate::errors::{CalculatorError, Error, Result};
 use crate::fx::FxServiceTrait;
 use crate::lots::{extract_lot_records_with_cost_basis_method, LotClosure, LotDisposal, LotRecord};
+use crate::portfolio::economic_events::{ActivityEconomicsResolver, TransferBoundary};
 use crate::portfolio::snapshot::AccountStateSnapshot;
 use crate::portfolio::snapshot::HoldingsCalculationResult;
 use crate::portfolio::snapshot::HoldingsCalculationWarning;
+use crate::portfolio::snapshot::LotBookBasis;
 use crate::portfolio::snapshot::Position;
 use crate::utils::time_utils::{activity_date_in_tz, parse_user_timezone_or_default};
 
@@ -55,16 +57,17 @@ fn should_use_activity_amount(activity: &Activity, asset_info: &AssetPositionInf
         return false;
     }
 
-    let is_buy_or_sell = matches!(
-        ActivityType::from_str(&activity.activity_type),
-        Ok(ActivityType::Buy | ActivityType::Sell)
-    );
+    if ActivityEconomicsResolver::is_security_transfer(activity) {
+        return false;
+    }
+
+    let activity_type = ActivityType::from_str(&activity.activity_type);
+    let has_qty = activity.quantity.is_some_and(|qty| !qty.is_zero());
+    let has_unit_price = activity.unit_price.is_some_and(|price| !price.is_zero());
+    let is_buy_or_sell = matches!(activity_type, Ok(ActivityType::Buy | ActivityType::Sell));
     if !is_buy_or_sell {
         return true;
     }
-
-    let has_qty = activity.quantity.is_some_and(|qty| !qty.is_zero());
-    let has_unit_price = activity.unit_price.is_some_and(|price| !price.is_zero());
 
     asset_info.is_bond || !has_qty || !has_unit_price
 }
@@ -237,6 +240,16 @@ impl HoldingsCalculator {
             .values()
             .map(|position| (position.asset_id.as_str(), position.currency.as_str()))
             .collect();
+        let lot_by_asset_and_id: HashMap<(&str, &str), &super::Lot> = snapshot
+            .positions
+            .values()
+            .flat_map(|position| {
+                position
+                    .lots
+                    .iter()
+                    .map(move |lot| ((position.asset_id.as_str(), lot.id.as_str()), lot))
+            })
+            .collect();
 
         for record in &mut records {
             let lot_currency = position_currency_by_asset
@@ -245,8 +258,12 @@ impl HoldingsCalculator {
                 .unwrap_or(snapshot.currency.as_str());
             let acquisition_date = NaiveDate::parse_from_str(&record.open_date, "%Y-%m-%d")
                 .unwrap_or(snapshot.snapshot_date);
-            let fx_rate_to_base =
-                self.fx_rate_to_base(lot_currency, &base_currency, acquisition_date);
+            let fx_rate_to_base = lot_by_asset_and_id
+                .get(&(record.asset_id.as_str(), record.id.as_str()))
+                .and_then(|lot| lot.stored_fx_rate_to(&base_currency))
+                .unwrap_or_else(|| {
+                    self.fx_rate_to_base(lot_currency, &base_currency, acquisition_date)
+                });
             let original_cost_basis = parse_decimal_lossy(&record.original_cost_basis);
             let remaining_cost_basis = parse_decimal_lossy(&record.remaining_cost_basis);
             let fee_allocated = parse_decimal_lossy(&record.fee_allocated);
@@ -289,6 +306,17 @@ impl HoldingsCalculator {
         }
     }
 
+    fn fx_rate_to_base_for_lot(
+        &self,
+        lot: &super::Lot,
+        from_currency: &str,
+        base_currency: &str,
+        date: NaiveDate,
+    ) -> Decimal {
+        lot.stored_fx_rate_to(base_currency)
+            .unwrap_or_else(|| self.fx_rate_to_base(from_currency, base_currency, date))
+    }
+
     /// Records a lot closure in the disposed lots log, carrying the full lot
     /// data so the persistence layer can INSERT the closed lot if it was never
     /// written to the database (e.g. during a full recalc/replay).
@@ -313,9 +341,9 @@ impl HoldingsCalculator {
         let orig_fees = lot.original_fees();
         let original_cost_basis = lot.acquisition_price * orig_qty + orig_fees;
         let base_currency = self.base_currency.read().unwrap().clone();
-        let acquisition_date = lot.acquisition_date.date_naive();
+        let acquisition_date = lot.acquisition_date_key();
         let fx_rate_to_base =
-            self.fx_rate_to_base(position_currency, &base_currency, acquisition_date);
+            self.fx_rate_to_base_for_lot(lot, position_currency, &base_currency, acquisition_date);
         let cost_basis_method = self.cost_basis_method_for_account(account_id);
         if let Ok(mut log) = self.disposed_lots.lock() {
             log.entry(account_id.to_string())
@@ -327,7 +355,7 @@ impl HoldingsCalculator {
                     open_activity_id: lot.source_activity_id.clone(),
                     account_id: account_id.to_string(),
                     asset_id: asset_id.to_string(),
-                    open_date: lot.acquisition_date.format("%Y-%m-%d").to_string(),
+                    open_date: acquisition_date.to_string(),
                     original_quantity: orig_qty.to_string(),
                     cost_per_unit: lot.acquisition_price.to_string(),
                     // Original/at-acquisition cost basis, reconstructed from
@@ -407,9 +435,13 @@ impl HoldingsCalculator {
                     total_proceeds * effective_quantity / total_quantity_reduced
                 };
                 let cost_basis = lot.cost_basis;
-                let acquisition_date = self.activity_local_date_from_utc(lot.acquisition_date);
-                let acquisition_fx_rate_to_base =
-                    self.fx_rate_to_base(position_currency, &base_currency, acquisition_date);
+                let acquisition_date = lot.acquisition_date_key();
+                let acquisition_fx_rate_to_base = self.fx_rate_to_base_for_lot(
+                    lot,
+                    position_currency,
+                    &base_currency,
+                    acquisition_date,
+                );
                 let acquisition_base_available = !acquisition_fx_rate_to_base.is_zero();
                 if !acquisition_base_available {
                     warn!(
@@ -552,42 +584,16 @@ impl HoldingsCalculator {
             }
         }
 
-        // Recalculate cost basis in account currency using SNAPSHOT date rates
+        // Recalculate cost basis in account currency using historical lot FX.
+        // Book cost must stay anchored to acquisition-date FX; only market value
+        // should move with valuation-date FX.
         let mut final_cost_basis_acct = Decimal::ZERO;
         for position in next_state.positions.values() {
-            let position_currency = &position.currency;
-
-            if position_currency.is_empty() {
-                warn!(
-                    "Position {} has no currency set. Skipping its cost basis.",
-                    position.id
-                );
-                continue;
-            }
-            if position_currency == &account_currency {
-                final_cost_basis_acct += position.total_cost_basis;
-                continue;
-            }
-
-            match self.fx_service.convert_currency_for_date(
-                position.total_cost_basis,
-                position_currency,
+            final_cost_basis_acct += self.position_cost_basis_in_account_currency(
+                position,
                 &account_currency,
                 target_date,
-            ) {
-                Ok(converted_cost) => {
-                    final_cost_basis_acct += converted_cost;
-                }
-                Err(e) => {
-                    error!(
-                         "Holdings Calc (Book Cost): Failed to convert {} {} to {} on {}: {}. Using original unconverted cost for snapshot.",
-                         position.total_cost_basis, position_currency, account_currency, target_date, e
-                     );
-                    if position_currency != &account_currency {
-                        final_cost_basis_acct += position.total_cost_basis;
-                    }
-                }
-            }
+            );
         }
         next_state.cost_basis = final_cost_basis_acct;
 
@@ -603,6 +609,177 @@ impl HoldingsCalculator {
         Ok(HoldingsCalculationResult::with_warnings(
             next_state, warnings,
         ))
+    }
+
+    fn position_cost_basis_in_account_currency(
+        &self,
+        position: &Position,
+        account_currency: &str,
+        target_date: NaiveDate,
+    ) -> Decimal {
+        let position_currency = &position.currency;
+
+        if position_currency.is_empty() {
+            warn!(
+                "Position {} has no currency set. Skipping its cost basis.",
+                position.id
+            );
+            return Decimal::ZERO;
+        }
+
+        if position.lots.is_empty() {
+            if position_currency != account_currency {
+                warn!(
+                    "Position {} has no materialized lots on {}. Falling back to valuation-date FX for account cost basis.",
+                    position.asset_id, target_date
+                );
+            }
+            return self.convert_cost_basis_to_account_currency(
+                position.total_cost_basis,
+                position_currency,
+                account_currency,
+                target_date,
+                &position.id,
+            );
+        }
+
+        position
+            .lots
+            .iter()
+            .filter(|lot| lot.quantity > Decimal::ZERO && !lot.cost_basis.is_zero())
+            .map(|lot| {
+                if let Some(rate) = lot.stored_fx_rate_to(account_currency) {
+                    return lot.cost_basis * rate;
+                }
+
+                self.convert_cost_basis_to_account_currency(
+                    lot.cost_basis,
+                    position_currency,
+                    account_currency,
+                    lot.acquisition_date_key(),
+                    &lot.id,
+                )
+            })
+            .sum()
+    }
+
+    fn lots_cost_basis_in_currency(
+        &self,
+        lots: &[super::Lot],
+        position_currency: &str,
+        target_currency: &str,
+        fallback_date: NaiveDate,
+        context_id: &str,
+    ) -> Decimal {
+        lots.iter()
+            .filter(|lot| lot.quantity > Decimal::ZERO && !lot.cost_basis.is_zero())
+            .map(|lot| {
+                self.lot_cost_basis_in_currency(
+                    lot,
+                    position_currency,
+                    target_currency,
+                    fallback_date,
+                    context_id,
+                )
+            })
+            .sum()
+    }
+
+    fn lot_cost_basis_in_currency(
+        &self,
+        lot: &super::Lot,
+        position_currency: &str,
+        target_currency: &str,
+        fallback_date: NaiveDate,
+        context_id: &str,
+    ) -> Decimal {
+        if position_currency == target_currency {
+            return lot.cost_basis;
+        }
+
+        if let Some(rate) = lot.stored_fx_rate_to(target_currency) {
+            return lot.cost_basis * rate;
+        }
+
+        let acquisition_date = lot.acquisition_date_key();
+        match self.fx_service.convert_currency_for_date(
+            lot.cost_basis,
+            position_currency,
+            target_currency,
+            acquisition_date,
+        ) {
+            Ok(converted) => converted,
+            Err(acquisition_err) => {
+                warn!(
+                    "Holdings Calc (Lot Book FX {}): Failed acquisition-date conversion {} {}->{} on {}: {}.",
+                    context_id,
+                    lot.cost_basis,
+                    position_currency,
+                    target_currency,
+                    acquisition_date,
+                    acquisition_err
+                );
+
+                if fallback_date == acquisition_date {
+                    return lot.cost_basis;
+                }
+
+                match self.fx_service.convert_currency_for_date(
+                    lot.cost_basis,
+                    position_currency,
+                    target_currency,
+                    fallback_date,
+                ) {
+                    Ok(converted) => converted,
+                    Err(fallback_err) => {
+                        warn!(
+                            "Holdings Calc (Lot Book FX {}): Failed fallback conversion {} {}->{} on {}: {}. Using original amount.",
+                            context_id,
+                            lot.cost_basis,
+                            position_currency,
+                            target_currency,
+                            fallback_date,
+                            fallback_err
+                        );
+                        lot.cost_basis
+                    }
+                }
+            }
+        }
+    }
+
+    fn convert_cost_basis_to_account_currency(
+        &self,
+        amount: Decimal,
+        from_currency: &str,
+        account_currency: &str,
+        date: NaiveDate,
+        context_id: &str,
+    ) -> Decimal {
+        if from_currency == account_currency {
+            return amount;
+        }
+
+        match self.fx_service.convert_currency_for_date(
+            amount,
+            from_currency,
+            account_currency,
+            date,
+        ) {
+            Ok(converted_cost) => converted_cost,
+            Err(e) => {
+                error!(
+                    "Holdings Calc (Book Cost): Failed to convert {} {} to {} on {} for {}: {}. Using original unconverted cost for snapshot.",
+                    amount,
+                    from_currency,
+                    account_currency,
+                    date,
+                    context_id,
+                    e
+                );
+                amount
+            }
+        }
     }
 
     /// Processes a single activity, updating positions, cash, and net_deposit.
@@ -703,6 +880,8 @@ impl HoldingsCalculator {
         };
 
         // Use add_lot_values to avoid cloning Activity
+        let book_basis =
+            self.lot_book_basis_for_activity(activity, &position_currency, account_currency);
         let _cost_basis_asset_curr = position.add_lot_values(
             activity.id.clone(),
             activity.qty(),
@@ -711,6 +890,7 @@ impl HoldingsCalculator {
             activity.activity_date,
             fx_rate_used,
             Some(activity.id.clone()),
+            book_basis,
         )?;
 
         let total_cost = gross_trade_amount(activity, &asset_info) + activity.fee_amt();
@@ -948,7 +1128,12 @@ impl HoldingsCalculator {
                 Err(e) => {
                     warn!(
                         "Holdings Calc (NetContrib Credit Bonus {}): Failed conversion {} {}->{} on {}: {}. Base contribution not updated.",
-                        activity.id, activity_amount, activity_currency, &base_ccy, activity_date, e
+                        activity.id,
+                        activity_amount,
+                        activity_currency,
+                        &base_ccy,
+                        activity_date,
+                        e
                     );
                     Decimal::ZERO
                 }
@@ -1065,10 +1250,17 @@ impl HoldingsCalculator {
                     .and_then(|mut cache| cache.remove(group_id))
             });
 
-            let cost_basis_asset_curr = if let Some(lots) = cached_lots {
+            let (cost_basis_asset_curr, added_lots) = if let Some(lots) = cached_lots {
                 // Lot-level transfer: lots are already in the asset's position currency
                 // (same asset = same listing currency), so no FX conversion needed.
-                position.add_transferred_lots(&activity.id, &lots, None)?
+                let cost_basis = position.add_transferred_lots(&activity.id, &lots, None)?;
+                let added_lots: Vec<super::Lot> = position
+                    .lots
+                    .iter()
+                    .filter(|lot| lot.source_activity_id.as_deref() == Some(activity.id.as_str()))
+                    .cloned()
+                    .collect();
+                (cost_basis, added_lots)
             } else {
                 // Fallback: no cached lots (external transfer or no source_group_id).
                 // Use the activity's unit_price as the acquisition price.
@@ -1083,8 +1275,18 @@ impl HoldingsCalculator {
                     .get(asset_id)
                     .cloned()
                     .unwrap_or_else(|| AssetPositionInfo::fallback(activity_currency));
-
-                let lot_unit_price = effective_unit_price(activity, &asset_info);
+                let compiled_economics =
+                    ActivityEconomicsResolver::compile_activity_with_unit_multiplier(
+                        activity,
+                        None,
+                        TransferBoundary::External,
+                        asset_info.contract_multiplier,
+                    );
+                let lot_unit_price = if activity.qty().is_zero() {
+                    Decimal::ZERO
+                } else {
+                    compiled_economics.lot_cost_basis_value / activity.qty()
+                };
                 let (unit_price_for_lot, fee_for_lot, fx_rate_used) = if needs_conversion {
                     let (converted_price, converted_fee, fx_rate) = self
                         .convert_to_position_currency(
@@ -1099,7 +1301,12 @@ impl HoldingsCalculator {
                     (lot_unit_price, activity.fee_amt(), None)
                 };
 
-                position.add_lot_values(
+                let book_basis = self.lot_book_basis_for_activity(
+                    activity,
+                    &position_currency,
+                    account_currency,
+                );
+                let cost_basis = position.add_lot_values(
                     activity.id.clone(),
                     activity.qty(),
                     unit_price_for_lot,
@@ -1107,41 +1314,173 @@ impl HoldingsCalculator {
                     activity.activity_date,
                     fx_rate_used,
                     Some(activity.id.clone()),
-                )?
+                    book_basis,
+                )?;
+                let added_lots: Vec<super::Lot> = position
+                    .lots
+                    .iter()
+                    .filter(|lot| lot.source_activity_id.as_deref() == Some(activity.id.as_str()))
+                    .cloned()
+                    .collect();
+                (cost_basis, added_lots)
             };
 
             // Book fee in ACTIVITY currency
             add_cash(state, activity_currency, -activity.fee_amt());
 
-            let cost_basis_acct = self.convert_position_amount_to_account_currency(
-                cost_basis_asset_curr,
-                &position_currency,
-                activity,
-                account_currency,
-                "Net Deposit TransferIn Asset",
-            );
-
-            let base_ccy = self.base_currency.read().unwrap();
-            let cost_basis_base = match self.fx_service.convert_currency_for_date(
-                cost_basis_asset_curr,
-                &position_currency,
-                &base_ccy,
-                activity_date,
-            ) {
-                Ok(converted) => converted,
-                Err(e) => {
-                    warn!(
-                        "Holdings Calc (NetContribBase TransferIn Asset {}): Failed conversion: {}.",
-                        activity.id, e
-                    );
-                    cost_basis_asset_curr
+            let cost_basis_acct = if added_lots.is_empty() {
+                self.convert_position_amount_to_account_currency(
+                    cost_basis_asset_curr,
+                    &position_currency,
+                    activity,
+                    account_currency,
+                    "Net Deposit TransferIn Asset",
+                )
+            } else {
+                self.lots_cost_basis_in_currency(
+                    &added_lots,
+                    &position_currency,
+                    account_currency,
+                    activity_date,
+                    &activity.id,
+                )
+            };
+            let base_ccy = self.base_currency.read().unwrap().clone();
+            let cost_basis_base = if added_lots.is_empty() {
+                match self.fx_service.convert_currency_for_date(
+                    cost_basis_asset_curr,
+                    &position_currency,
+                    &base_ccy,
+                    activity_date,
+                ) {
+                    Ok(converted) => converted,
+                    Err(e) => {
+                        warn!(
+                            "Holdings Calc (NetContribBase TransferIn Asset {}): Failed conversion: {}.",
+                            activity.id, e
+                        );
+                        cost_basis_asset_curr
+                    }
                 }
+            } else {
+                self.lots_cost_basis_in_currency(
+                    &added_lots,
+                    &position_currency,
+                    &base_ccy,
+                    activity_date,
+                    &activity.id,
+                )
             };
 
             state.net_contribution += cost_basis_acct;
             state.net_contribution_base += cost_basis_base;
         }
         Ok(())
+    }
+
+    fn lot_book_basis_for_activity(
+        &self,
+        activity: &Activity,
+        position_currency: &str,
+        account_currency: &str,
+    ) -> LotBookBasis {
+        let acquisition_local_date = self.activity_local_date(activity);
+        let base_currency = self.base_currency.read().unwrap().clone();
+        let explicit_position_to_account =
+            Self::explicit_position_to_account_rate(activity, position_currency, account_currency);
+
+        let fx_rate_to_account = if position_currency == account_currency {
+            Some(Decimal::ONE)
+        } else {
+            explicit_position_to_account.or_else(|| {
+                self.fx_rate_for_basis(
+                    position_currency,
+                    account_currency,
+                    acquisition_local_date,
+                    &activity.id,
+                )
+            })
+        };
+
+        let fx_rate_to_base = if position_currency == base_currency {
+            Some(Decimal::ONE)
+        } else if let Some(explicit_rate) = explicit_position_to_account {
+            if account_currency == base_currency {
+                Some(explicit_rate)
+            } else {
+                self.fx_rate_for_basis(
+                    account_currency,
+                    &base_currency,
+                    acquisition_local_date,
+                    &activity.id,
+                )
+                .map(|account_to_base| explicit_rate * account_to_base)
+            }
+        } else {
+            self.fx_rate_for_basis(
+                position_currency,
+                &base_currency,
+                acquisition_local_date,
+                &activity.id,
+            )
+        };
+
+        LotBookBasis {
+            acquisition_local_date: Some(acquisition_local_date),
+            fx_rate_to_account,
+            account_currency: Some(account_currency.to_string()),
+            fx_rate_to_base,
+            base_currency: Some(base_currency),
+        }
+    }
+
+    fn explicit_position_to_account_rate(
+        activity: &Activity,
+        position_currency: &str,
+        account_currency: &str,
+    ) -> Option<Decimal> {
+        if position_currency == account_currency {
+            return Some(Decimal::ONE);
+        }
+
+        let fx_rate = activity.fx_rate.filter(|rate| !rate.is_zero())?;
+        if activity.currency == position_currency {
+            return Some(fx_rate);
+        }
+
+        if activity.currency == account_currency {
+            return Some(Decimal::ONE / fx_rate);
+        }
+
+        None
+    }
+
+    fn fx_rate_for_basis(
+        &self,
+        from_currency: &str,
+        to_currency: &str,
+        date: NaiveDate,
+        activity_id: &str,
+    ) -> Option<Decimal> {
+        if from_currency == to_currency {
+            return Some(Decimal::ONE);
+        }
+
+        match self.fx_service.convert_currency_for_date(
+            Decimal::ONE,
+            from_currency,
+            to_currency,
+            date,
+        ) {
+            Ok(rate) => Some(rate),
+            Err(e) => {
+                warn!(
+                    "Holdings Calc (Lot Basis {}): Failed FX rate {}->{} on {}: {}.",
+                    activity_id, from_currency, to_currency, date, e
+                );
+                None
+            }
+        }
     }
 
     /// Handle TRANSFER_OUT activity.
@@ -1209,6 +1548,15 @@ impl HoldingsCalculator {
 
                 let reduction = position.reduce_lots_fifo(activity.qty())?;
                 let cost_basis_removed = reduction.cost_basis_removed;
+                self.record_lot_disposals(
+                    &state.account_id,
+                    asset_id,
+                    activity,
+                    &reduction.removed_lots,
+                    cost_basis_removed,
+                    reduction.quantity_reduced,
+                    &position_currency,
+                );
 
                 // Record fully consumed lots as closed
                 let close_date = activity_date.to_string();
@@ -1223,6 +1571,28 @@ impl HoldingsCalculator {
                     );
                 }
 
+                if !position_currency.is_empty() && cost_basis_removed != Decimal::ZERO {
+                    let cost_basis_removed_acct = self.lots_cost_basis_in_currency(
+                        &reduction.removed_lots,
+                        &position_currency,
+                        account_currency,
+                        activity_date,
+                        &activity.id,
+                    );
+
+                    let base_ccy = self.base_currency.read().unwrap().clone();
+                    let cost_basis_removed_base = self.lots_cost_basis_in_currency(
+                        &reduction.removed_lots,
+                        &position_currency,
+                        &base_ccy,
+                        activity_date,
+                        &activity.id,
+                    );
+
+                    state.net_contribution -= cost_basis_removed_acct;
+                    state.net_contribution_base -= cost_basis_removed_base;
+                }
+
                 // Cache removed lots for paired TRANSFER_IN (lot-level transfer)
                 if let Some(ref group_id) = activity.source_group_id {
                     if !reduction.removed_lots.is_empty() {
@@ -1230,36 +1600,6 @@ impl HoldingsCalculator {
                             cache.insert(group_id.clone(), reduction.removed_lots);
                         }
                     }
-                }
-
-                if !position_currency.is_empty() && cost_basis_removed != Decimal::ZERO {
-                    let cost_basis_removed_acct = self.convert_position_amount_to_account_currency(
-                        cost_basis_removed,
-                        &position_currency,
-                        activity,
-                        account_currency,
-                        "Net Deposit TransferOut Asset",
-                    );
-
-                    let base_ccy = self.base_currency.read().unwrap();
-                    let cost_basis_removed_base = match self.fx_service.convert_currency_for_date(
-                        cost_basis_removed,
-                        &position_currency,
-                        &base_ccy,
-                        activity_date,
-                    ) {
-                        Ok(converted) => converted,
-                        Err(e) => {
-                            warn!(
-                                "Holdings Calc (NetContribBase TransferOut Asset {}): Failed conversion: {}.",
-                                activity.id, e
-                            );
-                            cost_basis_removed
-                        }
-                    };
-
-                    state.net_contribution -= cost_basis_removed_acct;
-                    state.net_contribution_base -= cost_basis_removed_base;
                 }
             } else {
                 warn!(
@@ -1454,7 +1794,13 @@ impl HoldingsCalculator {
             Err(e) => {
                 warn!(
                     "Holdings Calc ({} {}): Failed conversion {} {}->{} on {}: {}. Using original amount.",
-                    context, activity.id, amount, activity_currency, account_currency, activity_date, e
+                    context,
+                    activity.id,
+                    amount,
+                    activity_currency,
+                    account_currency,
+                    activity_date,
+                    e
                 );
                 amount // Fallback to original amount
             }
@@ -1529,7 +1875,13 @@ impl HoldingsCalculator {
             Err(e) => {
                 warn!(
                     "Holdings Calc ({} {}): Failed conversion {} {}->{} on {}: {}. Using original amount.",
-                    context, activity.id, amount, position_currency, account_currency, activity_date, e
+                    context,
+                    activity.id,
+                    amount,
+                    position_currency,
+                    account_currency,
+                    activity_date,
+                    e
                 );
                 amount // Fallback to original amount
             }

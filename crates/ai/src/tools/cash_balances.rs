@@ -236,8 +236,9 @@ mod tests {
     use rust_decimal::Decimal;
     use wealthfolio_core::{
         accounts::Account,
+        economic_events::BasisStatus,
         holdings::{Holding, HoldingType, Instrument, MonetaryValue},
-        valuation::{DailyAccountValuation, ExternalFlowSource},
+        valuation::{DailyAccountValuation, ExternalFlowSource, ValuationStatus},
     };
 
     fn cash_holding(
@@ -338,16 +339,20 @@ mod tests {
                     investment_market_value: Decimal::ZERO,
                     total_value: Decimal::from(2350),
                     cost_basis: Decimal::ZERO,
+                    book_basis: Decimal::ZERO,
                     net_contribution: Decimal::ZERO,
                     cash_balance_base: Decimal::from(2350),
                     investment_market_value_base: Decimal::ZERO,
                     total_value_base: Decimal::from(2350),
                     cost_basis_base: Decimal::ZERO,
+                    book_basis_base: Decimal::ZERO,
                     net_contribution_base: Decimal::ZERO,
                     external_inflow_base: Decimal::ZERO,
                     external_outflow_base: Decimal::ZERO,
                     external_flow_source: ExternalFlowSource::Unknown,
                     performance_eligible_value_base: Decimal::from(2350),
+                    value_status: ValuationStatus::Complete,
+                    basis_status: BasisStatus::NotApplicable,
                     calculated_at: Utc::now(),
                 }],
             }),

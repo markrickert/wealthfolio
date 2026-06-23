@@ -160,6 +160,156 @@ describe("createDraftActivities explicit activity mapping", () => {
     expect(draft.amount).toBe("250.00");
   });
 
+  it("infers Wealthsimple cash movement direction from signed amount", () => {
+    const drafts = createDraftActivities(
+      [
+        ["2022-11-01", "TRANSFER", "-1000", "CAD"],
+        ["2023-04-04", "TRANSFER_TF", "-500", "CAD"],
+        ["2025-01-03", "MoneyMovement", "400", "CAD"],
+      ],
+      headers,
+      {
+        ...baseMapping,
+        activityMappings: {
+          [ActivityType.DEPOSIT]: ["TRANSFER", "TRANSFER_TF", "MoneyMovement"],
+        },
+      },
+      parseConfig,
+      "account-1",
+    );
+
+    expect(drafts).toHaveLength(3);
+    expect(drafts[0].activityType).toBe(ActivityType.WITHDRAWAL);
+    expect(drafts[0].amount).toBe("1000");
+    expect(drafts[1].activityType).toBe(ActivityType.WITHDRAWAL);
+    expect(drafts[1].amount).toBe("500");
+    expect(drafts[2].activityType).toBe(ActivityType.DEPOSIT);
+    expect(drafts[2].amount).toBe("400");
+  });
+
+  it("infers Wealthsimple trade direction from subtype before generic Trade mapping", () => {
+    const drafts = createDraftActivities(
+      [
+        ["2025-08-07", "Trade", "SELL", "AAPL", "-170", "36541.5", "USD"],
+        ["2025-08-08", "Trade", "BUY", "AAPL", "10", "-2000", "USD"],
+        ["2025-08-09", "Trade", "", "MSFT", "-2", "600", "USD"],
+      ],
+      [
+        ImportFormat.DATE,
+        ImportFormat.ACTIVITY_TYPE,
+        ImportFormat.SUBTYPE,
+        ImportFormat.SYMBOL,
+        ImportFormat.QUANTITY,
+        ImportFormat.AMOUNT,
+        ImportFormat.CURRENCY,
+      ],
+      {
+        ...baseMapping,
+        fieldMappings: {
+          [ImportFormat.DATE]: ImportFormat.DATE,
+          [ImportFormat.ACTIVITY_TYPE]: ImportFormat.ACTIVITY_TYPE,
+          [ImportFormat.SUBTYPE]: ImportFormat.SUBTYPE,
+          [ImportFormat.SYMBOL]: ImportFormat.SYMBOL,
+          [ImportFormat.QUANTITY]: ImportFormat.QUANTITY,
+          [ImportFormat.AMOUNT]: ImportFormat.AMOUNT,
+          [ImportFormat.CURRENCY]: ImportFormat.CURRENCY,
+        },
+        activityMappings: {
+          [ActivityType.BUY]: ["Trade", "BUY"],
+          [ActivityType.SELL]: ["SELL"],
+        },
+      },
+      parseConfig,
+      "account-1",
+    );
+
+    expect(drafts).toHaveLength(3);
+    expect(drafts[0].activityType).toBe(ActivityType.SELL);
+    expect(drafts[0].subtype).toBeUndefined();
+    expect(drafts[0].quantity).toBe("170");
+    expect(drafts[0].amount).toBe("36541.5");
+    expect(drafts[1].activityType).toBe(ActivityType.BUY);
+    expect(drafts[1].subtype).toBeUndefined();
+    expect(drafts[1].quantity).toBe("10");
+    expect(drafts[1].amount).toBe("2000");
+    expect(drafts[2].activityType).toBe(ActivityType.SELL);
+    expect(drafts[2].quantity).toBe("2");
+    expect(drafts[2].amount).toBe("600");
+  });
+
+  it("infers Wealthsimple FxExchange transfer direction from signed amount", () => {
+    const drafts = createDraftActivities(
+      [
+        ["2026-01-07", "FxExchange", "32.93", "CAD"],
+        ["2026-01-07", "FxExchange", "-24.33", "USD"],
+      ],
+      headers,
+      {
+        ...baseMapping,
+        activityMappings: {
+          [ActivityType.TRANSFER_IN]: ["FxExchange"],
+        },
+      },
+      parseConfig,
+      "account-1",
+    );
+
+    expect(drafts).toHaveLength(2);
+    expect(drafts[0].activityType).toBe(ActivityType.TRANSFER_IN);
+    expect(drafts[0].amount).toBe("32.93");
+    expect(drafts[0].subtype).toBe("FXEXCHANGE");
+    expect(drafts[0].isExternal).toBe(false);
+    expect(drafts[1].activityType).toBe(ActivityType.TRANSFER_OUT);
+    expect(drafts[1].amount).toBe("24.33");
+    expect(drafts[1].subtype).toBe("FXEXCHANGE");
+    expect(drafts[1].isExternal).toBe(false);
+    expect(draftToActivityImport(drafts[0]).subtype).toBe("FXEXCHANGE");
+    expect(draftToActivityImport(drafts[1]).subtype).toBe("FXEXCHANGE");
+  });
+
+  it("infers Wealthsimple internal security transfer direction from signed quantity", () => {
+    const drafts = createDraftActivities(
+      [
+        ["2025-03-02", "InternalSecurityTransfer", "MSFT", "10.0172", "3976.728228", "USD"],
+        ["2023-02-20", "InternalSecurityTransfer", "MSFT", "-10", "-2580.6", "USD"],
+      ],
+      [
+        ImportFormat.DATE,
+        ImportFormat.ACTIVITY_TYPE,
+        ImportFormat.SYMBOL,
+        ImportFormat.QUANTITY,
+        ImportFormat.AMOUNT,
+        ImportFormat.CURRENCY,
+      ],
+      {
+        ...baseMapping,
+        fieldMappings: {
+          [ImportFormat.DATE]: ImportFormat.DATE,
+          [ImportFormat.ACTIVITY_TYPE]: ImportFormat.ACTIVITY_TYPE,
+          [ImportFormat.SYMBOL]: ImportFormat.SYMBOL,
+          [ImportFormat.QUANTITY]: ImportFormat.QUANTITY,
+          [ImportFormat.AMOUNT]: ImportFormat.AMOUNT,
+          [ImportFormat.CURRENCY]: ImportFormat.CURRENCY,
+        },
+        activityMappings: {
+          [ActivityType.TRANSFER_OUT]: ["InternalSecurityTransfer"],
+        },
+      },
+      parseConfig,
+      "account-1",
+    );
+
+    expect(drafts).toHaveLength(2);
+    expect(drafts[0].activityType).toBe(ActivityType.TRANSFER_IN);
+    expect(drafts[0].quantity).toBe("10.0172");
+    expect(drafts[0].amount).toBe("3976.728228");
+    expect(drafts[0].isExternal).toBe(false);
+    expect(drafts[1].activityType).toBe(ActivityType.TRANSFER_OUT);
+    expect(drafts[1].quantity).toBe("10");
+    expect(drafts[1].amount).toBe("2580.6");
+    expect(drafts[1].isExternal).toBe(false);
+  });
+
   it("does not serialize stale external flags for non-transfer rows", () => {
     const draft = createSingleDraftWithMapping(["2024-03-15", "TRANSFER", "250.00", "USD"], {
       [ActivityType.TRANSFER_IN]: ["TRANSFER"],
@@ -202,6 +352,40 @@ describe("createDraftActivities explicit activity mapping", () => {
     expect(draft.status).toBe("valid");
     expect(draft.amount).toBe("3");
     expect(draft.errors).toEqual({});
+  });
+
+  it("keeps Wealthsimple split rows in review when the ratio amount is blank", () => {
+    const [draft] = createDraftActivities(
+      [["2020-08-31", "SPLIT", "AAPL", "3", "", ""]],
+      [
+        ImportFormat.DATE,
+        ImportFormat.ACTIVITY_TYPE,
+        ImportFormat.SYMBOL,
+        ImportFormat.QUANTITY,
+        ImportFormat.AMOUNT,
+        ImportFormat.CURRENCY,
+      ],
+      {
+        ...baseMapping,
+        fieldMappings: {
+          [ImportFormat.DATE]: ImportFormat.DATE,
+          [ImportFormat.ACTIVITY_TYPE]: ImportFormat.ACTIVITY_TYPE,
+          [ImportFormat.SYMBOL]: ImportFormat.SYMBOL,
+          [ImportFormat.QUANTITY]: ImportFormat.QUANTITY,
+          [ImportFormat.AMOUNT]: ImportFormat.AMOUNT,
+          [ImportFormat.CURRENCY]: ImportFormat.CURRENCY,
+        },
+        activityMappings: { [ActivityType.SPLIT]: ["SPLIT"] },
+      },
+      parseConfig,
+      "account-1",
+    );
+
+    expect(draft.activityType).toBe(ActivityType.SPLIT);
+    expect(draft.quantity).toBe("3");
+    expect(draft.amount).toBeUndefined();
+    expect(draft.status).toBe("error");
+    expect(draft.errors.amount).toEqual(["Amount (split ratio) must be greater than 0"]);
   });
 
   it("rejects zero split ratios", () => {

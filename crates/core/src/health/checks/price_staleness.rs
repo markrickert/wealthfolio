@@ -75,6 +75,77 @@ impl PriceStalenessCheck {
         // because assets with no quotes will have market_value = 0 (price * quantity = 0)
         // and we want to detect those as "missing price" issues.
         let market_priced: Vec<_> = holdings.iter().filter(|h| h.uses_market_pricing).collect();
+        let manual_without_value: Vec<_> = holdings
+            .iter()
+            .filter(|holding| {
+                !holding.uses_market_pricing
+                    && holding.market_value <= 0.0
+                    && !latest_quote_times.contains_key(&holding.asset_id)
+            })
+            .collect();
+
+        if !manual_without_value.is_empty() {
+            let count = manual_without_value.len();
+            let asset_ids: Vec<String> = manual_without_value
+                .iter()
+                .map(|holding| holding.asset_id.clone())
+                .collect();
+            let data_hash = compute_data_hash(&asset_ids, Severity::Warning, 0.0);
+            let affected_items: Vec<AffectedItem> = manual_without_value
+                .iter()
+                .map(|holding| {
+                    AffectedItem::asset_with_name(
+                        &holding.asset_id,
+                        &holding.symbol,
+                        holding.name.clone(),
+                    )
+                })
+                .collect();
+            let title = if count == 1 {
+                format!(
+                    "Missing manual valuation for {}",
+                    manual_without_value[0].symbol
+                )
+            } else {
+                format!("Missing manual valuations for {} holdings", count)
+            };
+            let details = manual_without_value
+                .iter()
+                .take(5)
+                .enumerate()
+                .map(|(index, holding)| {
+                    let name = holding
+                        .name
+                        .as_deref()
+                        .map(|name| format!(" ({name})"))
+                        .unwrap_or_default();
+                    format!(
+                        "{}. {}{} - no manual valuation",
+                        index + 1,
+                        holding.symbol,
+                        name
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            issues.push(
+                HealthIssue::builder()
+                    .id(format!("manual_valuation:missing:{data_hash}"))
+                    .severity(Severity::Warning)
+                    .category(HealthCategory::PriceStaleness)
+                    .title(title)
+                    .message(
+                        "Manual/custom holdings need a manual valuation before they can be included as valued performance positions.",
+                    )
+                    .affected_count(count as u32)
+                    .affected_mv_pct(0.0)
+                    .affected_items(affected_items)
+                    .details(details)
+                    .data_hash(data_hash)
+                    .build(),
+            );
+        }
 
         for holding in market_priced {
             match latest_quote_times.get(&holding.asset_id) {
@@ -602,6 +673,30 @@ mod tests {
 
         let issues = check.analyze(&holdings, &quote_times, &ctx);
         assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn test_manual_pricing_without_value_flags_missing_manual_valuation() {
+        let check = PriceStalenessCheck::new();
+        let ctx = HealthContext::new(HealthConfig::default(), "USD", 100_000.0);
+
+        let holdings = vec![AssetHoldingInfo {
+            asset_id: "ALT:HOUSE".to_string(),
+            symbol: "HOUSE".to_string(),
+            name: Some("My House".to_string()),
+            exchange_mic: None,
+            market_value: 0.0,
+            uses_market_pricing: false,
+        }];
+        let quote_times = HashMap::new();
+
+        let issues = check.analyze(&holdings, &quote_times, &ctx);
+
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].severity, Severity::Warning);
+        assert_eq!(issues[0].title, "Missing manual valuation for HOUSE");
+        assert!(issues[0].message.contains("manual valuation"));
+        assert!(issues[0].fix_action.is_none());
     }
 
     #[test]

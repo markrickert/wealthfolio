@@ -49,9 +49,15 @@ vi.mock("@wealthfolio/ui", () => ({
   PrivacyAmount: ({ value, currency }: { value: number; currency: string }) => (
     <span>{`value:${currency}:${value}`}</span>
   ),
-  GainAmount: ({ value, currency }: { value: number; currency: string }) => (
-    <span>{`gain-amount:${currency}:${value}`}</span>
-  ),
+  GainAmount: ({
+    value,
+    currency,
+    showSign = true,
+  }: {
+    value: number;
+    currency: string;
+    showSign?: boolean;
+  }) => <span>{`gain-amount:${currency}:${showSign}:${value}`}</span>,
   GainPercent: ({ value }: { value: number }) => <span>{`gain-percent:${value}`}</span>,
 }));
 
@@ -145,18 +151,22 @@ function createValuation(overrides: Partial<AccountValuation>): AccountValuation
     investmentMarketValue: overrides.investmentMarketValue ?? 0,
     totalValue: overrides.totalValue ?? 0,
     costBasis: overrides.costBasis ?? 0,
+    bookBasis: overrides.bookBasis ?? overrides.costBasis ?? overrides.cashBalance ?? 0,
     netContribution: overrides.netContribution ?? 0,
     cashBalanceBase: overrides.cashBalanceBase ?? overrides.cashBalance ?? 0,
     investmentMarketValueBase:
       overrides.investmentMarketValueBase ?? overrides.investmentMarketValue ?? 0,
     totalValueBase: overrides.totalValueBase ?? overrides.totalValue ?? 0,
     costBasisBase: overrides.costBasisBase ?? overrides.costBasis ?? 0,
+    bookBasisBase: overrides.bookBasisBase ?? overrides.bookBasis ?? overrides.costBasis ?? 0,
     netContributionBase: overrides.netContributionBase ?? overrides.netContribution ?? 0,
     externalInflowBase: overrides.externalInflowBase ?? 0,
     externalOutflowBase: overrides.externalOutflowBase ?? 0,
     externalFlowSource: overrides.externalFlowSource ?? "UNKNOWN",
     performanceEligibleValueBase:
       overrides.performanceEligibleValueBase ?? overrides.totalValue ?? 0,
+    valueStatus: overrides.valueStatus ?? "complete",
+    basisStatus: overrides.basisStatus ?? "notApplicable",
     calculatedAt: overrides.calculatedAt ?? "2026-03-17T00:00:00Z",
   };
 }
@@ -228,6 +238,21 @@ function createPerformanceResult(
       warnings: [],
       notApplicableReasons: [],
     },
+    summary: overrides.summary ?? {
+      amount: pnl,
+      percent: returnValue,
+      method: overrides.mode ?? "timeWeighted",
+      basis: overrides.isMixedTrackingMode ? "mixed" : "marketValue",
+      quality: overrides.dataQuality?.status ?? "ok",
+      amountStatus: pnl == null ? "unavailable" : "complete",
+      percentStatus: returnValue == null ? "unavailable" : "complete",
+      basisStatus: overrides.basisStatus ?? "notApplicable",
+      reasons: [
+        ...(overrides.dataQuality?.warnings ?? []),
+        ...(overrides.dataQuality?.notApplicableReasons ?? []),
+      ],
+    },
+    basisStatus: overrides.basisStatus,
     series: overrides.series ?? [],
     isHoldingsMode: overrides.isHoldingsMode,
     isMixedTrackingMode: overrides.isMixedTrackingMode,
@@ -393,7 +418,7 @@ describe("AccountsSummary", () => {
       },
     });
 
-    expect(screen.getByText("gain-amount:USD:17")).toBeInTheDocument();
+    expect(screen.getByText("gain-amount:USD:true:17")).toBeInTheDocument();
     expect(screen.getByText("gain-percent:0.07")).toBeInTheDocument();
 
     await user.click(screen.getByText("Brokerage"));
@@ -403,13 +428,15 @@ describe("AccountsSummary", () => {
     const positiveRow = screen.getByText("Positive Gain").closest("a");
     expect(positiveRow).not.toBeNull();
     expect(within(positiveRow as HTMLElement).getByText("value:USD:110")).toBeInTheDocument();
-    expect(within(positiveRow as HTMLElement).getByText("gain-amount:USD:10")).toBeInTheDocument();
+    expect(
+      within(positiveRow as HTMLElement).getByText("gain-amount:USD:true:10"),
+    ).toBeInTheDocument();
     expect(within(positiveRow as HTMLElement).getByText("gain-percent:0.1")).toBeInTheDocument();
 
     const zeroRow = screen.getByText("Zero Gain").closest("a");
     expect(zeroRow).not.toBeNull();
     expect(within(zeroRow as HTMLElement).getByText("value:USD:100")).toBeInTheDocument();
-    expect(within(zeroRow as HTMLElement).getByText("gain-amount:USD:0")).toBeInTheDocument();
+    expect(within(zeroRow as HTMLElement).getByText("gain-amount:USD:true:0")).toBeInTheDocument();
     expect(within(zeroRow as HTMLElement).getByText("gain-percent:0")).toBeInTheDocument();
 
     const missingRow = screen.getByText("Missing Valuation").closest("a");
@@ -526,7 +553,9 @@ describe("AccountsSummary", () => {
     const badRow = screen.getByText("Bad Data").closest("a");
     expect(badRow).not.toBeNull();
     expect(within(badRow as HTMLElement).getByTestId("account-summary-secondary-placeholder"));
-    expect(within(badRow as HTMLElement).queryByText("gain-amount:USD:25")).not.toBeInTheDocument();
+    expect(
+      within(badRow as HTMLElement).queryByText("gain-amount:USD:true:25"),
+    ).not.toBeInTheDocument();
 
     expect(within(badRow as HTMLElement).getByText(/return % unavailable/i)).toBeInTheDocument();
   });

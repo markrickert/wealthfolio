@@ -169,7 +169,7 @@ export function formatPercent(value: number | null | undefined) {
   } catch (error) {
     console.error(`Error formatting percent ${value}: ${error}`);
     // Fallback to simple string conversion if formatting fails
-    return `${value}%`;
+    return `${(value * 100).toFixed(2)}%`;
   }
 }
 
