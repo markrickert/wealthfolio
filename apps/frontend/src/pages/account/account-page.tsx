@@ -467,7 +467,9 @@ const AccountPage = () => {
     !isCurrentValuationLoading && !currentAccountValuation && Boolean(currentValuationError);
   const performanceCurrency = accountPerformance?.scope.currency ?? baseCurrency;
   const gainLossCurrencyToDisplay =
-    selectedIntervalCode === "ALL" && !isHoldingsMode ? displayedValueCurrency : performanceCurrency;
+    selectedIntervalCode === "ALL" && !isHoldingsMode
+      ? displayedValueCurrency
+      : performanceCurrency;
   const showGainLossCurrency =
     gainLossCurrencyToDisplay.toUpperCase() !== displayedValueCurrency.toUpperCase();
 
@@ -856,8 +858,8 @@ const AccountPage = () => {
               </Card>
 
               <div className="flex flex-col space-y-4">
-	                <AccountMetrics
-	                  valuation={metricsValuation}
+                <AccountMetrics
+                  valuation={metricsValuation}
                   performance={accountPerformance}
                   cashCurrencySplit={liveCurrentValuation?.summary.cashCurrencySplit}
                   className="grow"

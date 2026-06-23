@@ -90,11 +90,8 @@ export function normalizePerformanceToolResult(
   const summary = (candidate.summary ?? candidate.Summary ?? legacyHeadline) as
     | Record<string, unknown>
     | undefined;
-  const legacyComponentCoverage = (
-    legacyHeadline?.componentCoverage ?? legacyHeadline?.component_coverage
-  ) as
-    | Record<string, unknown>
-    | undefined;
+  const legacyComponentCoverage = (legacyHeadline?.componentCoverage ??
+    legacyHeadline?.component_coverage) as Record<string, unknown> | undefined;
   const legacyAmountStatus =
     typeof legacyComponentCoverage?.amountComplete === "boolean"
       ? legacyComponentCoverage.amountComplete
@@ -199,8 +196,7 @@ export function normalizePerformanceToolResult(
       (summary?.percent_status as string | undefined) ??
       legacyPercentStatus,
     summaryBasisStatus:
-      (summary?.basisStatus as string | undefined) ??
-      (summary?.basis_status as string | undefined),
+      (summary?.basisStatus as string | undefined) ?? (summary?.basis_status as string | undefined),
     basisStatus:
       (candidate.basisStatus as string | undefined) ??
       (candidate.basis_status as string | undefined) ??

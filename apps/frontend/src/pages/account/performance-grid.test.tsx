@@ -117,9 +117,7 @@ describe("PerformanceGrid", () => {
     );
 
     expect(screen.getByTestId("metric-Annualized TWR")).toHaveTextContent("Annualized TWR:0.1927");
-    expect(screen.getByTestId("metric-Annualized TWR")).toHaveTextContent(
-      "Cumulative TWR=1.9751",
-    );
+    expect(screen.getByTestId("metric-Annualized TWR")).toHaveTextContent("Cumulative TWR=1.9751");
     expect(screen.getByTestId("metric-Annualized TWR")).toHaveTextContent(
       "Hover the value to see cumulative TWR.",
     );

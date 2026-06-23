@@ -8813,7 +8813,7 @@ mod tests {
                 Decimal::ZERO,
             ),
         ];
-        let mut transaction = vec![
+        let mut transaction = [
             account_valuation(
                 "transaction",
                 "2026-06-12",
@@ -8864,7 +8864,7 @@ mod tests {
 
     #[test]
     fn mixed_scope_bounded_series_uses_account_component_timelines() {
-        let mut transaction = vec![
+        let mut transaction = [
             account_valuation(
                 "transaction",
                 "2026-06-12",
@@ -8950,7 +8950,7 @@ mod tests {
 
     #[test]
     fn mixed_scope_all_time_suppresses_combined_percent_when_holdings_basis_incomplete() {
-        let transaction = vec![
+        let transaction = [
             account_valuation(
                 "transaction",
                 "2026-06-12",
@@ -9056,7 +9056,7 @@ mod tests {
                 Decimal::ZERO,
             ),
         ];
-        let transaction = vec![
+        let transaction = [
             account_valuation(
                 "transaction",
                 "2026-06-12",
@@ -9272,7 +9272,7 @@ mod tests {
 
     #[tokio::test]
     async fn mixed_scope_summary_uses_account_histories_not_aggregate_scope_history() {
-        let mut transaction = vec![
+        let mut transaction = [
             account_valuation(
                 "transaction",
                 "2026-06-12",
@@ -9344,7 +9344,7 @@ mod tests {
 
     #[tokio::test]
     async fn mixed_scope_summary_enriches_transaction_component_attribution() {
-        let transaction = vec![
+        let transaction = [
             account_valuation(
                 "transaction",
                 "2026-06-12",
@@ -9362,7 +9362,7 @@ mod tests {
                 dec!(1000),
             ),
         ];
-        let holdings = vec![
+        let holdings = [
             account_valuation(
                 "holdings",
                 "2026-06-12",

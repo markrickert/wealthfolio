@@ -768,7 +768,7 @@ export interface AccountValuation {
   netContributionBase: number;
   externalInflowBase: number;
   externalOutflowBase: number;
-	  externalFlowSource:
+  externalFlowSource:
     | 'NO_FLOW'
     | 'UNKNOWN'
     | 'CASH_AMOUNT'
@@ -779,12 +779,12 @@ export interface AccountValuation {
     | 'UNKNOWN_BOUNDARY_TRANSFER'
     | 'ACTIVITY_DERIVED'
     | 'STORED_GROSS'
-	    | 'NET_CONTRIBUTION_FALLBACK'
-	    | 'MIXED';
-	  performanceEligibleValueBase: number;
-	  valueStatus: ValuationStatus;
-	  basisStatus: BasisStatus;
-	  calculatedAt: string;
+    | 'NET_CONTRIBUTION_FALLBACK'
+    | 'MIXED';
+  performanceEligibleValueBase: number;
+  valueStatus: ValuationStatus;
+  basisStatus: BasisStatus;
+  calculatedAt: string;
 }
 
 export interface AccountSummaryView {
@@ -904,7 +904,11 @@ export type ReturnMethod =
   | 'symbolPriceBased'
   | 'notApplicable';
 
-export type PerformanceSummaryBasis = 'marketValue' | 'bookBasis' | 'mixed' | 'notApplicable';
+export type PerformanceSummaryBasis =
+  | 'marketValue'
+  | 'bookBasis'
+  | 'mixed'
+  | 'notApplicable';
 export type PerformanceSummaryStatus = 'complete' | 'unavailable';
 
 export interface PerformanceSummary {

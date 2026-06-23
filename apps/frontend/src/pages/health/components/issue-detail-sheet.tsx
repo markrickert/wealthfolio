@@ -229,11 +229,11 @@ export function IssueDetailSheet({
                     const detailDate = getDetailDate(lines);
                     const detailRoute =
                       detailDate && issue.navigateAction?.route === "/activities"
-                      ? buildNavigateActionRoute(issue.navigateAction, {
-                          from: detailDate,
-                          to: detailDate,
-                        })
-                      : null;
+                        ? buildNavigateActionRoute(issue.navigateAction, {
+                            from: detailDate,
+                            to: detailDate,
+                          })
+                        : null;
                     const detailContent = (
                       <div
                         className={cn(

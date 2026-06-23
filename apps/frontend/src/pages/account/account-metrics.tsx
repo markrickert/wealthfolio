@@ -105,10 +105,7 @@ interface CashCurrencyBreakdownProps {
   displayCurrency: string;
 }
 
-function CashCurrencyBreakdown({
-  cashCurrencySplit,
-  displayCurrency,
-}: CashCurrencyBreakdownProps) {
+function CashCurrencyBreakdown({ cashCurrencySplit, displayCurrency }: CashCurrencyBreakdownProps) {
   const rows =
     cashCurrencySplit?.filter((split) => Math.abs(split.valueLocal ?? split.valueBase) > 0) ?? [];
 
@@ -215,26 +212,23 @@ const AccountMetrics: React.FC<AccountMetricsProps> = ({
         },
         {
           label: "Period P&L",
-          value: performancePnl == null ? (
-            <span className="text-muted-foreground text-xs">N/A</span>
-          ) : (
-            <span className="flex items-center gap-1">
-              <GainAmount
-                value={performancePnl}
-                currency={performanceCurrency}
-                className="text-sm"
-              />
-              {performanceReturn == null ? (
-                <span className="text-muted-foreground text-xs">N/A</span>
-              ) : (
-                <GainPercent
-                  value={performanceReturn}
-                  variant="badge"
-                  className="text-xs"
+          value:
+            performancePnl == null ? (
+              <span className="text-muted-foreground text-xs">N/A</span>
+            ) : (
+              <span className="flex items-center gap-1">
+                <GainAmount
+                  value={performancePnl}
+                  currency={performanceCurrency}
+                  className="text-sm"
                 />
-              )}
-            </span>
-          ),
+                {performanceReturn == null ? (
+                  <span className="text-muted-foreground text-xs">N/A</span>
+                ) : (
+                  <GainPercent value={performanceReturn} variant="badge" className="text-xs" />
+                )}
+              </span>
+            ),
         },
       ]
     : [

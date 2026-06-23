@@ -89,7 +89,7 @@ export const MetricDisplay: React.FC<MetricDisplayProps> = ({
         displayCurrency={false}
         className={cn("text-base font-medium", valueClassName)}
       />
-  );
+    );
 
   const labelContent = labelComponent ?? (
     <>

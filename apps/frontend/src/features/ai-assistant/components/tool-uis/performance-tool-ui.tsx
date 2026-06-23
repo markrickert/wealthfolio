@@ -285,9 +285,7 @@ function PerformanceToolUIContentImpl({ args, result, status }: PerformanceToolU
             label="IRR"
             value={irr == null ? "n/a" : formatPercentSigned(irr)}
             subValue={
-              annualizedIrr == null
-                ? undefined
-                : `${formatPercentSigned(annualizedIrr)} ann.`
+              annualizedIrr == null ? undefined : `${formatPercentSigned(annualizedIrr)} ann.`
             }
             isPositive={irr == null ? null : irr >= 0}
           />

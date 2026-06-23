@@ -391,9 +391,9 @@ events without adding persisted activity types:
 - `Tax`
 - `UnknownBoundaryTransfer`
 
-In this branch the compiler is computed from existing activity columns,
-transfer pair resolution, transfer-date quotes, lot-engine feedback, and FX
-only. There is no source-schema migration and no new metadata contract.
+In this branch the compiler is computed from existing activity columns, transfer
+pair resolution, transfer-date quotes, lot-engine feedback, and FX only. There
+is no source-schema migration and no new metadata contract.
 
 Holdings snapshots should use a separate `HoldingsSnapshotEconomics`
 interpretation. They are not activity history and should not be converted into
@@ -441,15 +441,15 @@ debug/audit table if needed, but that is read-model caching, not source schema.
 
 Suggested conceptual fields:
 
-| Concept                  | Meaning                                            | Source today                              | Target source                            |
-| ------------------------ | -------------------------------------------------- | ----------------------------------------- | ---------------------------------------- |
-| `quantity`               | Units moved/held                                   | `activities.quantity`                     | unchanged                                |
-| `cost_basis_per_unit`    | Lot/tax/book price                                 | `unit_price` for external transfer-in     | explicit form/import field               |
-| `cost_basis_total`       | Book basis for lot                                 | `quantity * unit_price` or `amount` today | compiler-derived from cost basis         |
-| `market_value_total`     | Fair market value on transfer date                 | usually absent                            | quote-derived by default                 |
-| `performance_flow_value` | External boundary flow used for returns            | `amount` or `quantity * unit_price` today | `market_value_total` with source quality |
-| `cash_flow_amount`       | Cash movement                                      | `amount` for cash activities              | unchanged                                |
-| `performance_flow_source` | Exact producer/degraded fallback source           | absent                                    | compiler-owned enum                      |
+| Concept                   | Meaning                                 | Source today                              | Target source                            |
+| ------------------------- | --------------------------------------- | ----------------------------------------- | ---------------------------------------- |
+| `quantity`                | Units moved/held                        | `activities.quantity`                     | unchanged                                |
+| `cost_basis_per_unit`     | Lot/tax/book price                      | `unit_price` for external transfer-in     | explicit form/import field               |
+| `cost_basis_total`        | Book basis for lot                      | `quantity * unit_price` or `amount` today | compiler-derived from cost basis         |
+| `market_value_total`      | Fair market value on transfer date      | usually absent                            | quote-derived by default                 |
+| `performance_flow_value`  | External boundary flow used for returns | `amount` or `quantity * unit_price` today | `market_value_total` with source quality |
+| `cash_flow_amount`        | Cash movement                           | `amount` for cash activities              | unchanged                                |
+| `performance_flow_source` | Exact producer/degraded fallback source | absent                                    | compiler-owned enum                      |
 
 Suggested holdings snapshot fields:
 
@@ -546,8 +546,8 @@ For a security `TRANSFER_OUT` marked external:
 - External performance outflow equals transfer-date market value:
   - quote on transfer date times quantity by default,
   - else removed lot cost basis fallback with warning.
-- Removed-lot cost basis must come back from the lot engine by `activity_id`.
-  Do not reconstruct it from daily `net_contribution_base` deltas.
+- Removed-lot cost basis must come back from the lot engine by `activity_id`. Do
+  not reconstruct it from daily `net_contribution_base` deltas.
 
 ### Internal Security Transfer
 
@@ -610,8 +610,8 @@ Suggested headline fields:
 - `basis`: `MARKET_VALUE`, `COST_BASIS`, `INVESTED_CAPITAL`, `MIXED`
 - `quality`: `COMPLETE`, `ESTIMATED`, `DEGRADED`, `UNAVAILABLE`
 - `basis_status`: `COMPLETE`, `PARTIAL_UNKNOWN`, `UNKNOWN`, `NOT_APPLICABLE`
-- `component_coverage`: amount/percent completeness plus per-component
-  inclusion flags
+- `component_coverage`: amount/percent completeness plus per-component inclusion
+  flags
 - `reasons`: display-only explanatory strings
 
 Frontend helpers must consume typed fields. They must not parse `reasons` or
@@ -639,10 +639,10 @@ Display rule:
 Dashboard and account-summary headlines must branch by scope composition before
 calculating returns:
 
-| Scope composition | Headline amount                                         | Headline percent                                       | TWR/IRR                        |
-| ----------------- | ------------------------------------------------------- | ------------------------------------------------------ | ------------------------------ |
-| Transaction-only  | Transaction attribution P&L                             | TWR by default, or selected transaction return         | Available when valid           |
-| Holdings-only     | Bounded: value change; all-time: gain versus book basis | Same numerator divided by starting value/book basis    | Not first-class                |
+| Scope composition | Headline amount                                         | Headline percent                                        | TWR/IRR                        |
+| ----------------- | ------------------------------------------------------- | ------------------------------------------------------- | ------------------------------ |
+| Transaction-only  | Transaction attribution P&L                             | TWR by default, or selected transaction return          | Available when valid           |
+| Holdings-only     | Bounded: value change; all-time: gain versus book basis | Same numerator divided by starting value/book basis     | Not first-class                |
 | Mixed             | Sum of account-level transaction P&L and holdings gain  | Only when component coverage is coherent; otherwise N/A | Unavailable for combined scope |
 
 Transaction-only scopes can keep the existing transaction performance path.
@@ -788,30 +788,30 @@ Scope: calculation/read-model architecture for #1119 without changing storage
 schema or activity metadata. Richer dashboard method labels and typed explicit
 CSV market-value preservation remain follow-up phases.
 
-| Item                                                                                                | Status                                                                      |
-| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Fix animated percent fallback double `%`                                                            | Implemented                                                                 |
-| Preserve negative sign on dashboard account gain amounts                                            | Implemented                                                                 |
-| Normalize display-level negative zero for gain amount/percent                                       | Implemented                                                                 |
-| Feed non-calculated holdings snapshots from existing cost basis plus cash when contribution is zero | Implemented                                                                 |
-| Replace hard `100%` zero-basis holdings percentage fallbacks with unavailable percentages           | Implemented                                                                 |
-| Use holdings book basis for all-time gain-vs-cost and value change for bounded periods              | Implemented                                                                 |
-| Add focused tests for manual holdings basis, zero-basis percentage, and dashboard amount signs      | Implemented                                                                 |
-| Add FX-base consistency fixture                                                                     | Implemented                                                                 |
-| Add quote-derived external security transfer flow compiler                                          | Implemented                                                                 |
-| Prefer transfer cost basis over generic `amount` when quotes are missing                            | Implemented                                                                 |
-| Prevent legacy transfer `amount` from overriding cost basis when `quantity * unit_price` is present | Implemented                                                                 |
-| Stop auto-mapping CSV `market value` into generic `amount`                                          | Implemented                                                                 |
-| Fix mixed-scope dashboard/account-group headline aggregation                                        | Implemented with account-level component aggregation                       |
-| Suppress mixed-scope combined percent when component coverage is incoherent                         | Implemented with split components and `N/A` combined percent               |
-| Enrich mixed-scope transaction component attribution before aggregation                             | Implemented for service path                                               |
-| Use first positive transaction value as all-time mixed denominator                                  | Implemented                                                                 |
-| Avoid showing zero P&L when all-time holdings book basis is unavailable                             | Implemented with explicit P&L unavailable reason                           |
-| Treat partial missing holdings book basis as all-time holdings headline unavailable                 | Implemented                                                                 |
-| Skip invalid negative components in mixed scopes instead of failing the whole scope                 | Implemented with degraded data-quality warnings                            |
-| Build mixed bounded return series from account-level component timelines                            | Implemented                                                                 |
-| Add explicit frontend return method labels                                                          | Deferred until the mixed-scope headline contract is explicit                |
-| Persist explicit import/provider transfer market value                                              | Deferred; requires a typed field/contract, not metadata or `amount`         |
+| Item                                                                                                | Status                                                              |
+| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Fix animated percent fallback double `%`                                                            | Implemented                                                         |
+| Preserve negative sign on dashboard account gain amounts                                            | Implemented                                                         |
+| Normalize display-level negative zero for gain amount/percent                                       | Implemented                                                         |
+| Feed non-calculated holdings snapshots from existing cost basis plus cash when contribution is zero | Implemented                                                         |
+| Replace hard `100%` zero-basis holdings percentage fallbacks with unavailable percentages           | Implemented                                                         |
+| Use holdings book basis for all-time gain-vs-cost and value change for bounded periods              | Implemented                                                         |
+| Add focused tests for manual holdings basis, zero-basis percentage, and dashboard amount signs      | Implemented                                                         |
+| Add FX-base consistency fixture                                                                     | Implemented                                                         |
+| Add quote-derived external security transfer flow compiler                                          | Implemented                                                         |
+| Prefer transfer cost basis over generic `amount` when quotes are missing                            | Implemented                                                         |
+| Prevent legacy transfer `amount` from overriding cost basis when `quantity * unit_price` is present | Implemented                                                         |
+| Stop auto-mapping CSV `market value` into generic `amount`                                          | Implemented                                                         |
+| Fix mixed-scope dashboard/account-group headline aggregation                                        | Implemented with account-level component aggregation                |
+| Suppress mixed-scope combined percent when component coverage is incoherent                         | Implemented with split components and `N/A` combined percent        |
+| Enrich mixed-scope transaction component attribution before aggregation                             | Implemented for service path                                        |
+| Use first positive transaction value as all-time mixed denominator                                  | Implemented                                                         |
+| Avoid showing zero P&L when all-time holdings book basis is unavailable                             | Implemented with explicit P&L unavailable reason                    |
+| Treat partial missing holdings book basis as all-time holdings headline unavailable                 | Implemented                                                         |
+| Skip invalid negative components in mixed scopes instead of failing the whole scope                 | Implemented with degraded data-quality warnings                     |
+| Build mixed bounded return series from account-level component timelines                            | Implemented                                                         |
+| Add explicit frontend return method labels                                                          | Deferred until the mixed-scope headline contract is explicit        |
+| Persist explicit import/provider transfer market value                                              | Deferred; requires a typed field/contract, not metadata or `amount` |
 
 ### Phase 2: Economic Event Compiler And Finalizer
 

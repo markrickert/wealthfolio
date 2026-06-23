@@ -25,19 +25,14 @@ pub enum EconomicEventKind {
     Other,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BasisStatus {
     Complete,
     PartialUnknown,
     Unknown,
+    #[default]
     NotApplicable,
-}
-
-impl Default for BasisStatus {
-    fn default() -> Self {
-        Self::NotApplicable
-    }
 }
 
 impl BasisStatus {
