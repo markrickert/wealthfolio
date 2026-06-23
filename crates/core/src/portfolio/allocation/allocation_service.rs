@@ -181,6 +181,9 @@ impl AllocationService {
         cash_overrides: &HashMap<String, String>,
     ) -> Vec<HoldingTaxonomyShare> {
         if holding.holding_type == HoldingType::Cash {
+            let Some(default_cash_id) = Self::cash_category_id(taxonomy_id) else {
+                return Vec::new();
+            };
             let source_ids = if holding.source_account_ids.is_empty() {
                 std::slice::from_ref(&holding.account_id)
             } else {
@@ -190,10 +193,7 @@ impl AllocationService {
             let resolved_category_id = if let Some(ov) = override_id {
                 ov.as_str()
             } else {
-                let Some(default_id) = Self::cash_category_id(taxonomy_id) else {
-                    return Vec::new();
-                };
-                default_id
+                default_cash_id
             };
             let category_id = if rollup_to_top_level {
                 top_level_map
