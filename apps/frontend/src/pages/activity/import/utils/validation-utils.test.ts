@@ -35,6 +35,9 @@ describe("validation-utils", () => {
     it("accepts underscores used by custom-provider symbols", () => {
       expect(validateTickerSymbol("GOLD_KRUGERRAND")).toBe(true);
       expect(validateTickerSymbol("XAU_1OZ")).toBe(true);
+      // underscores are allowed in suffix segments too, not just the first token
+      expect(validateTickerSymbol("FUND.CLASS_A")).toBe(true);
+      expect(validateTickerSymbol("ABC-DEF_GHI")).toBe(true);
     });
 
     it("still rejects free-text/whitespace garbage", () => {

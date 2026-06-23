@@ -179,7 +179,7 @@ export const importActivitySchema = z
       .refine(
         (val) => {
           if (!val || val.trim() === "") return true;
-          return /^(?=.{1,100}$)(CASH:[A-Z]{3}|[A-Z0-9_]+([.-][A-Z0-9]+){0,2})$/.test(val.trim());
+          return /^(?=.{1,100}$)(CASH:[A-Z]{3}|[A-Z0-9_]+([.-][A-Z0-9_]+){0,2})$/.test(val.trim());
         },
         { message: "Invalid symbol format" },
       ),
