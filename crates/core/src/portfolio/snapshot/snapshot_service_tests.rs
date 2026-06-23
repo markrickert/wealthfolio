@@ -4188,14 +4188,14 @@ mod tests {
             .await;
         assert!(result.is_ok(), "save_manual_snapshot should succeed");
 
-        // Verify snapshots were saved (manual + synthetic for performance history)
+        // Verify only the user-authored snapshot was saved.
         let saved = snapshot_repo
             .get_snapshots_by_account("acc1", None, None)
             .unwrap();
         assert_eq!(
             saved.len(),
-            2,
-            "Should have two snapshots: manual + synthetic for holdings history"
+            1,
+            "Should have one manual snapshot without synthetic backfill"
         );
 
         // Find and verify the manual snapshot
@@ -4209,19 +4209,6 @@ mod tests {
             "Source should be ManualEntry"
         );
         assert_eq!(saved_snapshot.cash_balances.get("USD"), Some(&dec!(5000)));
-
-        // Verify synthetic snapshot was created 3 months before
-        let synthetic = saved
-            .iter()
-            .find(|s| s.source == SnapshotSource::Synthetic)
-            .unwrap();
-        let expected_synthetic_date = snapshot_date
-            .checked_sub_months(chrono::Months::new(3))
-            .unwrap();
-        assert_eq!(
-            synthetic.snapshot_date, expected_synthetic_date,
-            "Synthetic should be 3 months before"
-        );
     }
 
     #[tokio::test]
@@ -4268,17 +4255,11 @@ mod tests {
             "save_manual_snapshot should succeed for update"
         );
 
-        // Verify: 1 updated manual snapshot + 1 synthetic for holdings history
-        // Note: Pre-existing snapshot had count=1, but after first save synthetic is created.
-        // After update on same date, still 2 total (synthetic + updated manual).
+        // Verify: the same-date manual snapshot was updated without synthetic backfill.
         let saved = snapshot_repo
             .get_snapshots_by_account("acc1", None, None)
             .unwrap();
-        assert_eq!(
-            saved.len(),
-            2,
-            "Should have 2 snapshots: updated manual + synthetic"
-        );
+        assert_eq!(saved.len(), 1, "Should have 1 updated manual snapshot");
 
         // Find and verify the manual snapshot was updated
         let manual_date = NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
@@ -4393,14 +4374,14 @@ mod tests {
         let result = svc.save_manual_snapshot("acc1", snapshot).await;
         assert!(result.is_ok());
 
-        // Verify: CsvImport snapshot + synthetic for holdings history
+        // Verify: CsvImport snapshot only.
         let saved = snapshot_repo
             .get_snapshots_by_account("acc1", None, None)
             .unwrap();
         assert_eq!(
             saved.len(),
-            2,
-            "Should have 2 snapshots: CSV import + synthetic"
+            1,
+            "Should have 1 CSV import snapshot without synthetic backfill"
         );
 
         // Find and verify the CSV import snapshot preserves source
@@ -4413,7 +4394,7 @@ mod tests {
         );
     }
 
-    // ==================== ensure_holdings_history Tests ====================
+    // ==================== Synthetic Backfill Regression Tests ====================
 
     #[tokio::test]
     async fn test_ensure_holdings_history_no_synthetic_when_two_snapshots_exist() {
@@ -4473,8 +4454,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_synthetic_snapshot_copies_holdings_from_earliest() {
-        // Synthetic snapshot should copy all holdings data from the earliest manual snapshot
+    async fn test_single_manual_snapshot_does_not_create_synthetic_backfill() {
         let base = Arc::new(RwLock::new("USD".to_string()));
 
         let mut account_repo = MockAccountRepository::new();
@@ -4496,7 +4476,6 @@ mod tests {
         );
 
         // Create snapshot with specific holdings data
-        let manual_date = NaiveDate::from_ymd_opt(2025, 6, 15).unwrap();
         let mut manual_snapshot = create_blank_snapshot("acc1", "USD", "2025-06-15");
         manual_snapshot.source = SnapshotSource::ManualEntry;
         manual_snapshot
@@ -4528,35 +4507,78 @@ mod tests {
         let result = svc.save_manual_snapshot("acc1", manual_snapshot).await;
         assert!(result.is_ok());
 
-        // Verify synthetic was created with same holdings data
+        // Verify no synthetic row was created and the manual data is intact.
         let saved = snapshot_repo
             .get_snapshots_by_account("acc1", None, None)
             .unwrap();
-        let synthetic = saved
+        assert_eq!(saved.len(), 1);
+        let saved_snapshot = saved
             .iter()
-            .find(|s| s.source == SnapshotSource::Synthetic)
+            .find(|s| s.source == SnapshotSource::ManualEntry)
             .unwrap();
-
-        // Synthetic should be 3 months before manual
-        let expected_synthetic_date = manual_date
-            .checked_sub_months(chrono::Months::new(3))
-            .unwrap();
-        assert_eq!(synthetic.snapshot_date, expected_synthetic_date);
-
-        // Synthetic should have same holdings data
-        assert_eq!(synthetic.cash_balances.get("USD"), Some(&dec!(5000)));
-        assert_eq!(synthetic.cost_basis, dec!(10000));
-        assert_eq!(synthetic.net_contribution, dec!(15000));
-        assert!(synthetic.positions.contains_key("asset1"));
+        assert_eq!(saved_snapshot.cash_balances.get("USD"), Some(&dec!(5000)));
+        assert_eq!(saved_snapshot.cost_basis, dec!(10000));
+        assert_eq!(saved_snapshot.net_contribution, dec!(15000));
+        assert!(saved_snapshot.positions.contains_key("asset1"));
         assert_eq!(
-            synthetic.positions.get("asset1").unwrap().quantity,
+            saved_snapshot.positions.get("asset1").unwrap().quantity,
             dec!(100)
         );
+        assert!(saved.iter().all(|s| s.source != SnapshotSource::Synthetic));
     }
 
     #[tokio::test]
-    async fn test_broker_imported_snapshot_also_triggers_synthetic() {
-        // Broker imported snapshots should also trigger synthetic creation
+    async fn test_daily_holdings_snapshots_ignore_legacy_synthetic_keyframes() {
+        let base = Arc::new(RwLock::new("USD".to_string()));
+
+        let mut account_repo = MockAccountRepository::new();
+        let acc = create_test_account("acc1", "USD", "Test Account");
+        account_repo.add_account(acc.clone());
+
+        let activity_repo = Arc::new(MockActivityRepository::new());
+        let fx = Arc::new(MockFxService::new());
+        let snapshot_repo = Arc::new(MockSnapshotRepository::new());
+        let asset_repo = Arc::new(MockAssetRepository::new());
+
+        let mut synthetic = create_blank_snapshot("acc1", "USD", "2025-01-01");
+        synthetic.source = SnapshotSource::Synthetic;
+        synthetic
+            .cash_balances
+            .insert("USD".to_string(), dec!(1000));
+
+        let mut manual = create_blank_snapshot("acc1", "USD", "2025-04-01");
+        manual.source = SnapshotSource::ManualEntry;
+        manual.cash_balances.insert("USD".to_string(), dec!(5000));
+
+        snapshot_repo.add_snapshots(vec![synthetic, manual]);
+
+        let svc = SnapshotService::new(
+            base,
+            Arc::new(account_repo),
+            activity_repo,
+            snapshot_repo,
+            asset_repo,
+            fx,
+        );
+
+        let frames = svc
+            .get_daily_holdings_snapshots(
+                "acc1",
+                None,
+                Some(NaiveDate::from_ymd_opt(2025, 4, 1).unwrap()),
+            )
+            .unwrap();
+
+        assert_eq!(frames.len(), 1);
+        assert_eq!(
+            frames[0].snapshot_date,
+            NaiveDate::from_ymd_opt(2025, 4, 1).unwrap()
+        );
+        assert_eq!(frames[0].cash_balances.get("USD"), Some(&dec!(5000)));
+    }
+
+    #[tokio::test]
+    async fn test_broker_imported_snapshot_does_not_create_synthetic_backfill() {
         let base = Arc::new(RwLock::new("USD".to_string()));
 
         let mut account_repo = MockAccountRepository::new();
@@ -4587,11 +4609,11 @@ mod tests {
         let result = svc.save_manual_snapshot("acc1", broker_snapshot).await;
         assert!(result.is_ok());
 
-        // Should have 2 snapshots: broker + synthetic
+        // Should have only the broker snapshot.
         let saved = snapshot_repo
             .get_snapshots_by_account("acc1", None, None)
             .unwrap();
-        assert_eq!(saved.len(), 2);
+        assert_eq!(saved.len(), 1);
 
         let broker = saved
             .iter()
@@ -4599,14 +4621,13 @@ mod tests {
         let synthetic = saved.iter().find(|s| s.source == SnapshotSource::Synthetic);
 
         assert!(broker.is_some(), "Broker snapshot should exist");
-        assert!(synthetic.is_some(), "Synthetic snapshot should exist");
+        assert!(synthetic.is_none(), "Synthetic snapshot should not exist");
     }
 
     // ==================== Snapshot Source Filtering Tests ====================
 
     #[tokio::test]
-    async fn test_calculated_snapshots_not_counted_for_holdings_history() {
-        // Only non-calculated snapshots should count for ensure_holdings_history
+    async fn test_calculated_snapshots_do_not_trigger_synthetic_backfill() {
         let base = Arc::new(RwLock::new("USD".to_string()));
 
         let mut account_repo = MockAccountRepository::new();
@@ -4642,20 +4663,19 @@ mod tests {
         let result = svc.save_manual_snapshot("acc1", manual).await;
         assert!(result.is_ok());
 
-        // Should have: 2 calculated + 1 manual + 1 synthetic = 4 total
+        // Should have: 2 calculated + 1 manual. Synthetic backfill is not created.
         let saved = snapshot_repo
             .get_snapshots_by_account("acc1", None, None)
             .unwrap();
-        assert_eq!(saved.len(), 4);
+        assert_eq!(saved.len(), 3);
 
-        // Synthetic should be created because only 1 non-calculated existed before
         let synthetic_count = saved
             .iter()
             .filter(|s| s.source == SnapshotSource::Synthetic)
             .count();
         assert_eq!(
-            synthetic_count, 1,
-            "Synthetic should be created when only 1 non-calculated exists"
+            synthetic_count, 0,
+            "Synthetic backfill should not be created"
         );
     }
 

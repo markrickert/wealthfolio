@@ -16,7 +16,7 @@ use crate::broker_ingest::{
     ImportRunRepositoryTrait, ImportRunStatus, ImportRunSummary, ImportRunType, ReviewMode,
 };
 use crate::platform::Platform;
-use chrono::{DateTime, Months, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use std::collections::{HashMap, HashSet};
@@ -1092,8 +1092,6 @@ impl BrokerSyncServiceTrait for BrokerSyncService {
                 account_ids: vec![account_id.clone()],
                 asset_ids: new_asset_ids.clone(),
             });
-
-            self.ensure_holdings_history(&account_id).await?;
         }
 
         info!(
@@ -1234,88 +1232,6 @@ impl BrokerSyncService {
             .or_else(|| api_parsed.as_ref().and_then(|(_, mic)| mic.clone()));
 
         Some((symbol, exchange_mic))
-    }
-
-    /// Ensures HOLDINGS mode accounts have at least 2 snapshots for proper history.
-    /// If only 1 non-calculated snapshot exists, creates a synthetic snapshot 3 months prior.
-    async fn ensure_holdings_history(&self, account_id: &str) -> Result<()> {
-        // Get count of non-calculated snapshots
-        let count = self
-            .snapshot_repository
-            .get_non_calculated_snapshot_count(account_id)?;
-
-        if count >= 2 {
-            debug!(
-                "Account {} already has {} non-calculated snapshots, no synthetic needed",
-                account_id, count
-            );
-            return Ok(());
-        }
-
-        if count == 0 {
-            debug!(
-                "Account {} has no non-calculated snapshots, nothing to backfill from",
-                account_id
-            );
-            return Ok(());
-        }
-
-        // count == 1: Create synthetic snapshot 3 months before the earliest
-        let earliest = self
-            .snapshot_repository
-            .get_earliest_non_calculated_snapshot(account_id)?;
-
-        let earliest = match earliest {
-            Some(s) => s,
-            None => {
-                debug!("No earliest snapshot found for account {}", account_id);
-                return Ok(());
-            }
-        };
-
-        // Calculate synthetic date: 3 months before earliest
-        let synthetic_date = earliest
-            .snapshot_date
-            .checked_sub_months(Months::new(3))
-            .unwrap_or(earliest.snapshot_date);
-
-        // Don't create if synthetic date equals earliest (edge case)
-        if synthetic_date == earliest.snapshot_date {
-            debug!(
-                "Synthetic date equals earliest date for account {}, skipping",
-                account_id
-            );
-            return Ok(());
-        }
-
-        // Clone the earliest snapshot with new date and source
-        let synthetic = AccountStateSnapshot {
-            id: AccountStateSnapshot::stable_id(account_id, synthetic_date),
-            account_id: account_id.to_string(),
-            snapshot_date: synthetic_date,
-            source: SnapshotSource::Synthetic,
-            calculated_at: chrono::Utc::now().naive_utc(),
-            // Clone all holdings data from earliest
-            currency: earliest.currency,
-            positions: earliest.positions,
-            cash_balances: earliest.cash_balances,
-            cost_basis: earliest.cost_basis,
-            net_contribution: earliest.net_contribution,
-            net_contribution_base: earliest.net_contribution_base,
-            cash_total_account_currency: earliest.cash_total_account_currency,
-            cash_total_base_currency: earliest.cash_total_base_currency,
-        };
-
-        self.snapshot_repository
-            .save_or_update_snapshot(&synthetic)
-            .await?;
-
-        info!(
-            "Created synthetic snapshot for account {} at {} (3 months before {})",
-            account_id, synthetic_date, earliest.snapshot_date
-        );
-
-        Ok(())
     }
 
     /// Find the platform ID for a broker account using institution/broker metadata.

@@ -215,6 +215,8 @@ export function HistoryChart({
     () => new Set(markerDataPoints.map((p) => p.date)),
     [markerDataPoints],
   );
+  const singleDataPoint =
+    data.length === 1 && !markerDateSet.has(data[0].date) ? data[0] : undefined;
 
   if (isLoading && data.length === 0) {
     return null;
@@ -397,6 +399,16 @@ export function HistoryChart({
               )}
             />
           ))}
+        {singleDataPoint && (
+          <ReferenceDot
+            x={singleDataPoint.date}
+            y={singleDataPoint.totalValue}
+            r={4}
+            fill={singleDataPoint.totalValue >= 0 ? "var(--success)" : "var(--destructive)"}
+            stroke="var(--background)"
+            strokeWidth={2}
+          />
+        )}
       </AreaChart>
     </ChartContainer>
   );

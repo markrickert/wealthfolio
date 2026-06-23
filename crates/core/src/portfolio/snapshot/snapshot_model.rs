@@ -22,7 +22,7 @@ pub enum SnapshotSource {
     BrokerImported,
     /// Imported from CSV file
     CsvImport,
-    /// Synthetic backfill snapshot (cloned from earliest for history)
+    /// Legacy synthetic backfill snapshot.
     Synthetic,
 }
 

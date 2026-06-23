@@ -175,13 +175,13 @@ impl SyncRowFilter {
     fn sql(self) -> &'static str {
         match self {
             Self::UserSyncableHoldingsSnapshots => {
-                "account_id IN (SELECT id FROM accounts) AND source IN ('MANUAL_ENTRY', 'CSV_IMPORT', 'SYNTHETIC')"
+                "account_id IN (SELECT id FROM accounts) AND source IN ('MANUAL_ENTRY', 'CSV_IMPORT')"
             }
             Self::UserSyncableSnapshotPositions => {
                 "snapshot_id IN (
                     SELECT id FROM holdings_snapshots
                     WHERE account_id IN (SELECT id FROM accounts)
-                      AND source IN ('MANUAL_ENTRY', 'CSV_IMPORT', 'SYNTHETIC')
+                      AND source IN ('MANUAL_ENTRY', 'CSV_IMPORT')
                 )"
             }
             Self::ManualQuotes => "source = 'MANUAL'",
