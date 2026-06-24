@@ -73,8 +73,10 @@ mod tests {
 
     #[test]
     fn cash_allocation_category_id_parses_meta() {
-        let mut account = Account::default();
-        account.meta = Some(r#"{"allocation":{"cashCategoryId":"FIXED_INCOME"}}"#.to_string());
+        let account = Account {
+            meta: Some(r#"{"allocation":{"cashCategoryId":"FIXED_INCOME"}}"#.to_string()),
+            ..Account::default()
+        };
         assert_eq!(
             account.cash_allocation_category_id(),
             Some("FIXED_INCOME".to_string())
@@ -83,8 +85,10 @@ mod tests {
 
     #[test]
     fn cash_allocation_category_id_none_when_missing() {
-        let mut account = Account::default();
-        account.meta = Some(r#"{"accountingSettings":{}}"#.to_string());
+        let account = Account {
+            meta: Some(r#"{"accountingSettings":{}}"#.to_string()),
+            ..Account::default()
+        };
         assert_eq!(account.cash_allocation_category_id(), None);
     }
 
@@ -96,11 +100,13 @@ mod tests {
 
     #[test]
     fn cash_allocation_category_id_with_existing_accounting_meta() {
-        let mut account = Account::default();
-        account.meta = Some(
-            r#"{"accountingSettings":{"costBasisMethod":"fifo"},"allocation":{"cashCategoryId":"EQUITY"}}"#
-                .to_string(),
-        );
+        let account = Account {
+            meta: Some(
+                r#"{"accountingSettings":{"costBasisMethod":"fifo"},"allocation":{"cashCategoryId":"EQUITY"}}"#
+                    .to_string(),
+            ),
+            ..Account::default()
+        };
         assert_eq!(
             account.cash_allocation_category_id(),
             Some("EQUITY".to_string())
