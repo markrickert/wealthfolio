@@ -14,7 +14,7 @@ use crate::portfolio::performance::{
     FlowType, PerformanceScope,
 };
 use crate::portfolio::snapshot::{AccountStateSnapshot, Position, SnapshotServiceTrait};
-use crate::portfolio::valuation::valuation_calculator::calculate_valuation;
+use crate::portfolio::valuation::valuation_calculator::calculate_valuation_with_price_factors;
 use crate::portfolio::valuation::valuation_model::{
     DailyAccountValuation, ExternalFlowSource, NegativeBalanceInfo, ValuationStatus,
 };
@@ -941,6 +941,7 @@ impl ValuationService {
         )?;
 
         let mut events = Vec::new();
+        let mut seen_events: HashSet<(String, NaiveDate)> = HashSet::new();
         for activity in activities {
             if !activity.is_posted() || activity.effective_type() != ACTIVITY_TYPE_SPLIT {
                 continue;
@@ -967,7 +968,8 @@ impl ValuationService {
                 asset_id,
                 split_date,
                 ratio,
-            ) {
+            ) && seen_events.insert((asset_id.clone(), split_date))
+            {
                 events.push(QuoteAdjustedSplitEvent {
                     asset_id: asset_id.clone(),
                     split_date,
@@ -980,27 +982,21 @@ impl ValuationService {
         Ok(events)
     }
 
-    fn apply_quote_adjusted_split_events(
-        snapshot: &mut AccountStateSnapshot,
+    fn split_price_factors_for_date(
+        valuation_date: NaiveDate,
         events: &[QuoteAdjustedSplitEvent],
-    ) {
+    ) -> HashMap<String, Decimal> {
+        let mut factors = HashMap::new();
         for event in events {
-            if snapshot.snapshot_date >= event.split_date {
+            if valuation_date >= event.split_date {
                 continue;
             }
 
-            let Some(position) = snapshot.positions.get_mut(&event.asset_id) else {
-                continue;
-            };
-            if position.quantity.is_zero() {
-                continue;
-            }
-
-            position.quantity *= event.ratio;
-            if !position.quantity.is_zero() {
-                position.average_cost = position.total_cost_basis / position.quantity;
-            }
+            *factors
+                .entry(event.asset_id.clone())
+                .or_insert(Decimal::ONE) *= event.ratio;
         }
+        factors
     }
 
     fn disposal_cost_basis_base(
@@ -1645,14 +1641,11 @@ impl ValuationServiceTrait for ValuationService {
         let mut newly_calculated_valuations: Vec<DailyAccountValuation> = snapshots_to_process
             .into_iter()
             .filter_map(|holdings_snapshot| {
-                let mut holdings_snapshot = holdings_snapshot;
                 let current_date = holdings_snapshot.snapshot_date;
                 let account_id_clone = account_id.to_string();
                 let base_curr_clone = base_curr.clone();
-                Self::apply_quote_adjusted_split_events(
-                    &mut holdings_snapshot,
-                    &quote_adjusted_split_events,
-                );
+                let split_price_factors =
+                    Self::split_price_factors_for_date(current_date, &quote_adjusted_split_events);
 
                 let quotes_for_current_date =
                     quotes_by_date.get(&current_date).cloned().unwrap_or_default();
@@ -1718,13 +1711,14 @@ impl ValuationServiceTrait for ValuationService {
                     return None;
                 }
 
-                match calculate_valuation(
+                match calculate_valuation_with_price_factors(
                     &holdings_snapshot,
                     &quotes_for_current_date,
                     &fx_for_current_date,
                     &fx_rates_by_date,
                     current_date,
                     &base_curr_clone,
+                    &split_price_factors,
                 ) {
                     Ok(valuation_result) => Some(valuation_result),
                     Err(e) => {
@@ -2458,31 +2452,66 @@ mod tests {
     }
 
     #[test]
-    fn quote_adjusted_split_event_adjusts_pre_split_snapshot_quantity_only() {
-        let mut before_split = snapshot_with_position("2025-11-14", "NFLX", dec!(20));
-        let mut split_day = snapshot_with_position("2025-11-17", "NFLX", dec!(200));
+    fn quote_adjusted_split_event_builds_pre_split_price_factor_only() {
+        let before_split = snapshot_with_position("2025-11-14", "NFLX", dec!(20));
+        let split_day = snapshot_with_position("2025-11-17", "NFLX", dec!(200));
         let events = vec![QuoteAdjustedSplitEvent {
             asset_id: "NFLX".to_string(),
             split_date: date("2025-11-17"),
             ratio: dec!(10),
         }];
 
-        ValuationService::apply_quote_adjusted_split_events(&mut before_split, &events);
-        ValuationService::apply_quote_adjusted_split_events(&mut split_day, &events);
+        let before_factors =
+            ValuationService::split_price_factors_for_date(date("2025-11-14"), &events);
+        let split_day_factors =
+            ValuationService::split_price_factors_for_date(date("2025-11-17"), &events);
 
+        assert_eq!(before_factors.get("NFLX"), Some(&dec!(10)));
+        assert!(split_day_factors.is_empty());
         assert_eq!(
             before_split.positions.get("NFLX").unwrap().quantity,
-            dec!(200)
+            dec!(20)
         );
         assert_eq!(
             before_split.positions.get("NFLX").unwrap().average_cost,
-            dec!(1)
+            dec!(10)
         );
         assert_eq!(split_day.positions.get("NFLX").unwrap().quantity, dec!(200));
         assert_eq!(
             split_day.positions.get("NFLX").unwrap().average_cost,
             dec!(10)
         );
+    }
+
+    #[test]
+    fn split_price_factors_multiply_future_splits_and_exclude_split_day() {
+        let events = vec![
+            QuoteAdjustedSplitEvent {
+                asset_id: "AAPL".to_string(),
+                split_date: date("2025-01-10"),
+                ratio: dec!(2),
+            },
+            QuoteAdjustedSplitEvent {
+                asset_id: "AAPL".to_string(),
+                split_date: date("2025-01-20"),
+                ratio: dec!(3),
+            },
+            QuoteAdjustedSplitEvent {
+                asset_id: "REV".to_string(),
+                split_date: date("2025-01-20"),
+                ratio: dec!(0.02),
+            },
+        ];
+
+        let before_all =
+            ValuationService::split_price_factors_for_date(date("2025-01-01"), &events);
+        let on_first_split =
+            ValuationService::split_price_factors_for_date(date("2025-01-10"), &events);
+
+        assert_eq!(before_all.get("AAPL"), Some(&dec!(6)));
+        assert_eq!(before_all.get("REV"), Some(&dec!(0.02)));
+        assert_eq!(on_first_split.get("AAPL"), Some(&dec!(3)));
+        assert_eq!(on_first_split.get("REV"), Some(&dec!(0.02)));
     }
 
     #[test]

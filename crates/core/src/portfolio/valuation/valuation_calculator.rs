@@ -35,6 +35,28 @@ pub fn calculate_valuation(
     target_date: NaiveDate,
     base_currency: &str, // Pass base currency directly
 ) -> Result<DailyAccountValuation> {
+    calculate_valuation_with_price_factors(
+        holdings_snapshot,
+        quotes_today,
+        fx_rates_today,
+        fx_rates_by_date,
+        target_date,
+        base_currency,
+        &HashMap::new(),
+    )
+}
+
+/// Calculates valuation metrics with per-asset price factors for quote series
+/// whose historical closes are already split-adjusted.
+pub fn calculate_valuation_with_price_factors(
+    holdings_snapshot: &AccountStateSnapshot, // Holdings for target_date
+    quotes_today: &HashMap<String, Quote>,    // Market quotes for target_date
+    fx_rates_today: &DailyFxRateMap,
+    fx_rates_by_date: &HashMap<NaiveDate, DailyFxRateMap>,
+    target_date: NaiveDate,
+    base_currency: &str, // Pass base currency directly
+    split_price_factors: &HashMap<String, Decimal>,
+) -> Result<DailyAccountValuation> {
     let account_currency = &holdings_snapshot.currency;
     let normalized_account_currency = normalize_currency_code(account_currency);
     let normalized_base_currency = normalize_currency_code(base_currency);
@@ -46,6 +68,7 @@ pub fn calculate_valuation(
         fx_rates_today,
         target_date,
         normalized_account_currency,
+        split_price_factors,
     )?;
 
     let total_cash_value_acct_ccy = calculate_cash_value_acct(
@@ -260,6 +283,7 @@ fn calculate_investment_market_value_acct(
     fx_rates_today: &DailyFxRateMap,
     target_date: NaiveDate,
     account_currency: &str,
+    split_price_factors: &HashMap<String, Decimal>,
 ) -> Result<InvestmentValuation> {
     let mut total_position_market_value = Decimal::ZERO;
     let mut performance_eligible_market_value = Decimal::ZERO;
@@ -289,8 +313,13 @@ fn calculate_investment_market_value_acct(
                 )? // Propagate error if FX rate is missing
             };
 
+            let price_factor = split_price_factors
+                .get(asset_id)
+                .copied()
+                .unwrap_or(Decimal::ONE);
+            let valuation_price = normalized_price * price_factor;
             let market_value =
-                position.quantity * normalized_price * position.contract_multiplier * quote_fx_rate;
+                position.quantity * valuation_price * position.contract_multiplier * quote_fx_rate;
             total_position_market_value += market_value;
             priced_positions += 1;
             if position.basis_status() == BasisStatus::Complete {
@@ -483,6 +512,34 @@ mod tests {
         assert_eq!(result.total_value, dec!(185));
         assert_eq!(result.value_status, ValuationStatus::PartialUnpriced);
         assert_eq!(result.basis_status, BasisStatus::Complete);
+    }
+
+    #[test]
+    fn split_price_factor_adjusts_quote_basis_without_changing_quantity() {
+        let target_date = NaiveDate::from_ymd_opt(2025, 11, 14).unwrap();
+        let positions = HashMap::from([(
+            "NFLX".to_string(),
+            test_position("NFLX", dec!(20), dec!(200)),
+        )]);
+        let snapshot = test_snapshot(positions, Decimal::ZERO);
+        let quotes_today = HashMap::from([("NFLX".to_string(), test_quote("NFLX", dec!(100)))]);
+        let split_price_factors = HashMap::from([("NFLX".to_string(), dec!(10))]);
+
+        let result = calculate_valuation_with_price_factors(
+            &snapshot,
+            &quotes_today,
+            &HashMap::new(),
+            &HashMap::new(),
+            target_date,
+            "USD",
+            &split_price_factors,
+        )
+        .unwrap();
+
+        assert_eq!(snapshot.positions.get("NFLX").unwrap().quantity, dec!(20));
+        assert_eq!(result.investment_market_value, dec!(20000));
+        assert_eq!(result.total_value, dec!(20000));
+        assert_eq!(result.performance_eligible_value_base, dec!(20000));
     }
 
     #[test]
