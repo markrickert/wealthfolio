@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useQuery } from "@tanstack/react-query";
 import { getHoldings } from "@/adapters";
@@ -141,10 +141,18 @@ vi.mock("@wealthfolio/ui", () => {
   const Passthrough = ({ children }: { children?: React.ReactNode }) => <>{children}</>;
 
   return {
-    AnimatedToggleGroup: ({ items }: { items?: { value: string; label: string }[] }) => (
+    AnimatedToggleGroup: ({
+      items,
+      onValueChange,
+    }: {
+      items?: { value: string; label: string }[];
+      onValueChange?: (value: string) => void;
+    }) => (
       <div>
         {items?.map((item) => (
-          <span key={item.value}>{item.label}</span>
+          <button key={item.value} type="button" onClick={() => onValueChange?.(item.value)}>
+            {item.label}
+          </button>
         ))}
       </div>
     ),
@@ -416,6 +424,8 @@ describe("AccountPage", () => {
     render(<AccountPage />);
 
     expect(screen.getByText("Activities")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Activities" }));
+
     expect(screen.getByRole("link", { name: /Explore activities/i })).toHaveAttribute(
       "href",
       "/activities?account=account-1",
