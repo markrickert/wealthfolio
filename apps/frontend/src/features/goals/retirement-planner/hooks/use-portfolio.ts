@@ -64,8 +64,7 @@ export function usePortfolioData(accountIds?: string[]) {
     accounts,
     activeAccounts,
     totalValue,
-    isLoading:
-      accountsQuery.isLoading || currentValuationQuery.isLoading || isHoldingsLoading,
+    isLoading: accountsQuery.isLoading || currentValuationQuery.isLoading || isHoldingsLoading,
     error: currentValuationQuery.error || holdingsError,
   };
 }

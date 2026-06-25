@@ -374,8 +374,7 @@ export function AllocationDetailSheet({
                   {holdings.map((holding, index) => {
                     const canNavigate = holding.holdingType !== HoldingType.CASH;
                     const isCash = holding.holdingType === HoldingType.CASH;
-                    const avatarSymbol =
-                      isCash ? `CASH:${holding.currency}` : holding.symbol;
+                    const avatarSymbol = isCash ? `CASH:${holding.currency}` : holding.symbol;
                     const primaryLabel = isCash
                       ? (holding.accountName ?? holding.symbol)
                       : holding.symbol;
@@ -404,9 +403,7 @@ export function AllocationDetailSheet({
                         <TickerAvatar symbol={avatarSymbol} className="h-9 w-9" />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-semibold">{primaryLabel}</p>
-                          <p className="text-muted-foreground truncate text-xs">
-                            {secondaryLabel}
-                          </p>
+                          <p className="text-muted-foreground truncate text-xs">{secondaryLabel}</p>
                         </div>
                         <div className="text-right">
                           <AmountDisplay

@@ -1,9 +1,4 @@
-import {
-  createActivity,
-  getAssetHoldings,
-  getAssetLots,
-  searchActivities,
-} from "@/adapters";
+import { createActivity, getAssetHoldings, getAssetLots, searchActivities } from "@/adapters";
 import { ActionPalette, type ActionPaletteGroup } from "@/components/action-palette";
 import { TickerAvatar } from "@/components/ticker-avatar";
 import { useHapticFeedback } from "@/hooks";
