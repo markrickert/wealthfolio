@@ -5,7 +5,7 @@ use diesel::sqlite::SqliteConnection;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use super::model::{AllocationTargetDB, AllocationTargetWeightDB};
+use super::model::{AllocationTargetDB, AllocationTargetWeightDB, RebalanceSellConstraintDB};
 use crate::db::{get_connection, WriteHandle};
 use crate::errors::StorageError;
 use crate::schema::{allocation_target_weights, allocation_targets};
@@ -300,6 +300,101 @@ impl AllocationTargetRepositoryTrait for AllocationTargetRepository {
         })?;
         let weights = self.list_weights_for_target(&target_id)?;
         Ok(SaveAllocationTargetResult { target, weights })
+    }
+
+    fn list_sell_constraints(
+        &self,
+        target_id: &str,
+    ) -> Result<Vec<wealthfolio_core::portfolio::allocation_targets::RebalanceSellConstraint>> {
+        use crate::schema::rebalance_sell_constraints;
+        let conn = &mut get_connection(&self.pool)?;
+        let rows = rebalance_sell_constraints::table
+            .filter(rebalance_sell_constraints::target_id.eq(target_id))
+            .order(rebalance_sell_constraints::created_at.asc())
+            .load::<RebalanceSellConstraintDB>(conn)
+            .map_err(StorageError::from)?;
+        rows.into_iter()
+            .map(|db| {
+                let entity_type =
+                    wealthfolio_core::portfolio::allocation_targets::SellConstraintEntityType::try_from(
+                        db.entity_type.as_str(),
+                    )
+                    .map_err(|e| {
+                        wealthfolio_core::errors::Error::Validation(
+                            wealthfolio_core::errors::ValidationError::InvalidInput(e),
+                        )
+                    })?;
+                Ok(
+                    wealthfolio_core::portfolio::allocation_targets::RebalanceSellConstraint {
+                        id: db.id,
+                        target_id: db.target_id,
+                        entity_type,
+                        entity_id: db.entity_id,
+                        created_at: db.created_at,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    async fn save_sell_constraints(
+        &self,
+        target_id: &str,
+        constraints: Vec<wealthfolio_core::portfolio::allocation_targets::RebalanceSellConstraint>,
+    ) -> Result<Vec<wealthfolio_core::portfolio::allocation_targets::RebalanceSellConstraint>> {
+        use crate::schema::rebalance_sell_constraints;
+        let target_id_owned = target_id.to_string();
+        let db_rows: Vec<RebalanceSellConstraintDB> = constraints
+            .iter()
+            .map(|c| RebalanceSellConstraintDB {
+                id: c.id.clone(),
+                target_id: c.target_id.clone(),
+                entity_type: c.entity_type.as_str().to_string(),
+                entity_id: c.entity_id.clone(),
+                created_at: c.created_at.clone(),
+            })
+            .collect();
+
+        self.writer
+            .exec_tx(move |tx| {
+                let existing_ids = rebalance_sell_constraints::table
+                    .filter(rebalance_sell_constraints::target_id.eq(&target_id_owned))
+                    .select(rebalance_sell_constraints::id)
+                    .load::<String>(tx.conn())
+                    .map_err(StorageError::from)?
+                    .into_iter()
+                    .collect::<HashSet<_>>();
+                let incoming_ids: HashSet<String> = db_rows.iter().map(|r| r.id.clone()).collect();
+
+                diesel::delete(
+                    rebalance_sell_constraints::table
+                        .filter(rebalance_sell_constraints::target_id.eq(&target_id_owned)),
+                )
+                .execute(tx.conn())
+                .map_err(StorageError::from)?;
+
+                if !db_rows.is_empty() {
+                    diesel::insert_into(rebalance_sell_constraints::table)
+                        .values(&db_rows)
+                        .execute(tx.conn())
+                        .map_err(StorageError::from)?;
+                }
+
+                for old_id in existing_ids.difference(&incoming_ids) {
+                    tx.delete::<RebalanceSellConstraintDB>(old_id.clone());
+                }
+                for row in &db_rows {
+                    if existing_ids.contains(&row.id) {
+                        tx.update(row)?;
+                    } else {
+                        tx.insert(row)?;
+                    }
+                }
+                Ok(())
+            })
+            .await?;
+
+        self.list_sell_constraints(target_id)
     }
 }
 

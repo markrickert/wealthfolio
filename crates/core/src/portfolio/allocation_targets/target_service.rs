@@ -9,7 +9,7 @@ use crate::taxonomies::{Category, TaxonomyServiceTrait};
 
 use super::model::{
     AllocationTarget, AllocationTargetWeight, BandType, NewAllocationTarget,
-    NewAllocationTargetWeight, RebalanceGoal, SaveAllocationTargetResult,
+    NewAllocationTargetWeight, RebalanceGoal, RebalanceSellConstraint, SaveAllocationTargetResult,
 };
 use super::validation::{validate_new_target, validate_weights_sum};
 
@@ -34,6 +34,13 @@ pub trait AllocationTargetRepositoryTrait: Send + Sync {
         target: AllocationTarget,
         weights: Vec<AllocationTargetWeight>,
     ) -> CoreResult<SaveAllocationTargetResult>;
+
+    fn list_sell_constraints(&self, target_id: &str) -> CoreResult<Vec<RebalanceSellConstraint>>;
+    async fn save_sell_constraints(
+        &self,
+        target_id: &str,
+        constraints: Vec<RebalanceSellConstraint>,
+    ) -> CoreResult<Vec<RebalanceSellConstraint>>;
 }
 
 // ── Service trait ─────────────────────────────────────────────────────────────
@@ -63,6 +70,13 @@ pub trait AllocationTargetServiceTrait: Send + Sync {
         input: NewAllocationTarget,
         weights: Vec<NewAllocationTargetWeight>,
     ) -> CoreResult<SaveAllocationTargetResult>;
+
+    fn list_sell_constraints(&self, target_id: &str) -> CoreResult<Vec<RebalanceSellConstraint>>;
+    async fn save_sell_constraints(
+        &self,
+        target_id: &str,
+        constraints: Vec<RebalanceSellConstraint>,
+    ) -> CoreResult<Vec<RebalanceSellConstraint>>;
 }
 
 // ── Implementation ────────────────────────────────────────────────────────────
@@ -429,6 +443,24 @@ impl AllocationTargetServiceTrait for AllocationTargetService {
             .save_target_with_weights(target, domain_weights)
             .await
     }
+
+    fn list_sell_constraints(&self, target_id: &str) -> CoreResult<Vec<RebalanceSellConstraint>> {
+        self.repository.list_sell_constraints(target_id)
+    }
+
+    async fn save_sell_constraints(
+        &self,
+        target_id: &str,
+        constraints: Vec<RebalanceSellConstraint>,
+    ) -> CoreResult<Vec<RebalanceSellConstraint>> {
+        self.repository
+            .get_target(target_id)?
+            .ok_or_else(|| Self::target_not_found(target_id))?;
+
+        self.repository
+            .save_sell_constraints(target_id, constraints)
+            .await
+    }
 }
 
 #[cfg(test)]
@@ -576,6 +608,21 @@ mod tests {
             weights: Vec<AllocationTargetWeight>,
         ) -> CoreResult<SaveAllocationTargetResult> {
             Ok(SaveAllocationTargetResult { target, weights })
+        }
+
+        fn list_sell_constraints(
+            &self,
+            _target_id: &str,
+        ) -> CoreResult<Vec<RebalanceSellConstraint>> {
+            Ok(vec![])
+        }
+
+        async fn save_sell_constraints(
+            &self,
+            _target_id: &str,
+            constraints: Vec<RebalanceSellConstraint>,
+        ) -> CoreResult<Vec<RebalanceSellConstraint>> {
+            Ok(constraints)
         }
     }
 

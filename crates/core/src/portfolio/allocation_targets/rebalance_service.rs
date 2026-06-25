@@ -816,6 +816,21 @@ mod tests {
         ) -> CoreResult<crate::portfolio::allocation_targets::SaveAllocationTargetResult> {
             unimplemented!()
         }
+        fn list_sell_constraints(
+            &self,
+            _: &str,
+        ) -> CoreResult<Vec<crate::portfolio::allocation_targets::RebalanceSellConstraint>>
+        {
+            Ok(vec![])
+        }
+        async fn save_sell_constraints(
+            &self,
+            _: &str,
+            _: Vec<crate::portfolio::allocation_targets::RebalanceSellConstraint>,
+        ) -> CoreResult<Vec<crate::portfolio::allocation_targets::RebalanceSellConstraint>>
+        {
+            unimplemented!()
+        }
     }
 
     struct MockDriftService {

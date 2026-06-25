@@ -13,7 +13,7 @@ use crate::taxonomies::TaxonomyServiceTrait;
 use super::cash::{deployable_cash_from_contributions, is_deployable_cash_category, tracked_cash};
 use super::model::{
     AllocationTarget, AllocationTargetWeight, DriftHoldingRow, DriftHoldingsReport, DriftReport,
-    DriftRow, DriftStatus, ScopeType,
+    DriftRow, DriftStatus, RebalanceSellConstraint, ScopeType,
 };
 use super::target_service::AllocationTargetServiceTrait;
 
@@ -749,6 +749,16 @@ mod tests {
             _input: NewAllocationTarget,
             _weights: Vec<NewAllocationTargetWeight>,
         ) -> CoreResult<SaveAllocationTargetResult> {
+            unimplemented!()
+        }
+        fn list_sell_constraints(&self, _: &str) -> CoreResult<Vec<RebalanceSellConstraint>> {
+            Ok(vec![])
+        }
+        async fn save_sell_constraints(
+            &self,
+            _: &str,
+            _: Vec<RebalanceSellConstraint>,
+        ) -> CoreResult<Vec<RebalanceSellConstraint>> {
             unimplemented!()
         }
     }
