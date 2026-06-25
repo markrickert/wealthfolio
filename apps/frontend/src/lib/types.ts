@@ -2520,6 +2520,7 @@ export interface DriftReport {
   outOfBandCount: number;
   rows: DriftRow[];
   holdings?: DriftHoldingsReport | null;
+  deployableCash: number;
 }
 
 export interface DriftHoldingRow {

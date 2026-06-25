@@ -253,6 +253,10 @@ pub struct DriftReport {
     pub rows: Vec<DriftRow>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub holdings: Option<DriftHoldingsReport>,
+    /// Cash that is available for deployment — excludes cash tagged into
+    /// a non-cash sleeve (e.g. a cash account classified as Fixed Income).
+    #[serde(default)]
+    pub deployable_cash: Decimal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

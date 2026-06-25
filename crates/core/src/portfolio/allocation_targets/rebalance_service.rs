@@ -65,6 +65,13 @@ impl RebalanceService {
         Decimal::ONE / Decimal::from(10_i64.pow(Self::currency_fraction_digits(currency)))
     }
 
+    fn default_cash_category_id(taxonomy_id: &str) -> Option<&'static str> {
+        match taxonomy_id {
+            "asset_classes" | "instrument_type" => Some("CASH"),
+            _ => None,
+        }
+    }
+
     fn base_price_per_unit(holding: &crate::portfolio::holdings::Holding) -> Option<Decimal> {
         if holding.quantity > Decimal::ZERO && holding.market_value.base > Decimal::ZERO {
             return Some(holding.market_value.base / holding.quantity);
@@ -279,6 +286,17 @@ impl RebalanceServiceTrait for RebalanceService {
             ));
         }
 
+        // Load profile early — needed for taxonomy_id before cash calculation.
+        let profile = self
+            .allocation_target_service
+            .get_target(&input.target_id)?
+            .ok_or_else(|| {
+                CoreError::Database(crate::errors::DatabaseError::NotFound(format!(
+                    "AllocationTarget {} not found",
+                    input.target_id
+                )))
+            })?;
+
         // Fetch holdings once — used for both cash check and price extraction.
         let all_holdings = self
             .holdings_service
@@ -289,11 +307,29 @@ impl RebalanceServiceTrait for RebalanceService {
             )
             .await?;
 
-        // Authoritative tracked cash in scope.
-        let cash_in_scope: Decimal = all_holdings
+        // Holding contributions for exposure vectors.
+        let taxonomy_contributions = self
+            .allocation_service
+            .get_holding_contributions_for_taxonomy_for_accounts(
+                &input.account_ids,
+                &input.base_currency,
+                &profile.taxonomy_id,
+                &input.aggregated_account_id,
+            )
+            .await?;
+
+        // Deployable cash = cash holdings that are classified in the default
+        // cash category.  Cash tagged into another sleeve (e.g. Fixed Income)
+        // is excluded — it belongs to that sleeve and must not be double-counted.
+        let default_cash_cat = Self::default_cash_category_id(&profile.taxonomy_id);
+        let cash_in_scope: Decimal = taxonomy_contributions
+            .contributions
             .iter()
-            .filter(|h| h.holding_type == HoldingType::Cash)
-            .map(|h| h.market_value.base)
+            .filter(|c| {
+                c.holding_type == HoldingType::Cash
+                    && default_cash_cat.map_or(true, |cat| c.category_id == cat)
+            })
+            .map(|c| c.value)
             .sum();
 
         let available_cash = if input.available_cash > cash_in_scope {
@@ -310,17 +346,6 @@ impl RebalanceServiceTrait for RebalanceService {
         } else {
             input.available_cash
         };
-
-        // Load profile.
-        let profile = self
-            .allocation_target_service
-            .get_target(&input.target_id)?
-            .ok_or_else(|| {
-                CoreError::Database(crate::errors::DatabaseError::NotFound(format!(
-                    "AllocationTarget {} not found",
-                    input.target_id
-                )))
-            })?;
 
         // Drift report — provides total_value and per-category target/current data.
         let drift = self
@@ -348,17 +373,6 @@ impl RebalanceServiceTrait for RebalanceService {
                 after_bps_by_category: std::collections::HashMap::new(),
             });
         }
-
-        // Holding contributions for exposure vectors.
-        let taxonomy_contributions = self
-            .allocation_service
-            .get_holding_contributions_for_taxonomy_for_accounts(
-                &input.account_ids,
-                &input.base_currency,
-                &profile.taxonomy_id,
-                &input.aggregated_account_id,
-            )
-            .await?;
 
         // Price map and quantity map: holding_id → value in base currency.
         let price_by_holding: HashMap<String, Decimal> = all_holdings
@@ -670,6 +684,7 @@ mod tests {
             out_of_band_count: out,
             rows,
             holdings: None,
+            deployable_cash: Decimal::ZERO,
         }
     }
 
@@ -834,9 +849,19 @@ mod tests {
     fn make_service(
         profile: AllocationTarget,
         report: DriftReport,
-        contributions: TaxonomyHoldingContributions,
+        mut contributions: TaxonomyHoldingContributions,
         holdings: Vec<Holding>,
     ) -> RebalanceService {
+        // Auto-inject cash contributions so cash_in_scope (now derived from
+        // contributions) matches the cash holdings the test provides.
+        for h in &holdings {
+            if h.holding_type == HoldingType::Cash {
+                contributions
+                    .contributions
+                    .push(make_contribution(h, "CASH", h.market_value.base));
+                contributions.total_value += h.market_value.base;
+            }
+        }
         RebalanceService::new(
             Arc::new(MockTargetService { profile }),
             Arc::new(MockDriftService { report }),

@@ -392,6 +392,21 @@ impl DriftService {
             Self::build_drift_holdings_report(target_id, base_currency, &weights, &contributions)
         });
 
+        let default_cash_cat = match target.taxonomy_id.as_str() {
+            "asset_classes" => Some("CASH"),
+            "instrument_type" => Some("CASH"),
+            _ => None,
+        };
+        let deployable_cash: Decimal = contributions
+            .contributions
+            .iter()
+            .filter(|c| {
+                c.holding_type == HoldingType::Cash
+                    && default_cash_cat.map_or(true, |cat| c.category_id == cat)
+            })
+            .map(|c| c.value)
+            .sum();
+
         Ok(DriftReport {
             target_id: target_id.to_string(),
             scope_type,
@@ -402,6 +417,7 @@ impl DriftService {
             out_of_band_count,
             rows,
             holdings,
+            deployable_cash,
         })
     }
 }
