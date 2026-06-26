@@ -13,6 +13,8 @@ import {
 
 interface AuthContextValue {
   requiresAuth: boolean;
+  requiresPassword: boolean;
+  oidcEnabled: boolean;
   isAuthenticated: boolean;
   statusLoading: boolean;
   loginLoading: boolean;
@@ -22,10 +24,25 @@ interface AuthContextValue {
   clearError: () => void;
 }
 
+/** Human-readable messages for `?oidc_error=` codes set by the server callback. */
+const OIDC_ERROR_MESSAGES: Record<string, string> = {
+  oidc_forbidden: "Your account is not allowed to access this instance.",
+  oidc_provider_error: "The identity provider reported an error. Please try again.",
+  oidc_expired: "Your sign-in session expired. Please try again.",
+  oidc_state_mismatch: "Sign-in could not be verified. Please try again.",
+  oidc_exchange_failed: "Could not complete sign-in with the identity provider.",
+  oidc_invalid_token: "The identity provider returned an invalid token.",
+  oidc_no_id_token: "The identity provider did not return an ID token.",
+  oidc_missing_params: "Sign-in was cancelled or incomplete. Please try again.",
+  oidc_not_configured: "Single sign-on is not configured on this server.",
+  oidc_internal: "An unexpected error occurred during sign-in. Please try again.",
+};
+
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [requiresAuth, setRequiresAuth] = useState(false);
+  const [requiresPassword, setRequiresPassword] = useState(false);
+  const [oidcEnabled, setOidcEnabled] = useState(false);
   const [statusLoading, setStatusLoading] = useState(isWeb);
   const [cookieSession, setCookieSession] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
@@ -50,10 +67,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!response.ok) {
           throw new Error(`Failed to check authentication status: ${response.status}`);
         }
-        const data = (await response.json()) as { requiresPassword: boolean };
+        const data = (await response.json()) as {
+          requiresPassword: boolean;
+          oidcEnabled: boolean;
+        };
         if (cancelled) return;
-        const needsAuth = Boolean(data?.requiresPassword);
-        setRequiresAuth(needsAuth);
+        const needsPassword = Boolean(data?.requiresPassword);
+        const needsOidc = Boolean(data?.oidcEnabled);
+        setRequiresPassword(needsPassword);
+        setOidcEnabled(needsOidc);
+        const needsAuth = needsPassword || needsOidc;
 
         // If auth is required, check if we have a valid cookie session
         if (needsAuth) {
@@ -71,7 +94,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         console.error("Failed to load authentication status", error);
         if (!cancelled) {
-          setRequiresAuth(false);
+          setRequiresPassword(false);
+          setOidcEnabled(false);
         }
       } finally {
         if (!cancelled) {
@@ -100,6 +124,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Surface OIDC callback errors passed back as `?oidc_error=<code>`.
+  useEffect(() => {
+    if (!isWeb) return;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("oidc_error");
+    if (!code) return;
+    setLoginError(OIDC_ERROR_MESSAGES[code] ?? "Single sign-on failed. Please try again.");
+    params.delete("oidc_error");
+    const query = params.toString();
+    const newUrl = window.location.pathname + (query ? `?${query}` : "") + window.location.hash;
+    window.history.replaceState({}, "", newUrl);
+  }, []);
+
   const login = useCallback(async (password: string) => {
     setLoginLoading(true);
     setLoginError(null);
@@ -112,7 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       if (!response.ok) {
         if (response.status === 404) {
-          setRequiresAuth(false);
+          setRequiresPassword(false);
         }
         let message = "Invalid password";
         try {
@@ -150,9 +187,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearError = useCallback(() => setLoginError(null), []);
 
+  const requiresAuth = requiresPassword || oidcEnabled;
+
   const value = useMemo<AuthContextValue>(
     () => ({
       requiresAuth,
+      requiresPassword,
+      oidcEnabled,
       isAuthenticated: !requiresAuth || cookieSession,
       statusLoading,
       loginLoading,
@@ -163,6 +204,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       requiresAuth,
+      requiresPassword,
+      oidcEnabled,
       cookieSession,
       statusLoading,
       loginLoading,

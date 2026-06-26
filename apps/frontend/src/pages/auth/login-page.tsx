@@ -13,7 +13,7 @@ import {
 import { FormEvent, useState } from "react";
 
 export function LoginPage() {
-  const { login, loginLoading, loginError, clearError } = useAuth();
+  const { login, loginLoading, loginError, clearError, requiresPassword, oidcEnabled } = useAuth();
   const [password, setPassword] = useState("");
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -47,35 +47,67 @@ export function LoginPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <form className="space-y-8" onSubmit={handleSubmit}>
-              <div className="space-y-2">
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  autoComplete="current-password"
-                  onChange={(event) => {
-                    if (loginError) {
-                      clearError();
-                    }
-                    setPassword(event.target.value);
-                  }}
-                  disabled={loginLoading}
-                  required
-                  placeholder="Enter your password"
-                  className="h-12 rounded-full shadow-none"
-                />
-                {loginError ? (
-                  <p className="text-destructive text-sm" role="alert">
-                    {loginError}
-                  </p>
-                ) : null}
-              </div>
+            <div className="space-y-6">
+              {requiresPassword ? (
+                <form className="space-y-8" onSubmit={handleSubmit}>
+                  <div className="space-y-2">
+                    <Input
+                      id="password"
+                      type="password"
+                      value={password}
+                      autoComplete="current-password"
+                      onChange={(event) => {
+                        if (loginError) {
+                          clearError();
+                        }
+                        setPassword(event.target.value);
+                      }}
+                      disabled={loginLoading}
+                      required
+                      placeholder="Enter your password"
+                      className="h-12 rounded-full shadow-none"
+                    />
+                    {loginError ? (
+                      <p className="text-destructive text-sm" role="alert">
+                        {loginError}
+                      </p>
+                    ) : null}
+                  </div>
 
-              <Button type="submit" className="w-full" disabled={loginLoading}>
-                {loginLoading ? "Signing in..." : "Sign In"}
-              </Button>
-            </form>
+                  <Button type="submit" className="w-full" disabled={loginLoading}>
+                    {loginLoading ? "Signing in..." : "Sign In"}
+                  </Button>
+                </form>
+              ) : null}
+
+              {requiresPassword && oidcEnabled ? (
+                <div className="flex items-center gap-3">
+                  <span className="bg-border h-px flex-1" />
+                  <span className="text-muted-foreground text-xs">or</span>
+                  <span className="bg-border h-px flex-1" />
+                </div>
+              ) : null}
+
+              {oidcEnabled ? (
+                <div className="space-y-2">
+                  <Button
+                    type="button"
+                    variant={requiresPassword ? "outline" : "default"}
+                    className="w-full"
+                    onClick={() => {
+                      window.location.href = "/api/v1/auth/oidc/login";
+                    }}
+                  >
+                    Sign in with SSO
+                  </Button>
+                  {!requiresPassword && loginError ? (
+                    <p className="text-destructive text-center text-sm" role="alert">
+                      {loginError}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </CardContent>
           <CardFooter className="text-muted-foreground flex flex-col gap-2 text-center text-xs"></CardFooter>
         </Card>
