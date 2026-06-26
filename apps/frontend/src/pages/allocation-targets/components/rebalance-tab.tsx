@@ -181,7 +181,7 @@ function modeVerb(mode: ScenarioMode): string {
   return "Cash-flow buys";
 }
 
-/** Narrative for the Before · Target · After card. */
+/** Narrative for the Now · After · Target card. */
 function reshapeNarrative(sleeves: SleeveSummaryRow[], mode: ScenarioMode): string {
   const movers = sleeves.map((s) => ({
     name: s.categoryName,
@@ -825,7 +825,7 @@ function PlannerResult({
   );
 }
 
-// ── Before · Target · After ───────────────────────────────────────────────────
+// ── Now · After · Target ─────────────────────────────────────────────────────
 
 function StackedBar({
   label,
@@ -935,9 +935,7 @@ function SleeveReshapeCard({ sleeves, mode }: { sleeves: SleeveSummaryRow[]; mod
     <Card>
       <CardContent className="p-0">
         <div className="px-5 pt-4">
-          <h3 className="text-foreground font-mono text-sm font-semibold">
-            Before · Target · After
-          </h3>
+          <h3 className="text-foreground font-mono text-sm font-semibold">Now · After · Target</h3>
           <p className="text-muted-foreground mt-1 font-mono text-xs leading-relaxed">
             How deploying this cash reshapes the portfolio by sleeve. Sleeves are stacked in the
             same order across all three bars.
@@ -949,8 +947,8 @@ function SleeveReshapeCard({ sleeves, mode }: { sleeves: SleeveSummaryRow[]; mod
           <div className="border-border/60 px-5 py-5 lg:border-r">
             <div className="space-y-3">
               <StackedBar label="Now" field="currentBps" sleeves={sleeves} />
-              <StackedBar label="Target" field="targetBps" sleeves={sleeves} />
               <StackedBar label="After" field="afterBps" sleeves={sleeves} bold />
+              <StackedBar label="Target" field="targetBps" sleeves={sleeves} />
             </div>
             <div className="border-border/60 mt-5 flex flex-wrap gap-x-5 gap-y-2 border-t pt-4">
               {sleeves
