@@ -15,6 +15,17 @@ use wealthfolio_server::{api::app_router, build_state, config::Config};
 
 const PASSWORD: &str = "super-secret";
 
+/// The canonical read-only scope set, used when minting test tokens.
+const READ_ONLY_SCOPES: &[&str] = &[
+    "accounts:read",
+    "holdings:read",
+    "performance:read",
+    "activities:read",
+    "financial-planning:read",
+    "health:read",
+    "classification:read",
+];
+
 /// Env vars are process-global; serialize config/state construction
 /// (build_state itself mutates DATABASE_URL / WF_SECRET_FILE).
 static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -215,7 +226,7 @@ async fn mcp_pat_lifecycle() {
     let (status, created) = create_pat(
         &server,
         &cookie,
-        serde_json::json!({ "name": "  ci token  " }),
+        serde_json::json!({ "name": "  ci token  ", "scopes": READ_ONLY_SCOPES }),
     )
     .await;
     assert_eq!(status, 201);
@@ -229,12 +240,44 @@ async fn mcp_pat_lifecycle() {
     let token_id = created["id"].as_str().unwrap().to_string();
 
     // Empty name is rejected.
-    let (status, _) = create_pat(&server, &cookie, serde_json::json!({ "name": "   " })).await;
+    let (status, _) = create_pat(
+        &server,
+        &cookie,
+        serde_json::json!({ "name": "   ", "scopes": READ_ONLY_SCOPES }),
+    )
+    .await;
+    assert_eq!(status, 400);
+
+    // Empty scopes are rejected.
+    let (status, _) = create_pat(
+        &server,
+        &cookie,
+        serde_json::json!({ "name": "no scopes", "scopes": [] }),
+    )
+    .await;
+    assert_eq!(status, 400);
+
+    // Unknown scopes are rejected.
+    let (status, _) = create_pat(
+        &server,
+        &cookie,
+        serde_json::json!({ "name": "bad scope", "scopes": ["accounts:read", "bogus:scope"] }),
+    )
+    .await;
+    assert_eq!(status, 400);
+
+    // activities:write without activities:draft is rejected (dependency).
+    let (status, _) = create_pat(
+        &server,
+        &cookie,
+        serde_json::json!({ "name": "write only", "scopes": ["activities:write"] }),
+    )
+    .await;
     assert_eq!(status, 400);
 
     let session = mcp_initialize(&server, &pat).await;
 
-    // tools/list -> the full v1 read-only catalog (13 tools).
+    // tools/list -> the full read-only catalog (16 tools).
     let response = mcp_post(
         &server,
         Some(&pat),
@@ -247,8 +290,8 @@ async fn mcp_pat_lifecycle() {
     let tools = list["result"]["tools"].as_array().unwrap();
     assert_eq!(
         tools.len(),
-        13,
-        "v1 catalog must expose 13 tools: {tools:?}"
+        16,
+        "read-only catalog must expose 16 tools: {tools:?}"
     );
 
     // (h) tools/call succeeds and writes an audit row (insert is spawned — poll).
@@ -370,7 +413,7 @@ async fn mcp_pat_lifecycle() {
     let (status, expired) = create_pat(
         &server,
         &cookie,
-        serde_json::json!({ "name": "expired", "expiresAt": "2000-01-01T00:00:00Z" }),
+        serde_json::json!({ "name": "expired", "expiresAt": "2000-01-01T00:00:00Z", "scopes": READ_ONLY_SCOPES }),
     )
     .await;
     assert_eq!(status, 201);
@@ -390,6 +433,66 @@ async fn mcp_pat_lifecycle() {
         .await
         .unwrap();
     assert!(purge["purged"].as_u64().unwrap() >= 1);
+}
+
+/// A write/suggest-scoped token sees the draft, suggest, AND commit tools via
+/// `tools/list` — proving scope-gated visibility extends past the read-only
+/// catalog. (Read-only tokens see 16; the full MCP catalog is 16 read + 5
+/// draft/suggest + 2 commit = 23.)
+#[tokio::test]
+async fn mcp_write_scoped_token_sees_write_tools() {
+    let server = spawn_server(true, false).await;
+    let cookie = login(&server).await;
+
+    let full_scopes: Vec<&str> = READ_ONLY_SCOPES
+        .iter()
+        .copied()
+        .chain([
+            "activities:draft",
+            "activities:write",
+            "classification:suggest",
+        ])
+        .collect();
+    let (status, created) = create_pat(
+        &server,
+        &cookie,
+        serde_json::json!({ "name": "writer", "scopes": full_scopes }),
+    )
+    .await;
+    assert_eq!(status, 201);
+    assert_eq!(created["scopes"].as_array().unwrap().len(), 10);
+    let pat = created["token"].as_str().unwrap().to_string();
+
+    let session = mcp_initialize(&server, &pat).await;
+    let response = mcp_post(
+        &server,
+        Some(&pat),
+        Some(&session),
+        serde_json::json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let list = parse_sse_data(&response.text().await.unwrap());
+    let tools = list["result"]["tools"].as_array().unwrap();
+    let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+    assert_eq!(
+        tools.len(),
+        23,
+        "full-scope token must see all 23 tools: {names:?}"
+    );
+    assert!(names.contains(&"record_activity"), "draft tool visible");
+    assert!(
+        names.contains(&"prepare_asset_classification"),
+        "suggest tool visible"
+    );
+    assert!(
+        names.contains(&"commit_activity_draft"),
+        "commit tool visible"
+    );
+    assert!(
+        names.contains(&"commit_activity_drafts"),
+        "batch commit tool visible"
+    );
 }
 
 #[tokio::test]
@@ -412,7 +515,12 @@ async fn mcp_audit_disabled_writes_no_rows() {
     assert_eq!(status_json["auditEnabled"], false);
 
     // A successful tools/call must not write an audit row.
-    let (status, created) = create_pat(&server, &cookie, serde_json::json!({ "name": "ci" })).await;
+    let (status, created) = create_pat(
+        &server,
+        &cookie,
+        serde_json::json!({ "name": "ci", "scopes": READ_ONLY_SCOPES }),
+    )
+    .await;
     assert_eq!(status, 201);
     let pat = created["token"].as_str().unwrap().to_string();
     let session = mcp_initialize(&server, &pat).await;

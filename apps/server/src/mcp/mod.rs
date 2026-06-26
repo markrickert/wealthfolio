@@ -15,8 +15,10 @@ use wealthfolio_mcp::McpServerBuilder;
 
 use crate::{config::Config, main_lib::AppState};
 
-const INSTRUCTIONS: &str = "Read-only access to the user's Wealthfolio portfolio: accounts, \
-holdings, valuations, performance, activities, income, goals, health, and classifications.";
+const INSTRUCTIONS: &str = "Read and write access to the user's Wealthfolio portfolio: accounts, \
+holdings, valuations, performance, activities, income, goals, health, and classifications. \
+Write capabilities (drafting and committing activities, classification suggestions) depend on the \
+scopes granted to the access token in use.";
 
 /// Builds the `/mcp` router: the Streamable HTTP MCP service behind PAT
 /// bearer authentication.

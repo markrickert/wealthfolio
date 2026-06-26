@@ -12,7 +12,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use wealthfolio_agent_tools::AgentScopeSet;
+use wealthfolio_agent_tools::{AgentScope, AgentScopeSet};
 use wealthfolio_storage_sqlite::agent::{
     McpAuditLogDB, NewPersonalAccessToken, PersonalAccessTokenDB,
 };
@@ -78,6 +78,29 @@ async fn list_tokens(State(state): State<Arc<AppState>>) -> ApiResult<Json<Vec<T
 struct CreateTokenRequest {
     name: String,
     expires_at: Option<String>,
+    /// Canonical scope strings (e.g. `"accounts:read"`). Must be non-empty;
+    /// unknown scopes and unmet dependencies are rejected.
+    #[serde(default)]
+    scopes: Vec<String>,
+}
+
+/// Validate the requested scope strings and return the canonical, deduped set.
+fn validate_requested_scopes(requested: &[String]) -> Result<Vec<String>, ApiError> {
+    if requested.is_empty() {
+        return Err(ApiError::BadRequest(
+            "At least one scope is required".into(),
+        ));
+    }
+    let mut set = AgentScopeSet::new();
+    for scope in requested {
+        let parsed = AgentScope::parse(scope)
+            .ok_or_else(|| ApiError::BadRequest(format!("Unknown scope: {scope}")))?;
+        set.insert(parsed);
+    }
+    if let Some(err) = set.dependency_error() {
+        return Err(ApiError::BadRequest(err));
+    }
+    Ok(set.iter().map(|s| s.as_str().to_string()).collect())
 }
 
 #[derive(Serialize)]
@@ -106,12 +129,7 @@ async fn create_token(
             .map_err(|_| ApiError::BadRequest("expiresAt must be an RFC 3339 timestamp".into()))?;
     }
 
-    // v1: scopes are fixed to the read-only preset; client-supplied scopes
-    // are not accepted.
-    let scopes: Vec<String> = AgentScopeSet::read_only()
-        .iter()
-        .map(|scope| scope.as_str().to_string())
-        .collect();
+    let scopes = validate_requested_scopes(&payload.scopes)?;
 
     let token = generate_token();
     let prefix = token_prefix(&token)
