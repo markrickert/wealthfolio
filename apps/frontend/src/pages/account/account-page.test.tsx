@@ -455,7 +455,7 @@ describe("AccountPage", () => {
       mode: "infinite",
       filters: { accountIds: ["account-1"] },
     });
-    expect(screen.getByRole("link", { name: /Explore activities/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /Explore/i })).toHaveAttribute(
       "href",
       "/activities?account=account-1",
     );

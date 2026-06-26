@@ -23,7 +23,7 @@ import {
 // name | % | value | Δ. Fixed widths so columns line up across rows (each row is
 // its own grid). On mobile the % column and the Δ-percent collapse.
 const ROW_GRID =
-  "grid grid-cols-[minmax(0,1fr)_4.5rem_5rem] md:grid-cols-[minmax(0,1fr)_3rem_7rem_8rem] items-center gap-x-3 md:gap-x-4";
+  "grid grid-cols-[minmax(0,1fr)_4.5rem_5.75rem] md:grid-cols-[minmax(0,1fr)_3rem_7rem_9.5rem] items-center gap-x-3 md:gap-x-4";
 
 function ChangeCell({ change, currency }: { change: Change; currency: string }) {
   const isZero = Math.abs(change.amount) < 0.005;
@@ -34,12 +34,14 @@ function ChangeCell({ change, currency }: { change: Change; currency: string }) 
       : "text-destructive";
   const sign = isZero ? "" : change.amount > 0 ? "+" : "-";
   return (
-    <div className="flex items-baseline justify-end gap-2.5">
-      <span className={`text-xs tabular-nums md:text-sm ${color}`}>
+    <div className="flex items-baseline justify-end gap-1.5 md:gap-2">
+      <span
+        className={`inline-flex shrink-0 items-baseline whitespace-nowrap text-xs tabular-nums md:text-sm ${color}`}
+      >
         {sign}
         <CompactAmount value={Math.abs(change.amount)} currency={currency} />
       </span>
-      <span className="text-muted-foreground/60 hidden w-12 text-right text-sm tabular-nums md:block">
+      <span className="text-muted-foreground/60 hidden w-12 shrink-0 text-right text-sm tabular-nums md:block">
         {formatChangePercent(change.percent)}
       </span>
     </div>

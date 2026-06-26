@@ -645,13 +645,14 @@ const AccountPage = () => {
   const accountDetailsContent = (
     <div className="space-y-4">
       {(accountDetailTabs.length > 1 || activeAccountDetailTab === "activities") && (
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-2 sm:gap-3">
           {accountDetailTabs.length > 1 ? (
             <AnimatedToggleGroup<AccountDetailTab>
               items={accountDetailTabs}
               value={activeAccountDetailTab}
               onValueChange={setAccountDetailTab}
-              className="text-sm"
+              size={isMobile ? "compact" : "default"}
+              className="min-w-0"
             />
           ) : (
             <div />
@@ -660,7 +661,7 @@ const AccountPage = () => {
           {activeAccountDetailTab === "activities" && (
             <Button variant="ghost" size="sm" className="shrink-0" asChild>
               <Link to={`/activities?account=${id}`} className="inline-flex items-center gap-1.5">
-                Explore activities
+                Explore
                 <Icons.ArrowRight className="h-3.5 w-3.5" />
               </Link>
             </Button>
