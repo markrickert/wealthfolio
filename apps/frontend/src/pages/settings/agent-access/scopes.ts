@@ -108,17 +108,17 @@ export const SCOPE_PRESETS: ScopePreset[] = [
   },
   {
     key: "read-activity-draft",
-    label: "Read + draft activities",
+    label: "Read + draft",
     scopes: [...READ_SCOPES, "activities:draft"],
   },
   {
     key: "read-activity-write",
-    label: "Read + write activities",
+    label: "Read + write",
     scopes: [...READ_SCOPES, "activities:draft", "activities:write"],
   },
   {
     key: "read-activity-write-classification-suggest",
-    label: "Read + write + suggest classification",
+    label: "Read + write + suggest",
     scopes: [...READ_SCOPES, "activities:draft", "activities:write", "classification:suggest"],
   },
 ];

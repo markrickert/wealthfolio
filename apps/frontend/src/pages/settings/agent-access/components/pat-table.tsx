@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { format } from "date-fns";
+import { format, formatDistanceToNowStrict } from "date-fns";
 import type { AgentAccessToken } from "@/adapters";
+import { cn } from "@/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,116 +23,151 @@ import {
 } from "@wealthfolio/ui/components/ui/card";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@wealthfolio/ui/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@wealthfolio/ui/components/ui/tooltip";
 import { useAccessTokens } from "../hooks/use-access-tokens";
 import { matchPreset, scopeLabel } from "../scopes";
 import { PatCreateDialog } from "./pat-create-dialog";
 
-const formatDate = (value: string | null) => (value ? format(new Date(value), "MMM d, yyyy") : "—");
+type TokenStatus = "active" | "expired" | "revoked";
 
-function ScopeBadges({ scopes }: { scopes: string[] }) {
+const STATUS_LABEL: Record<TokenStatus, string> = {
+  active: "Active",
+  expired: "Expired",
+  revoked: "Revoked",
+};
+
+function tokenStatus(token: AgentAccessToken): TokenStatus {
+  if (token.revokedAt) return "revoked";
+  if (token.expiresAt && new Date(token.expiresAt) < new Date()) return "expired";
+  return "active";
+}
+
+/** "Created Mar 12, 2026". */
+const formatCreated = (value: string) => `Created ${format(new Date(value), "MMM dd, yyyy")}`;
+
+/** "Expires in 78 days" / "No expiration" / "Expired Apr 1". */
+function formatExpiry(expiresAt: string | null): string {
+  if (!expiresAt) return "No expiration";
+  const date = new Date(expiresAt);
+  if (date < new Date()) return `Expired ${format(date, "MMM d")}`;
+  return `Expires in ${formatDistanceToNowStrict(date)}`;
+}
+
+/** "Last used 2 hours ago" / "Never used". */
+const formatLastUsed = (lastUsedAt: string | null) =>
+  lastUsedAt
+    ? `Last used ${formatDistanceToNowStrict(new Date(lastUsedAt), { addSuffix: true })}`
+    : "Never used";
+
+/** A muted chip summarizing a token's scopes; hover to view the exact list. */
+function ScopeBadge({ scopes }: { scopes: string[] }) {
   if (scopes.length === 0) {
     return <span className="text-muted-foreground text-xs">—</span>;
   }
   const preset = matchPreset(scopes);
-  if (preset) {
-    return <Badge variant="secondary">{preset.label}</Badge>;
-  }
+  const label = preset ? preset.label : `Custom · ${scopes.length} scopes`;
   return (
-    <div className="flex flex-wrap gap-1">
-      {scopes.map((scope) => (
-        <Badge key={scope} variant="secondary" className="font-normal">
-          {scopeLabel(scope)}
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge variant="secondary" className="cursor-default font-normal">
+          {label}
         </Badge>
-      ))}
-    </div>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs">
+        <p className="mb-1 font-medium">This token can:</p>
+        <ul className="text-muted-foreground space-y-0.5">
+          {scopes.map((scope) => (
+            <li key={scope}>{scopeLabel(scope)}</li>
+          ))}
+        </ul>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
 export function PatTable({ serverUrl }: { serverUrl?: string } = {}) {
-  const { tokens, isLoading, createMutation, revokeMutation } = useAccessTokens();
+  const { tokens, isLoading, createMutation, deleteMutation } = useAccessTokens();
   const [createOpen, setCreateOpen] = useState(false);
-  const [revoking, setRevoking] = useState<AgentAccessToken | null>(null);
+  const [removing, setRemoving] = useState<AgentAccessToken | null>(null);
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between gap-2">
-          <div className="space-y-1.5">
-            <CardTitle>Personal access tokens</CardTitle>
-            <CardDescription>
-              Scoped tokens for MCP clients connecting to the /mcp endpoint.
-            </CardDescription>
-          </div>
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
-            <Icons.Plus className="mr-2 h-4 w-4" />
-            Create token
-          </Button>
+    <Card className="rounded-lg">
+      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 p-6 pb-4">
+        <div className="min-w-0 space-y-1">
+          <CardTitle className="text-base font-semibold tracking-tight">
+            Personal access tokens
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Scoped tokens for MCP clients connecting to the /mcp endpoint.
+          </CardDescription>
         </div>
+        <Button size="sm" onClick={() => setCreateOpen(true)}>
+          <Icons.Plus className="mr-2 h-4 w-4" />
+          Create token
+        </Button>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-6 pt-0">
         {isLoading ? (
           <div className="space-y-2">
-            <Skeleton className="h-8" />
-            <Skeleton className="h-8" />
+            <Skeleton className="h-16 rounded-md" />
+            <Skeleton className="h-16 rounded-md" />
           </div>
         ) : tokens.length === 0 ? (
-          <p className="text-muted-foreground py-6 text-center text-sm">
+          <div className="text-muted-foreground rounded-md border border-dashed py-8 text-center text-xs">
             No access tokens yet. Create one to connect an MCP client.
-          </p>
+          </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Token</TableHead>
-                <TableHead>Scopes</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Last used</TableHead>
-                <TableHead>Expires</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {tokens.map((token) => (
-                <TableRow key={token.id} className={token.revokedAt ? "opacity-60" : undefined}>
-                  <TableCell className="font-medium">{token.name}</TableCell>
-                  <TableCell className="font-mono text-xs">wfp_{token.tokenPrefix}…</TableCell>
-                  <TableCell>
-                    <ScopeBadges scopes={token.scopes} />
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap">{formatDate(token.createdAt)}</TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    {formatDate(token.lastUsedAt)}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    {token.expiresAt ? formatDate(token.expiresAt) : "Never"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {token.revokedAt ? (
-                      <Badge variant="outline">Revoked</Badge>
-                    ) : (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => setRevoking(token)}
-                      >
-                        Revoke
-                      </Button>
+          <div className="flex flex-col gap-2">
+            {tokens.map((token) => {
+              const status = tokenStatus(token);
+              const inactive = status !== "active";
+              return (
+                <div
+                  key={token.id}
+                  className={cn(
+                    "grid grid-cols-[auto_1fr_auto] items-center gap-4 rounded-md border px-4 py-3.5 transition-colors",
+                    inactive
+                      ? "border-border border-dashed bg-transparent opacity-80"
+                      : "bg-muted/30 border-border",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "flex h-8 w-8 items-center justify-center rounded-md border",
+                      inactive
+                        ? "border-border/60 text-muted-foreground bg-transparent"
+                        : "bg-background border-border text-foreground",
                     )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                  >
+                    <Icons.ShieldCheck size={18} weight="duotone" />
+                  </div>
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate text-sm font-medium">{token.name}</span>
+                      <Badge variant="secondary" className="font-normal">
+                        {STATUS_LABEL[status]}
+                      </Badge>
+                    </div>
+                    <p className="text-muted-foreground text-xs">
+                      {formatCreated(token.createdAt)} · {formatExpiry(token.expiresAt)} ·{" "}
+                      {formatLastUsed(token.lastUsedAt)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <ScopeBadge scopes={token.scopes} />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive hover:text-destructive hover:border-destructive/40 rounded-full"
+                      onClick={() => setRemoving(token)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </CardContent>
 
@@ -149,26 +185,26 @@ export function PatTable({ serverUrl }: { serverUrl?: string } = {}) {
         serverUrl={serverUrl}
       />
 
-      <AlertDialog open={revoking !== null} onOpenChange={(value) => !value && setRevoking(null)}>
+      <AlertDialog open={removing !== null} onOpenChange={(value) => !value && setRemoving(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Revoke token?</AlertDialogTitle>
+            <AlertDialogTitle>Remove token?</AlertDialogTitle>
             <AlertDialogDescription>
-              {revoking ? `"${revoking.name}"` : "This token"} will stop working immediately. Any
-              MCP client using it will lose access. This action cannot be undone.
+              {removing ? `"${removing.name}"` : "This token"} will be deleted and stop working
+              immediately. Any MCP client using it will lose access. This can&apos;t be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={revokeMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={revokeMutation.isPending}
+              disabled={deleteMutation.isPending}
               onClick={() => {
-                if (!revoking) return;
-                revokeMutation.mutate(revoking.id, { onSuccess: () => setRevoking(null) });
+                if (!removing) return;
+                deleteMutation.mutate(removing.id, { onSuccess: () => setRemoving(null) });
               }}
             >
-              Revoke
+              Remove
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

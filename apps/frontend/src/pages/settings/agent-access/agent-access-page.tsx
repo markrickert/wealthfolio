@@ -9,6 +9,7 @@ import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { Separator } from "@wealthfolio/ui/components/ui/separator";
 import { SettingsHeader } from "../settings-header";
 import { AuditLogTable } from "./components/audit-log-table";
+import { McpModuleCard } from "./components/mcp-module-card";
 import { McpServerCard } from "./components/mcp-server-card";
 import { PatTable } from "./components/pat-table";
 import { useMcpServer } from "./hooks/use-mcp-server";
@@ -20,15 +21,20 @@ function DesktopAgentAccess() {
 
   return (
     <>
-      <McpServerCard />
-      <PatTable serverUrl={serverUrl} />
-      <AuditLogTable
-        disabledNotice={
-          status && !status.auditEnabled
-            ? "Audit logging is off — new activity will not be recorded."
-            : undefined
-        }
-      />
+      <McpModuleCard />
+      {status?.enabled && (
+        <>
+          <McpServerCard />
+          <PatTable serverUrl={serverUrl} />
+          <AuditLogTable
+            disabledNotice={
+              !status.auditEnabled
+                ? "Audit logging is off — new activity will not be recorded."
+                : undefined
+            }
+          />
+        </>
+      )}
     </>
   );
 }
@@ -43,6 +49,12 @@ function WebAgentAccess() {
     queryFn: getAgentAccessStatus,
     enabled: isWeb,
   });
+
+  // Full URL (origin + endpoint) for copy-paste configs; endpoint is relative.
+  const serverUrl =
+    status?.mcpEnabled && typeof window !== "undefined"
+      ? new URL(status.endpoint, window.location.origin).toString()
+      : undefined;
 
   return (
     <>
@@ -71,7 +83,7 @@ function WebAgentAccess() {
           </AlertDescription>
         </Alert>
       )}
-      <PatTable serverUrl={status?.endpoint} />
+      <PatTable serverUrl={serverUrl} />
       <AuditLogTable
         disabledNotice={
           status && !status.auditEnabled
