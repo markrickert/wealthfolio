@@ -10,7 +10,9 @@ use tauri::{AppHandle, State};
 use wealthfolio_agent_tools::{AgentScope, AgentScopeSet};
 use wealthfolio_storage_sqlite::agent::McpAuditLogDB;
 #[cfg(desktop)]
-use wealthfolio_storage_sqlite::agent::{NewPersonalAccessToken, PersonalAccessTokenDB};
+use wealthfolio_storage_sqlite::agent::{
+    AuditFilter, NewPersonalAccessToken, PersonalAccessTokenDB,
+};
 
 use crate::context::ServiceContext;
 use crate::mcp::{self, McpServerState};
@@ -50,6 +52,8 @@ pub struct McpConnectionInfo {
 pub struct McpAuditPage {
     pub items: Vec<McpAuditLogDB>,
     pub total_count: i64,
+    /// Distinct tool names across the whole log (for the Tool filter).
+    pub available_tools: Vec<String>,
 }
 
 /// Per-client Personal Access Token metadata. Never exposes the hash.
@@ -60,6 +64,9 @@ pub struct TokenInfo {
     pub id: String,
     pub name: String,
     pub token_prefix: String,
+    /// `sha256:<hex-prefix>` matching the audit log's `actor_fingerprint`,
+    /// so the UI can attribute audit entries to a named token.
+    pub fingerprint: String,
     pub scopes: Vec<String>,
     pub created_at: String,
     pub expires_at: Option<String>,
@@ -71,10 +78,12 @@ pub struct TokenInfo {
 impl From<PersonalAccessTokenDB> for TokenInfo {
     fn from(row: PersonalAccessTokenDB) -> Self {
         let scopes: Vec<String> = serde_json::from_str(&row.scopes_json).unwrap_or_default();
+        let fingerprint = format!("sha256:{}", &row.token_hash[..16]);
         Self {
             id: row.id,
             name: row.name,
             token_prefix: row.token_prefix,
+            fingerprint,
             scopes,
             created_at: row.created_at,
             expires_at: row.expires_at,
@@ -151,6 +160,25 @@ pub async fn mcp_get_status(
 #[tauri::command]
 pub async fn mcp_set_enabled(
     enabled: bool,
+    state: State<'_, Arc<ServiceContext>>,
+    mcp_state: State<'_, McpServerState>,
+    handle: AppHandle,
+) -> Result<McpStatus, String> {
+    #[cfg(desktop)]
+    {
+        debug!("Setting Agent Access feature enabled={}", enabled);
+        mcp::set_enabled(&handle, &state, enabled).await?;
+        Ok(build_status(&mcp_state, &state).await)
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = (enabled, &state, &mcp_state, &handle);
+        Err("MCP server is not available on mobile".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn mcp_set_auto_start(
     auto_start: bool,
     state: State<'_, Arc<ServiceContext>>,
     mcp_state: State<'_, McpServerState>,
@@ -158,16 +186,51 @@ pub async fn mcp_set_enabled(
 ) -> Result<McpStatus, String> {
     #[cfg(desktop)]
     {
-        debug!(
-            "Setting MCP server enabled={}, auto_start={}",
-            enabled, auto_start
-        );
-        mcp::set_enabled(&handle, &state, enabled, auto_start).await?;
+        debug!("Setting MCP auto-start={}", auto_start);
+        mcp::set_auto_start(&handle, &state, auto_start).await?;
         Ok(build_status(&mcp_state, &state).await)
     }
     #[cfg(not(desktop))]
     {
-        let _ = (enabled, auto_start, &state, &mcp_state, &handle);
+        let _ = (auto_start, &state, &mcp_state, &handle);
+        Err("MCP server is not available on mobile".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn mcp_start(
+    state: State<'_, Arc<ServiceContext>>,
+    mcp_state: State<'_, McpServerState>,
+    handle: AppHandle,
+) -> Result<McpStatus, String> {
+    #[cfg(desktop)]
+    {
+        debug!("Starting MCP server");
+        mcp::start_server(&handle, &state).await?;
+        Ok(build_status(&mcp_state, &state).await)
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = (&state, &mcp_state, &handle);
+        Err("MCP server is not available on mobile".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn mcp_stop(
+    state: State<'_, Arc<ServiceContext>>,
+    mcp_state: State<'_, McpServerState>,
+    handle: AppHandle,
+) -> Result<McpStatus, String> {
+    #[cfg(desktop)]
+    {
+        debug!("Stopping MCP server");
+        mcp::stop_server(&handle).await;
+        Ok(build_status(&mcp_state, &state).await)
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = (&state, &mcp_state, &handle);
         Err("MCP server is not available on mobile".to_string())
     }
 }
@@ -242,20 +305,39 @@ pub async fn mcp_set_audit_enabled(
 pub async fn mcp_list_audit_log(
     page: u32,
     page_size: u32,
-    tool: Option<String>,
+    q: Option<String>,
+    tools: Option<Vec<String>>,
+    outcomes: Option<Vec<String>>,
+    actor_kinds: Option<Vec<String>>,
     state: State<'_, Arc<ServiceContext>>,
 ) -> Result<McpAuditPage, String> {
     #[cfg(desktop)]
     {
-        let (items, total_count) = state
-            .mcp_audit_repository()
-            .list_paged(page as i64, page_size as i64, tool.as_deref())
+        let tools = tools.unwrap_or_default();
+        let outcomes = outcomes.unwrap_or_default();
+        let actor_kinds = actor_kinds.unwrap_or_default();
+        let filter = AuditFilter {
+            tool_search: q.as_deref(),
+            tools: &tools,
+            outcomes: &outcomes,
+            actor_kinds: &actor_kinds,
+        };
+        let repo = state.mcp_audit_repository();
+        let (items, total_count) = repo
+            .list_paged(page as i64, page_size as i64, &filter)
             .map_err(|e| format!("Failed to list MCP audit log: {e}"))?;
-        Ok(McpAuditPage { items, total_count })
+        let available_tools = repo
+            .distinct_tools()
+            .map_err(|e| format!("Failed to list MCP audit tools: {e}"))?;
+        Ok(McpAuditPage {
+            items,
+            total_count,
+            available_tools,
+        })
     }
     #[cfg(not(desktop))]
     {
-        let _ = (page, page_size, &tool, &state);
+        let _ = (page, page_size, &q, &tools, &outcomes, &actor_kinds, &state);
         Err("MCP server is not available on mobile".to_string())
     }
 }
@@ -333,18 +415,18 @@ pub async fn mcp_create_token(
 }
 
 #[tauri::command]
-pub async fn mcp_revoke_token(
+pub async fn mcp_delete_token(
     id: String,
     state: State<'_, Arc<ServiceContext>>,
 ) -> Result<(), String> {
     #[cfg(desktop)]
     {
-        let revoked = state
+        let deleted = state
             .pat_repository()
-            .revoke(&id)
+            .delete(&id)
             .await
-            .map_err(|e| format!("Failed to revoke access token: {e}"))?;
-        if revoked {
+            .map_err(|e| format!("Failed to remove access token: {e}"))?;
+        if deleted {
             Ok(())
         } else {
             Err("Access token not found".to_string())

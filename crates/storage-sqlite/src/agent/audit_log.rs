@@ -41,6 +41,21 @@ pub struct NewMcpAuditLogDB {
     pub error_message: Option<String>,
 }
 
+/// Server-side filters for [`McpAuditRepository::list_paged`]. Empty slices /
+/// `None` mean "no constraint"; multiple values within a field are OR-ed
+/// (`IN`), and the fields are AND-ed together.
+#[derive(Default, Debug, Clone)]
+pub struct AuditFilter<'a> {
+    /// Case-insensitive substring match on the tool name.
+    pub tool_search: Option<&'a str>,
+    /// Exact tool names to include.
+    pub tools: &'a [String],
+    /// Outcomes to include (`success` | `denied` | `error`).
+    pub outcomes: &'a [String],
+    /// Actor kinds to include (`pat` | `local_token` | `desktop_bridge`).
+    pub actor_kinds: &'a [String],
+}
+
 pub struct McpAuditRepository {
     pool: Arc<DbPool>,
     writer: WriteHandle,
@@ -76,12 +91,13 @@ impl McpAuditRepository {
     }
 
     /// One page of audit rows (newest first) plus the total row count for
-    /// the active filter. `page` is 1-based.
+    /// the active filter. `page` is 1-based. All filters are applied
+    /// server-side and combined with AND.
     pub fn list_paged(
         &self,
         page: i64,
         page_size: i64,
-        tool: Option<&str>,
+        filter: &AuditFilter,
     ) -> Result<(Vec<McpAuditLogDB>, i64)> {
         let page = page.max(1);
         let page_size = page_size.clamp(1, 200);
@@ -89,9 +105,26 @@ impl McpAuditRepository {
 
         let mut count_query = mcp_audit_log::table.into_boxed();
         let mut rows_query = mcp_audit_log::table.into_boxed();
-        if let Some(tool) = tool {
-            count_query = count_query.filter(mcp_audit_log::tool.eq(tool.to_string()));
-            rows_query = rows_query.filter(mcp_audit_log::tool.eq(tool.to_string()));
+
+        if let Some(search) = filter.tool_search.filter(|s| !s.is_empty()) {
+            let pattern = format!("%{search}%");
+            count_query = count_query.filter(mcp_audit_log::tool.like(pattern.clone()));
+            rows_query = rows_query.filter(mcp_audit_log::tool.like(pattern));
+        }
+        if !filter.tools.is_empty() {
+            count_query = count_query.filter(mcp_audit_log::tool.eq_any(filter.tools.to_vec()));
+            rows_query = rows_query.filter(mcp_audit_log::tool.eq_any(filter.tools.to_vec()));
+        }
+        if !filter.outcomes.is_empty() {
+            count_query =
+                count_query.filter(mcp_audit_log::outcome.eq_any(filter.outcomes.to_vec()));
+            rows_query = rows_query.filter(mcp_audit_log::outcome.eq_any(filter.outcomes.to_vec()));
+        }
+        if !filter.actor_kinds.is_empty() {
+            count_query =
+                count_query.filter(mcp_audit_log::actor_kind.eq_any(filter.actor_kinds.to_vec()));
+            rows_query =
+                rows_query.filter(mcp_audit_log::actor_kind.eq_any(filter.actor_kinds.to_vec()));
         }
 
         let total: i64 = count_query
@@ -106,6 +139,18 @@ impl McpAuditRepository {
             .load(&mut conn)
             .map_err(StorageError::from)?;
         Ok((rows, total))
+    }
+
+    /// Distinct tool names across the whole log, ascending — used to populate
+    /// the Tool filter regardless of the current page.
+    pub fn distinct_tools(&self) -> Result<Vec<String>> {
+        let mut conn = get_connection(&self.pool)?;
+        mcp_audit_log::table
+            .select(mcp_audit_log::tool)
+            .distinct()
+            .order(mcp_audit_log::tool.asc())
+            .load::<String>(&mut conn)
+            .map_err(|e| StorageError::from(e).into())
     }
 
     /// Delete every audit row. Returns the number of rows removed.

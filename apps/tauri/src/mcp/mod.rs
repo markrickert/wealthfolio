@@ -112,7 +112,6 @@ pub fn remove_stale_lock(app: &AppHandle) {
 /// Starts the server (no-op when already running) and writes `mcp.lock`.
 // Public orchestration entry point; internal callers already hold `ops`
 // and use `start_server_locked` directly.
-#[allow(dead_code)]
 pub async fn start_server(app: &AppHandle, ctx: &ServiceContext) -> Result<(), String> {
     #[cfg(desktop)]
     {
@@ -196,11 +195,41 @@ pub async fn start_if_enabled(app: &AppHandle, ctx: &ServiceContext) {
     }
 }
 
-/// Persists both flags and live-starts/stops the server accordingly.
+/// Persists the feature-enabled flag. Disabling stops a running server;
+/// enabling only makes the feature available — the server is started
+/// explicitly via [`start_server`] (or on launch by [`start_if_enabled`]).
 pub async fn set_enabled(
     app: &AppHandle,
     ctx: &ServiceContext,
     enabled: bool,
+) -> Result<(), String> {
+    #[cfg(desktop)]
+    {
+        let state = app.state::<McpServerState>();
+        let _ops = state.ops.lock().await;
+
+        ctx.settings_service()
+            .set_setting_value(SETTING_ENABLED, if enabled { "true" } else { "false" })
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !enabled {
+            stop_server_locked(app).await;
+        }
+        Ok(())
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = (app, ctx, enabled);
+        Err("MCP server is not available on mobile".to_string())
+    }
+}
+
+/// Persists the auto-start flag. Takes effect on next launch; does not
+/// start or stop the currently running server.
+pub async fn set_auto_start(
+    app: &AppHandle,
+    ctx: &ServiceContext,
     auto_start: bool,
 ) -> Result<(), String> {
     #[cfg(desktop)]
@@ -208,29 +237,18 @@ pub async fn set_enabled(
         let state = app.state::<McpServerState>();
         let _ops = state.ops.lock().await;
 
-        let settings = ctx.settings_service();
-        settings
-            .set_setting_value(SETTING_ENABLED, if enabled { "true" } else { "false" })
-            .await
-            .map_err(|e| e.to_string())?;
-        settings
+        ctx.settings_service()
             .set_setting_value(
                 SETTING_AUTO_START,
                 if auto_start { "true" } else { "false" },
             )
             .await
             .map_err(|e| e.to_string())?;
-
-        if enabled {
-            start_server_locked(app, ctx).await
-        } else {
-            stop_server_locked(app).await;
-            Ok(())
-        }
+        Ok(())
     }
     #[cfg(not(desktop))]
     {
-        let _ = (app, ctx, enabled, auto_start);
+        let _ = (app, ctx, auto_start);
         Err("MCP server is not available on mobile".to_string())
     }
 }

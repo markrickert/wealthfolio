@@ -14,7 +14,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use wealthfolio_agent_tools::{AgentScope, AgentScopeSet};
 use wealthfolio_storage_sqlite::agent::{
-    McpAuditLogDB, NewPersonalAccessToken, PersonalAccessTokenDB,
+    AuditFilter, McpAuditLogDB, NewPersonalAccessToken, PersonalAccessTokenDB,
 };
 
 use crate::{
@@ -45,6 +45,9 @@ struct TokenInfo {
     id: String,
     name: String,
     token_prefix: String,
+    /// `sha256:<hex-prefix>` matching the audit log's `actor_fingerprint`,
+    /// so the UI can attribute audit entries to a named token.
+    fingerprint: String,
     scopes: Vec<String>,
     created_at: String,
     expires_at: Option<String>,
@@ -55,10 +58,12 @@ struct TokenInfo {
 impl From<PersonalAccessTokenDB> for TokenInfo {
     fn from(row: PersonalAccessTokenDB) -> Self {
         let scopes: Vec<String> = serde_json::from_str(&row.scopes_json).unwrap_or_default();
+        let fingerprint = format!("sha256:{}", &row.token_hash[..16]);
         Self {
             id: row.id,
             name: row.name,
             token_prefix: row.token_prefix,
+            fingerprint,
             scopes,
             created_at: row.created_at,
             expires_at: row.expires_at,
@@ -161,11 +166,11 @@ async fn create_token(
     ))
 }
 
-async fn revoke_token(
+async fn delete_token(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> ApiResult<StatusCode> {
-    if state.pat_repository.revoke(&id).await? {
+    if state.pat_repository.delete(&id).await? {
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(ApiError::NotFound)
@@ -177,7 +182,28 @@ async fn revoke_token(
 struct AuditQuery {
     page: Option<i64>,
     page_size: Option<i64>,
-    tool: Option<String>,
+    /// Case-insensitive substring search on the tool name.
+    q: Option<String>,
+    /// Comma-separated exact tool names.
+    tools: Option<String>,
+    /// Comma-separated outcomes.
+    outcomes: Option<String>,
+    /// Comma-separated actor kinds.
+    actor_kinds: Option<String>,
+}
+
+/// Split a comma-separated query param into trimmed, non-empty values.
+fn csv(value: &Option<String>) -> Vec<String> {
+    value
+        .as_deref()
+        .map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|part| !part.is_empty())
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[derive(Serialize)]
@@ -218,20 +244,33 @@ impl From<McpAuditLogDB> for AuditEntry {
 struct AuditPage {
     items: Vec<AuditEntry>,
     total_count: i64,
+    /// Distinct tool names across the whole log (for the Tool filter).
+    available_tools: Vec<String>,
 }
 
 async fn list_audit(
     State(state): State<Arc<AppState>>,
     Query(query): Query<AuditQuery>,
 ) -> ApiResult<Json<AuditPage>> {
+    let tools = csv(&query.tools);
+    let outcomes = csv(&query.outcomes);
+    let actor_kinds = csv(&query.actor_kinds);
+    let filter = AuditFilter {
+        tool_search: query.q.as_deref(),
+        tools: &tools,
+        outcomes: &outcomes,
+        actor_kinds: &actor_kinds,
+    };
     let (rows, total_count) = state.mcp_audit_repository.list_paged(
         query.page.unwrap_or(1),
         query.page_size.unwrap_or(50),
-        query.tool.as_deref(),
+        &filter,
     )?;
+    let available_tools = state.mcp_audit_repository.distinct_tools()?;
     Ok(Json(AuditPage {
         items: rows.into_iter().map(AuditEntry::from).collect(),
         total_count,
+        available_tools,
     }))
 }
 
@@ -249,7 +288,7 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/agent-access/status", get(status))
         .route("/agent-access/tokens", get(list_tokens).post(create_token))
-        .route("/agent-access/tokens/{id}", delete(revoke_token))
+        .route("/agent-access/tokens/{id}", delete(delete_token))
         .route("/agent-access/audit", get(list_audit))
         .route("/agent-access/audit/purge", post(purge_audit))
 }

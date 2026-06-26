@@ -97,19 +97,19 @@ impl PatRepository {
             .map_err(|e| StorageError::from(e).into())
     }
 
-    /// Mark a token revoked. Returns false when the id does not exist.
-    pub async fn revoke(&self, id: &str) -> Result<bool> {
+    /// Permanently delete a token. Removing the row cuts off access
+    /// immediately (auth does a row lookup). Returns false when the id does
+    /// not exist.
+    pub async fn delete(&self, id: &str) -> Result<bool> {
         let id = id.to_string();
-        let now = chrono::Utc::now().to_rfc3339();
         self.writer
             .exec(move |conn| {
-                let updated = diesel::update(
+                let deleted = diesel::delete(
                     personal_access_tokens::table.filter(personal_access_tokens::id.eq(&id)),
                 )
-                .set(personal_access_tokens::revoked_at.eq(Some(now)))
                 .execute(conn)
                 .map_err(StorageError::from)?;
-                Ok(updated > 0)
+                Ok(deleted > 0)
             })
             .await
     }

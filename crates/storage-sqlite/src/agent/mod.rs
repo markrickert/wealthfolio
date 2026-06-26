@@ -6,5 +6,5 @@
 pub mod audit_log;
 pub mod pat;
 
-pub use audit_log::{McpAuditLogDB, McpAuditRepository, NewMcpAuditLogDB};
+pub use audit_log::{AuditFilter, McpAuditLogDB, McpAuditRepository, NewMcpAuditLogDB};
 pub use pat::{NewPersonalAccessToken, PatRepository, PersonalAccessTokenDB};

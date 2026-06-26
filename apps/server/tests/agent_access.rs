@@ -383,7 +383,7 @@ async fn mcp_pat_lifecycle() {
     assert_eq!(status_json["auditEnabled"], true);
     assert_eq!(status_json["endpoint"], "/mcp");
 
-    // (f) Revoke -> subsequent /mcp calls fail; unknown id -> 404.
+    // (f) Remove -> subsequent /mcp calls fail; unknown id -> 404.
     let response = server
         .client
         .delete(format!(
