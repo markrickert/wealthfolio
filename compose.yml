@@ -40,6 +40,19 @@ services:
       # Set to "false" to skip the auth requirement (e.g. reverse proxy handles auth)
       # WF_AUTH_REQUIRED: "true"
 
+      # ── OIDC / SSO (optional) ─────────────────────────────────────────
+      # Sign in via any OpenID Connect provider (Authentik, PocketID, Authelia, …).
+      # Works alongside or instead of WF_AUTH_PASSWORD_HASH; enabled when both the
+      # issuer URL and client id are set. Redirect URL must be registered in the IdP.
+      WF_OIDC_ISSUER_URL: "${WF_OIDC_ISSUER_URL:-}"
+      WF_OIDC_CLIENT_ID: "${WF_OIDC_CLIENT_ID:-}"
+      WF_OIDC_CLIENT_SECRET: "${WF_OIDC_CLIENT_SECRET:-}"
+      WF_OIDC_REDIRECT_URL: "${WF_OIDC_REDIRECT_URL:-}"
+      # WF_OIDC_SCOPES: "openid email profile"
+      # Restrict access on a shared IdP (comma-separated); otherwise any IdP user is allowed.
+      WF_OIDC_ALLOWED_EMAILS: "${WF_OIDC_ALLOWED_EMAILS:-}"
+      # WF_OIDC_ALLOWED_SUBS: ""
+
       # Required when auth is enabled — set to your app's origin, e.g. https://wealthfolio.example.com
       WF_CORS_ALLOW_ORIGINS: "${WF_CORS_ALLOW_ORIGINS:-}"
       WF_REQUEST_TIMEOUT_MS: "${WF_REQUEST_TIMEOUT_MS:-30000}"

@@ -272,6 +272,22 @@ All configuration is done via environment variables in `.env.web`.
   (default `60`)
 - `WF_AUTH_REQUIRED` - Set to `false` to allow starting on non-loopback
   addresses without authentication (e.g. when a reverse proxy handles auth)
+- OIDC / SSO (optional) - sign in via any OpenID Connect provider (Authentik,
+  PocketID, Authelia, Keycloak, …). Works alongside or instead of
+  `WF_AUTH_PASSWORD_HASH`; a successful SSO login mints the same session cookie.
+  Enabled when both `WF_OIDC_ISSUER_URL` and `WF_OIDC_CLIENT_ID` are set.
+  - `WF_OIDC_ISSUER_URL` - provider base URL (discovery hits
+    `<issuer>/.well-known/openid-configuration`)
+  - `WF_OIDC_CLIENT_ID` - client id registered with the IdP
+  - `WF_OIDC_CLIENT_SECRET` - **Optional** client secret (PKCE is always used)
+  - `WF_OIDC_REDIRECT_URL` - **Required** when OIDC is enabled; must be
+    registered in the IdP, e.g. `https://your.host/api/v1/auth/oidc/callback`
+  - `WF_OIDC_SCOPES` - **Optional** space-separated scopes (default
+    `openid email profile`)
+  - `WF_OIDC_ALLOWED_EMAILS` / `WF_OIDC_ALLOWED_SUBS` - **Optional**
+    comma-separated allowlists matched against the ID token's `email` / `sub`
+    claims. With neither set, any IdP-authenticated user is allowed (a warning
+    is logged) — set an allowlist when using a shared IdP.
 - `WF_COOKIE_SECURE` - Controls the `Secure` attribute on session cookies
   (default: `auto`)
   - `auto` - set `Secure` only when `X-Forwarded-Proto: https` is present
