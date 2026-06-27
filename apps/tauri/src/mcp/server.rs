@@ -9,15 +9,15 @@ use std::sync::Arc;
 
 use axum::routing::get;
 use axum::{middleware, Json, Router};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use rmcp::transport::streamable_http_server::StreamableHttpServerConfig;
-use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use wealthfolio_agent_tools::AgentEnvironment;
 use wealthfolio_mcp::{AuditSink, McpServerBuilder};
 use wealthfolio_storage_sqlite::agent::PatRepository;
 
 use super::middleware::{require_pat, validate_origin};
+use super::RunningServer;
 
 /// Fixed default port; falls back to a random port when already in use.
 pub const DEFAULT_PORT: u16 = 8639;
@@ -26,22 +26,6 @@ const INSTRUCTIONS: &str = "Read and write access to the user's Wealthfolio port
 holdings, valuations, performance, activities, income, goals, health, and classifications. \
 Write capabilities (drafting and committing activities, classification suggestions) depend on the \
 scopes granted to the access token in use.";
-
-/// A started embedded MCP server.
-pub struct RunningServer {
-    pub port: u16,
-    pub started_at: DateTime<Utc>,
-    cancel: CancellationToken,
-    join: JoinHandle<()>,
-}
-
-impl RunningServer {
-    /// Cancels in-flight MCP sessions and waits for the listener to exit.
-    pub async fn stop(self) {
-        self.cancel.cancel();
-        let _ = self.join.await;
-    }
-}
 
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({

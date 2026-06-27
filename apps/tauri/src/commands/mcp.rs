@@ -106,6 +106,7 @@ fn validate_requested_scopes(requested: &[String]) -> Result<Vec<String>, String
     Ok(set.iter().map(|s| s.as_str().to_string()).collect())
 }
 
+#[cfg(desktop)]
 async fn build_status(state: &McpServerState, ctx: &ServiceContext) -> McpStatus {
     let (enabled, auto_start) = mcp::flags(ctx);
     let running = state.running_info().await;

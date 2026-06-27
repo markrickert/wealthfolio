@@ -4,23 +4,35 @@
 //! enabled in settings, guarded by per-client Personal Access Tokens and
 //! Origin validation, discovered through `<app_data>/mcp.lock`.
 
+#[cfg(desktop)]
 pub mod audit_sink;
+#[cfg(desktop)]
 pub mod lockfile;
+#[cfg(desktop)]
 pub mod middleware;
+#[cfg(desktop)]
 pub mod server;
 
-#[cfg(test)]
+#[cfg(all(test, desktop))]
 mod tests;
 
+#[cfg(desktop)]
 use std::path::PathBuf;
+#[cfg(desktop)]
 use std::sync::Arc;
 
-use tauri::{AppHandle, Manager};
+use chrono::{DateTime, Utc};
+use tauri::AppHandle;
+#[cfg(desktop)]
+use tauri::Manager;
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+#[cfg(desktop)]
 use wealthfolio_mcp::AuditSink;
 
 use crate::context::ServiceContext;
+#[cfg(desktop)]
 use audit_sink::RepoAuditSink;
-use server::RunningServer;
 
 /// Settings keys (app_settings k/v; values are "true"/"false").
 pub const SETTING_ENABLED: &str = "mcp_server_enabled";
@@ -51,6 +63,29 @@ impl McpServerState {
     }
 }
 
+/// A started embedded MCP server. Lives here (not in `server`) so
+/// [`McpServerState`] can hold it on all platforms; the heavy server
+/// machinery that constructs it is desktop-only.
+pub struct RunningServer {
+    pub port: u16,
+    pub started_at: DateTime<Utc>,
+    // Unused on mobile: the server is never started there, but the type
+    // must compile so command signatures using `McpServerState` resolve.
+    #[allow(dead_code)]
+    cancel: CancellationToken,
+    #[allow(dead_code)]
+    join: JoinHandle<()>,
+}
+
+impl RunningServer {
+    /// Cancels in-flight MCP sessions and waits for the listener to exit.
+    #[allow(dead_code)]
+    pub async fn stop(self) {
+        self.cancel.cancel();
+        let _ = self.join.await;
+    }
+}
+
 fn setting_is_true(ctx: &ServiceContext, key: &str) -> bool {
     matches!(
         ctx.settings_service().get_setting_value(key),
@@ -76,11 +111,13 @@ pub fn audit_enabled(ctx: &ServiceContext) -> bool {
 }
 
 /// Audit sink for the MCP service, or `None` when audit logging is off.
+#[cfg(desktop)]
 fn build_audit_sink(ctx: &ServiceContext) -> Option<Arc<dyn AuditSink>> {
     audit_enabled(ctx)
         .then(|| Arc::new(RepoAuditSink(ctx.mcp_audit_repository())) as Arc<dyn AuditSink>)
 }
 
+#[cfg(desktop)]
 fn configured_port(ctx: &ServiceContext) -> Option<u16> {
     ctx.settings_service()
         .get_setting_value(SETTING_PORT)
@@ -89,6 +126,7 @@ fn configured_port(ctx: &ServiceContext) -> Option<u16> {
         .and_then(|value| value.parse::<u16>().ok())
 }
 
+#[cfg(desktop)]
 fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
@@ -98,10 +136,17 @@ fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
 /// Removes any stale `mcp.lock` left behind by an unclean shutdown.
 /// Call once at app startup, before deciding whether to auto-start.
 pub fn remove_stale_lock(app: &AppHandle) {
-    if let Ok(dir) = app_data_dir(app) {
-        if let Err(err) = lockfile::remove(&dir) {
-            log::warn!("Failed to remove stale mcp.lock: {err}");
+    #[cfg(desktop)]
+    {
+        if let Ok(dir) = app_data_dir(app) {
+            if let Err(err) = lockfile::remove(&dir) {
+                log::warn!("Failed to remove stale mcp.lock: {err}");
+            }
         }
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = app;
     }
 }
 
@@ -128,6 +173,7 @@ pub async fn start_server(app: &AppHandle, ctx: &ServiceContext) -> Result<(), S
 }
 
 /// Start implementation; callers must hold the `ops` mutex.
+#[cfg(desktop)]
 async fn start_server_locked(app: &AppHandle, ctx: &ServiceContext) -> Result<(), String> {
     let state = app.state::<McpServerState>();
     let mut guard = state.inner.lock().await;
@@ -157,12 +203,20 @@ async fn start_server_locked(app: &AppHandle, ctx: &ServiceContext) -> Result<()
 
 /// Stops the server when running and removes `mcp.lock`.
 pub async fn stop_server(app: &AppHandle) {
-    let state = app.state::<McpServerState>();
-    let _ops = state.ops.lock().await;
-    stop_server_locked(app).await;
+    #[cfg(desktop)]
+    {
+        let state = app.state::<McpServerState>();
+        let _ops = state.ops.lock().await;
+        stop_server_locked(app).await;
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = app;
+    }
 }
 
 /// Stop implementation; callers must hold the `ops` mutex.
+#[cfg(desktop)]
 async fn stop_server_locked(app: &AppHandle) {
     let state = app.state::<McpServerState>();
     let running = state.inner.lock().await.take();
@@ -284,6 +338,7 @@ pub async fn set_audit_enabled(
     }
 }
 
+#[cfg(desktop)]
 fn write_lock_file(app: &AppHandle, running: &RunningServer) -> Result<(), String> {
     let dir = app_data_dir(app)?;
     let lock = lockfile::McpLockFile {
