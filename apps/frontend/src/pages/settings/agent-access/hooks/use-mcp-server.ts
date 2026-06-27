@@ -1,16 +1,12 @@
 import {
-  getMcpConnectionInfo,
   getMcpStatus,
   isDesktop,
   logger,
-  rotateMcpToken,
   setMcpAuditEnabled,
   setMcpAutoStart,
   setMcpEnabled,
   startMcp,
   stopMcp,
-  type McpConnectionInfo,
-  type McpRotatedToken,
   type McpServerStatus,
 } from "@/adapters";
 import { QueryKeys } from "@/lib/query-keys";
@@ -28,7 +24,6 @@ export function useMcpServer() {
 
   const applyStatus = (status: McpServerStatus) => {
     queryClient.setQueryData([QueryKeys.AGENT_MCP_STATUS], status);
-    queryClient.invalidateQueries({ queryKey: [QueryKeys.AGENT_MCP_CONFIG] });
   };
 
   const setEnabledMutation = useMutation({
@@ -96,19 +91,6 @@ export function useMcpServer() {
     },
   });
 
-  const rotateTokenMutation = useMutation({
-    mutationFn: rotateMcpToken,
-    onSuccess: (result: McpRotatedToken) => applyStatus(result.status),
-    onError: (error) => {
-      logger.error(`Error rotating MCP token: ${String(error)}`);
-      toast({
-        title: "Failed to rotate token",
-        description: error instanceof Error ? error.message : "An unknown error occurred",
-        variant: "destructive",
-      });
-    },
-  });
-
   return {
     status: statusQuery.data,
     isLoading: statusQuery.isLoading,
@@ -119,14 +101,5 @@ export function useMcpServer() {
     startMutation,
     stopMutation,
     setAuditEnabledMutation,
-    rotateTokenMutation,
   };
-}
-
-export function useMcpConnectionInfo(running: boolean) {
-  return useQuery<McpConnectionInfo>({
-    queryKey: [QueryKeys.AGENT_MCP_CONFIG],
-    queryFn: getMcpConnectionInfo,
-    enabled: isDesktop && running,
-  });
 }

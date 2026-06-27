@@ -2,7 +2,7 @@
 //!
 //! Written to the app data directory when the embedded MCP server starts
 //! and removed on stop / clean shutdown. It is a discovery hint only — it
-//! never contains the token, just its fingerprint.
+//! never contains a token.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -19,8 +19,6 @@ pub struct McpLockFile {
     pub pid: u32,
     /// RFC3339 timestamp of when the server started.
     pub started_at: String,
-    /// `sha256:<hex>` fingerprint of the local token — never the token.
-    pub token_fingerprint: String,
 }
 
 fn lock_path(app_data_dir: &Path) -> PathBuf {
@@ -51,7 +49,6 @@ mod tests {
             port: 8639,
             pid: 12345,
             started_at: "2026-05-17T00:00:00Z".to_string(),
-            token_fingerprint: "sha256:abc".to_string(),
         }
     }
 
@@ -66,7 +63,6 @@ mod tests {
         assert_eq!(value["port"], 8639);
         assert_eq!(value["pid"], 12345);
         assert_eq!(value["startedAt"], "2026-05-17T00:00:00Z");
-        assert_eq!(value["tokenFingerprint"], "sha256:abc");
 
         let parsed: McpLockFile = serde_json::from_str(&raw).unwrap();
         assert_eq!(parsed.port, 8639);

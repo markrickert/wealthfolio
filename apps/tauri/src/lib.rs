@@ -638,9 +638,7 @@ pub fn run() {
             // MCP server (Agent Access) commands
             commands::mcp::mcp_get_status,
             commands::mcp::mcp_set_enabled,
-            commands::mcp::mcp_rotate_token,
             commands::mcp::mcp_set_audit_enabled,
-            commands::mcp::mcp_get_connection_info,
             commands::mcp::mcp_set_auto_start,
             commands::mcp::mcp_start,
             commands::mcp::mcp_stop,

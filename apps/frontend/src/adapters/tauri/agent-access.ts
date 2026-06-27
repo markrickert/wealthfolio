@@ -7,8 +7,6 @@ import type {
   AgentAuditQuery,
   CreateAgentAccessTokenInput,
   CreatedAgentAccessToken,
-  McpConnectionInfo,
-  McpRotatedToken,
   McpServerStatus,
 } from "../types";
 
@@ -97,29 +95,11 @@ export const stopMcp = async (): Promise<McpServerStatus> => {
   }
 };
 
-export const rotateMcpToken = async (): Promise<McpRotatedToken> => {
-  try {
-    return await invoke<McpRotatedToken>("mcp_rotate_token");
-  } catch (error) {
-    logger.error("Error rotating MCP token.");
-    throw error;
-  }
-};
-
 export const setMcpAuditEnabled = async (enabled: boolean): Promise<McpServerStatus> => {
   try {
     return await invoke<McpServerStatus>("mcp_set_audit_enabled", { enabled });
   } catch (error) {
     logger.error("Error updating MCP audit logging setting.");
-    throw error;
-  }
-};
-
-export const getMcpConnectionInfo = async (): Promise<McpConnectionInfo> => {
-  try {
-    return await invoke<McpConnectionInfo>("mcp_get_connection_info");
-  } catch (error) {
-    logger.error("Error fetching MCP connection info.");
     throw error;
   }
 };

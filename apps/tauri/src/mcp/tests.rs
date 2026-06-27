@@ -11,8 +11,6 @@ use wealthfolio_storage_sqlite::db::{create_pool, run_migrations, write_actor::s
 
 use super::server::build_router;
 
-const TEST_TOKEN: &str = "wfl_test";
-
 /// A real `PatRepository` backed by a fresh temp SQLite DB. The returned
 /// `TempDir` keeps the file alive for the repository's lifetime.
 fn pat_repo() -> (Arc<PatRepository>, tempfile::TempDir) {
@@ -22,6 +20,24 @@ fn pat_repo() -> (Arc<PatRepository>, tempfile::TempDir) {
     let pool = create_pool(&db_path).unwrap();
     let writer = spawn_writer((*pool).clone()).unwrap();
     (Arc::new(PatRepository::new(pool, writer)), dir)
+}
+
+/// Mints a full-scope PAT in `repo` and returns the raw token.
+async fn mint_pat(repo: &PatRepository, scopes: &[&str]) -> String {
+    let token = wealthfolio_mcp::pat::generate_token();
+    let prefix = wealthfolio_mcp::pat::token_prefix(&token)
+        .unwrap()
+        .to_string();
+    repo.create(NewPersonalAccessToken {
+        name: "test".to_string(),
+        token_prefix: prefix,
+        token_hash: wealthfolio_mcp::pat::hash_token(&token),
+        scopes_json: serde_json::to_string(scopes).unwrap(),
+        expires_at: None,
+    })
+    .await
+    .unwrap();
+    token
 }
 
 struct StubEnv;
@@ -109,21 +125,22 @@ impl AuditSink for NoopSink {
     async fn record(&self, _entry: McpAuditEntry) {}
 }
 
-/// Spawns the real router on a random loopback port; returns the base URL.
-/// Uses a fresh empty PAT store, so only the legacy token authenticates.
-async fn spawn_server() -> String {
+/// Spawns the real router on a random loopback port with a fresh PAT store
+/// holding one full-scope token; returns `(base_url, token)`.
+async fn spawn_server() -> (String, String) {
     let (repo, dir) = pat_repo();
-    spawn_server_with_repo(repo, dir).await
+    let token = mint_pat(&repo, &["accounts:read", "holdings:read"]).await;
+    let base = spawn_server_with_repo(repo, dir).await;
+    (base, token)
 }
 
-/// Like [`spawn_server`] but with a caller-provided PAT store (and its
-/// backing temp dir, which is moved into the serve task to stay alive).
+/// Spawns the router with a caller-provided PAT store (and its backing temp
+/// dir, which is moved into the serve task to stay alive). Returns base URL.
 async fn spawn_server_with_repo(repo: Arc<PatRepository>, dir: tempfile::TempDir) -> String {
     let router = build_router(
         Arc::new(StubEnv),
         Some(Arc::new(NoopSink)),
         repo,
-        TEST_TOKEN.to_string(),
         CancellationToken::new(),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -166,7 +183,7 @@ fn parse_sse_data(body: &str) -> serde_json::Value {
 
 #[tokio::test]
 async fn health_is_public() {
-    let base = spawn_server().await;
+    let (base, _token) = spawn_server().await;
     let response = reqwest::get(format!("{base}/health")).await.unwrap();
     assert_eq!(response.status(), 200);
     let body: serde_json::Value = response.json().await.unwrap();
@@ -177,7 +194,7 @@ async fn health_is_public() {
 
 #[tokio::test]
 async fn mcp_without_bearer_is_unauthorized() {
-    let base = spawn_server().await;
+    let (base, _token) = spawn_server().await;
     let client = reqwest::Client::new();
     let response = mcp_post(&client, &base).send().await.unwrap();
     assert_eq!(response.status(), 401);
@@ -185,10 +202,10 @@ async fn mcp_without_bearer_is_unauthorized() {
 
 #[tokio::test]
 async fn mcp_with_wrong_bearer_is_unauthorized() {
-    let base = spawn_server().await;
+    let (base, _token) = spawn_server().await;
     let client = reqwest::Client::new();
     let response = mcp_post(&client, &base)
-        .header("Authorization", "Bearer wfl_wrong")
+        .header("Authorization", "Bearer wfp_wrong")
         .send()
         .await
         .unwrap();
@@ -197,10 +214,10 @@ async fn mcp_with_wrong_bearer_is_unauthorized() {
 
 #[tokio::test]
 async fn mcp_with_disallowed_origin_is_forbidden() {
-    let base = spawn_server().await;
+    let (base, token) = spawn_server().await;
     let client = reqwest::Client::new();
     let response = mcp_post(&client, &base)
-        .header("Authorization", format!("Bearer {TEST_TOKEN}"))
+        .header("Authorization", format!("Bearer {token}"))
         .header("Origin", "https://evil.example")
         .send()
         .await
@@ -210,10 +227,10 @@ async fn mcp_with_disallowed_origin_is_forbidden() {
 
 #[tokio::test]
 async fn mcp_initialize_roundtrip_succeeds() {
-    let base = spawn_server().await;
+    let (base, token) = spawn_server().await;
     let client = reqwest::Client::new();
     let response = mcp_post(&client, &base)
-        .header("Authorization", format!("Bearer {TEST_TOKEN}"))
+        .header("Authorization", format!("Bearer {token}"))
         .send()
         .await
         .unwrap();
@@ -232,7 +249,7 @@ async fn mcp_initialize_roundtrip_succeeds() {
 
 #[tokio::test]
 async fn mcp_with_unknown_pat_is_unauthorized() {
-    let base = spawn_server().await;
+    let (base, _token) = spawn_server().await;
     let client = reqwest::Client::new();
     // A well-formed `wfp_` token that was never minted -> 401.
     let response = mcp_post(&client, &base)
@@ -316,10 +333,10 @@ async fn mcp_scoped_pat_grants_only_its_scopes() {
 
 #[tokio::test]
 async fn mcp_with_null_origin_passes() {
-    let base = spawn_server().await;
+    let (base, token) = spawn_server().await;
     let client = reqwest::Client::new();
     let response = mcp_post(&client, &base)
-        .header("Authorization", format!("Bearer {TEST_TOKEN}"))
+        .header("Authorization", format!("Bearer {token}"))
         .header("Origin", "null")
         .send()
         .await

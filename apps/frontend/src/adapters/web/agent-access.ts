@@ -6,8 +6,6 @@ import type {
   AgentAuditQuery,
   CreateAgentAccessTokenInput,
   CreatedAgentAccessToken,
-  McpConnectionInfo,
-  McpRotatedToken,
   McpServerStatus,
 } from "../types";
 
@@ -98,11 +96,5 @@ export const startMcp = (): Promise<McpServerStatus> =>
 export const stopMcp = (): Promise<McpServerStatus> =>
   Promise.reject(new Error("The MCP server runs inside the desktop app"));
 
-export const rotateMcpToken = (): Promise<McpRotatedToken> =>
-  Promise.reject(new Error("The MCP server runs inside the desktop app"));
-
 export const setMcpAuditEnabled = (_enabled: boolean): Promise<McpServerStatus> =>
-  Promise.reject(new Error("The MCP server runs inside the desktop app"));
-
-export const getMcpConnectionInfo = (): Promise<McpConnectionInfo> =>
   Promise.reject(new Error("The MCP server runs inside the desktop app"));

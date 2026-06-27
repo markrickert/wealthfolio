@@ -15,8 +15,6 @@ const adapterMocks = vi.hoisted(() => ({
   startMcp: vi.fn(),
   stopMcp: vi.fn(),
   setMcpAuditEnabled: vi.fn(),
-  rotateMcpToken: vi.fn(),
-  getMcpConnectionInfo: vi.fn(),
   listAgentAccessTokens: vi.fn(),
   createAgentAccessToken: vi.fn(),
   deleteAgentAccessToken: vi.fn(),
@@ -35,7 +33,6 @@ const status = {
   running: true,
   port: 9170,
   startedAt: "2026-06-09T00:00:00Z",
-  tokenFingerprint: "abc123",
 };
 
 function createWrapper() {

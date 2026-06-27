@@ -365,20 +365,6 @@ export interface McpServerStatus {
   running: boolean;
   port: number | null;
   startedAt: string | null;
-  tokenFingerprint: string | null;
-}
-
-/** Result of rotating the local MCP token. The token is shown exactly once. */
-export interface McpRotatedToken {
-  token: string;
-  status: McpServerStatus;
-}
-
-/** Connection details for the embedded MCP server (desktop only). */
-export interface McpConnectionInfo {
-  url: string;
-  /** Full bearer token — handle with care, never log it. */
-  token: string;
 }
 
 /** Agent access status for the web server's `/mcp` endpoint. */

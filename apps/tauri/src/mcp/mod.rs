@@ -1,14 +1,13 @@
 //! Embedded local MCP server (Phase D of the agent-access design).
 //!
 //! Hosts the `wealthfolio-mcp` Streamable HTTP service on loopback when
-//! enabled in settings, guarded by a keyring-stored bearer token and
+//! enabled in settings, guarded by per-client Personal Access Tokens and
 //! Origin validation, discovered through `<app_data>/mcp.lock`.
 
 pub mod audit_sink;
 pub mod lockfile;
 pub mod middleware;
 pub mod server;
-pub mod token;
 
 #[cfg(test)]
 mod tests;
@@ -20,7 +19,6 @@ use tauri::{AppHandle, Manager};
 use wealthfolio_mcp::AuditSink;
 
 use crate::context::ServiceContext;
-use crate::secret_store::shared_secret_store;
 use audit_sink::RepoAuditSink;
 use server::RunningServer;
 
@@ -36,22 +34,20 @@ pub const SETTING_AUDIT_ENABLED: &str = "mcp_audit_enabled";
 #[derive(Default)]
 pub struct McpServerState {
     inner: tokio::sync::Mutex<Option<RunningServer>>,
-    /// Serializes start/stop/rotate orchestration end-to-end so concurrent
+    /// Serializes start/stop orchestration end-to-end so concurrent
     /// operations cannot interleave (e.g. a start racing a slow stop and
     /// landing on a random fallback port).
     ops: tokio::sync::Mutex<()>,
 }
 
 impl McpServerState {
-    /// Snapshot of the running server: `(port, started_at_rfc3339, fingerprint)`.
-    pub async fn running_info(&self) -> Option<(u16, String, String)> {
-        self.inner.lock().await.as_ref().map(|server| {
-            (
-                server.port,
-                server.started_at.to_rfc3339(),
-                server.token_fingerprint.clone(),
-            )
-        })
+    /// Snapshot of the running server: `(port, started_at_rfc3339)`.
+    pub async fn running_info(&self) -> Option<(u16, String)> {
+        self.inner
+            .lock()
+            .await
+            .as_ref()
+            .map(|server| (server.port, server.started_at.to_rfc3339()))
     }
 }
 
@@ -134,15 +130,11 @@ async fn start_server_locked(app: &AppHandle, ctx: &ServiceContext) -> Result<()
         return Ok(());
     }
 
-    let secret_store = shared_secret_store();
-    let token = token::load_or_generate(&secret_store)
-        .map_err(|e| format!("Failed to load MCP token: {e}"))?;
     let sink = build_audit_sink(ctx);
     let running = server::start(
         ctx.agent_environment(),
         sink,
         ctx.pat_repository(),
-        token,
         configured_port(ctx),
     )
     .await?;
@@ -287,61 +279,6 @@ pub async fn set_audit_enabled(
     }
 }
 
-/// Rotates the local token. When the server is running it is restarted
-/// with the new token and `mcp.lock` is rewritten. Returns the full new
-/// token — show it once; it is never logged or persisted outside the
-/// keyring.
-pub async fn rotate_token(app: &AppHandle, ctx: &ServiceContext) -> Result<String, String> {
-    #[cfg(desktop)]
-    {
-        let state = app.state::<McpServerState>();
-        let _ops = state.ops.lock().await;
-
-        let secret_store = shared_secret_store();
-        let new_token =
-            token::rotate(&secret_store).map_err(|e| format!("Failed to rotate MCP token: {e}"))?;
-
-        let mut guard = state.inner.lock().await;
-        if let Some(running) = guard.take() {
-            running.stop().await;
-            let sink = build_audit_sink(ctx);
-            let restarted = match server::start(
-                ctx.agent_environment(),
-                sink,
-                ctx.pat_repository(),
-                new_token.clone(),
-                configured_port(ctx),
-            )
-            .await
-            {
-                Ok(restarted) => restarted,
-                Err(err) => {
-                    // The old lock file points at a dead port and the old
-                    // token fingerprint — don't leave it behind.
-                    remove_stale_lock(app);
-                    return Err(format!(
-                        "MCP token was rotated, but the server failed to restart: {err}"
-                    ));
-                }
-            };
-            if let Err(err) = write_lock_file(app, &restarted) {
-                restarted.stop().await;
-                remove_stale_lock(app);
-                return Err(format!(
-                    "MCP token was rotated, but the server failed to restart: {err}"
-                ));
-            }
-            *guard = Some(restarted);
-        }
-        Ok(new_token)
-    }
-    #[cfg(not(desktop))]
-    {
-        let _ = (app, ctx);
-        Err("MCP server is not available on mobile".to_string())
-    }
-}
-
 fn write_lock_file(app: &AppHandle, running: &RunningServer) -> Result<(), String> {
     let dir = app_data_dir(app)?;
     let lock = lockfile::McpLockFile {
@@ -349,7 +286,6 @@ fn write_lock_file(app: &AppHandle, running: &RunningServer) -> Result<(), Strin
         port: running.port,
         pid: std::process::id(),
         started_at: running.started_at.to_rfc3339(),
-        token_fingerprint: running.token_fingerprint.clone(),
     };
     lockfile::write(&dir, &lock).map_err(|e| format!("Failed to write mcp.lock: {e}"))
 }

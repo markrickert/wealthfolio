@@ -16,8 +16,6 @@ use wealthfolio_storage_sqlite::agent::{
 
 use crate::context::ServiceContext;
 use crate::mcp::{self, McpServerState};
-#[cfg(desktop)]
-use crate::secret_store::shared_secret_store;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,23 +26,6 @@ pub struct McpStatus {
     pub running: bool,
     pub port: Option<u16>,
     pub started_at: Option<String>,
-    pub token_fingerprint: Option<String>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct McpRotatedToken {
-    /// Full token — shown once, never persisted outside the keyring.
-    pub token: String,
-    pub status: McpStatus,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct McpConnectionInfo {
-    pub url: String,
-    /// Full bearer token — the frontend composes client-specific configs.
-    pub token: String,
 }
 
 #[derive(Serialize)]
@@ -133,11 +114,8 @@ async fn build_status(state: &McpServerState, ctx: &ServiceContext) -> McpStatus
         auto_start,
         audit_enabled: mcp::audit_enabled(ctx),
         running: running.is_some(),
-        port: running.as_ref().map(|(port, _, _)| *port),
-        started_at: running
-            .as_ref()
-            .map(|(_, started_at, _)| started_at.clone()),
-        token_fingerprint: running.map(|(_, _, fingerprint)| fingerprint),
+        port: running.as_ref().map(|(port, _)| *port),
+        started_at: running.map(|(_, started_at)| started_at),
     }
 }
 
@@ -231,52 +209,6 @@ pub async fn mcp_stop(
     #[cfg(not(desktop))]
     {
         let _ = (&state, &mcp_state, &handle);
-        Err("MCP server is not available on mobile".to_string())
-    }
-}
-
-#[tauri::command]
-pub async fn mcp_rotate_token(
-    state: State<'_, Arc<ServiceContext>>,
-    mcp_state: State<'_, McpServerState>,
-    handle: AppHandle,
-) -> Result<McpRotatedToken, String> {
-    #[cfg(desktop)]
-    {
-        debug!("Rotating MCP local token");
-        let token = mcp::rotate_token(&handle, &state).await?;
-        Ok(McpRotatedToken {
-            token,
-            status: build_status(&mcp_state, &state).await,
-        })
-    }
-    #[cfg(not(desktop))]
-    {
-        let _ = (&state, &mcp_state, &handle);
-        Err("MCP server is not available on mobile".to_string())
-    }
-}
-
-#[tauri::command]
-pub async fn mcp_get_connection_info(
-    mcp_state: State<'_, McpServerState>,
-) -> Result<McpConnectionInfo, String> {
-    #[cfg(desktop)]
-    {
-        let (port, _, _) = mcp_state
-            .running_info()
-            .await
-            .ok_or_else(|| "MCP server is not running".to_string())?;
-        let token = crate::mcp::token::load_or_generate(&shared_secret_store())
-            .map_err(|e| format!("Failed to load MCP token: {e}"))?;
-        Ok(McpConnectionInfo {
-            url: format!("http://127.0.0.1:{port}/mcp"),
-            token,
-        })
-    }
-    #[cfg(not(desktop))]
-    {
-        let _ = &mcp_state;
         Err("MCP server is not available on mobile".to_string())
     }
 }

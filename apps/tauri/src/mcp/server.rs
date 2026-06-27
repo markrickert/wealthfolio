@@ -14,10 +14,10 @@ use rmcp::transport::streamable_http_server::StreamableHttpServerConfig;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use wealthfolio_agent_tools::AgentEnvironment;
-use wealthfolio_mcp::{token_fingerprint, AuditSink, McpServerBuilder};
+use wealthfolio_mcp::{AuditSink, McpServerBuilder};
 use wealthfolio_storage_sqlite::agent::PatRepository;
 
-use super::middleware::{require_local_bearer, validate_origin, BearerAuth, DualAuth};
+use super::middleware::{require_local_bearer, validate_origin};
 
 /// Fixed default port; falls back to a random port when already in use.
 pub const DEFAULT_PORT: u16 = 8639;
@@ -31,8 +31,6 @@ scopes granted to the access token in use.";
 pub struct RunningServer {
     pub port: u16,
     pub started_at: DateTime<Utc>,
-    /// `sha256:<hex>` of the active token — safe to expose.
-    pub token_fingerprint: String,
     cancel: CancellationToken,
     join: JoinHandle<()>,
 }
@@ -61,7 +59,6 @@ pub fn build_router(
     env: Arc<dyn AgentEnvironment>,
     audit_sink: Option<Arc<dyn AuditSink>>,
     pat_repository: Arc<PatRepository>,
-    token: String,
     cancel: CancellationToken,
 ) -> Router {
     let mut builder = McpServerBuilder::new(env).instructions(INSTRUCTIONS);
@@ -72,10 +69,12 @@ pub fn build_router(
         StreamableHttpServerConfig::default().with_cancellation_token(cancel.child_token()),
     );
 
-    let auth = DualAuth::new(pat_repository, BearerAuth::new(token));
     let protected = Router::new()
         .nest_service("/mcp", mcp_service)
-        .layer(middleware::from_fn_with_state(auth, require_local_bearer))
+        .layer(middleware::from_fn_with_state(
+            pat_repository,
+            require_local_bearer,
+        ))
         .layer(middleware::from_fn(validate_origin));
 
     Router::new().route("/health", get(health)).merge(protected)
@@ -88,7 +87,6 @@ pub async fn start(
     env: Arc<dyn AgentEnvironment>,
     audit_sink: Option<Arc<dyn AuditSink>>,
     pat_repository: Arc<PatRepository>,
-    token: String,
     configured_port: Option<u16>,
 ) -> Result<RunningServer, String> {
     let preferred = configured_port.unwrap_or(DEFAULT_PORT);
@@ -111,8 +109,7 @@ pub async fn start(
         .port();
 
     let cancel = CancellationToken::new();
-    let fingerprint = token_fingerprint(&token);
-    let router = build_router(env, audit_sink, pat_repository, token, cancel.clone());
+    let router = build_router(env, audit_sink, pat_repository, cancel.clone());
 
     let serve_cancel = cancel.clone();
     let join = tokio::spawn(async move {
@@ -128,7 +125,6 @@ pub async fn start(
     Ok(RunningServer {
         port,
         started_at: Utc::now(),
-        token_fingerprint: fingerprint,
         cancel,
         join,
     })
