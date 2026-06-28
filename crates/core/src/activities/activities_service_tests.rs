@@ -3713,7 +3713,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_sync_prepare_allows_provider_subtype_label() {
+    async fn test_sync_prepare_canonicalizes_provider_position_subtype_label() {
         let account_service = Arc::new(MockAccountService::new());
         let asset_service = Arc::new(MockAssetService::new());
         let fx_service = Arc::new(MockFxService::new());
@@ -3762,13 +3762,13 @@ mod tests {
                 &account,
             )
             .await
-            .expect("sync preparation should not reject provider subtype labels");
+            .expect("sync preparation should canonicalize provider position subtype labels");
 
         assert!(result.errors.is_empty());
         assert_eq!(result.prepared.len(), 1);
         assert_eq!(
             result.prepared[0].activity.subtype.as_deref(),
-            Some("BUY_TO_OPEN")
+            Some("POSITION_OPEN")
         );
     }
 
@@ -6674,11 +6674,14 @@ mod tests {
         let result = activity_service
             .import_activities(vec![option_buy])
             .await
-            .expect("import should accept provider subtype labels");
+            .expect("import should canonicalize provider position subtype labels");
 
         assert!(result.summary.success);
         assert_eq!(result.summary.imported, 1);
-        assert_eq!(result.activities[0].subtype.as_deref(), Some("BUY_TO_OPEN"));
+        assert_eq!(
+            result.activities[0].subtype.as_deref(),
+            Some("POSITION_OPEN")
+        );
     }
 
     #[tokio::test]
