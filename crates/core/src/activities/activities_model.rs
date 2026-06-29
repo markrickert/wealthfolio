@@ -2,7 +2,8 @@
 
 use crate::activities::activities_constants::{
     ACTIVITY_SUBTYPE_BONUS, ACTIVITY_SUBTYPE_DIVIDEND_IN_KIND, ACTIVITY_SUBTYPE_DRIP,
-    ACTIVITY_SUBTYPE_OPTION_EXPIRY, ACTIVITY_SUBTYPE_REBATE, ACTIVITY_SUBTYPE_REFUND,
+    ACTIVITY_SUBTYPE_OPTION_EXPIRY, ACTIVITY_SUBTYPE_POSITION_CLOSE,
+    ACTIVITY_SUBTYPE_POSITION_OPEN, ACTIVITY_SUBTYPE_REBATE, ACTIVITY_SUBTYPE_REFUND,
     ACTIVITY_SUBTYPE_REIMBURSEMENT, ACTIVITY_SUBTYPE_STAKING_REWARD, ACTIVITY_TYPE_ADJUSTMENT,
     ACTIVITY_TYPE_BUY, ACTIVITY_TYPE_CREDIT, ACTIVITY_TYPE_DEPOSIT, ACTIVITY_TYPE_DIVIDEND,
     ACTIVITY_TYPE_FEE, ACTIVITY_TYPE_INTEREST, ACTIVITY_TYPE_SELL, ACTIVITY_TYPE_SPLIT,
@@ -322,11 +323,55 @@ impl NewActivity {
             ACTIVITY_SUBTYPE_REIMBURSEMENT
         } else if subtype.eq_ignore_ascii_case(ACTIVITY_SUBTYPE_OPTION_EXPIRY) {
             ACTIVITY_SUBTYPE_OPTION_EXPIRY
+        } else if subtype.eq_ignore_ascii_case(ACTIVITY_SUBTYPE_POSITION_OPEN) {
+            ACTIVITY_SUBTYPE_POSITION_OPEN
+        } else if subtype.eq_ignore_ascii_case(ACTIVITY_SUBTYPE_POSITION_CLOSE) {
+            ACTIVITY_SUBTYPE_POSITION_CLOSE
         } else {
             subtype
         };
 
         Some(canonical.to_string())
+    }
+
+    pub fn canonicalize_subtype_for_activity(
+        activity_type: &str,
+        subtype: Option<&str>,
+    ) -> Option<String> {
+        let subtype = subtype.map(str::trim).filter(|value| !value.is_empty())?;
+        let normalized = subtype
+            .chars()
+            .map(|c| match c {
+                ' ' | '-' => '_',
+                _ => c.to_ascii_uppercase(),
+            })
+            .collect::<String>();
+
+        let canonical = if activity_type.eq_ignore_ascii_case(ACTIVITY_TYPE_BUY) {
+            match normalized.as_str() {
+                "BTO" | "BUY_TO_OPEN" | "BUY_OPEN" | "OPEN_BUY" => {
+                    Some(ACTIVITY_SUBTYPE_POSITION_OPEN)
+                }
+                "BTC" | "BUY_TO_CLOSE" | "BUY_CLOSE" | "CLOSE_BUY" | "BUY_TO_COVER"
+                | "BUY_COVER" | "COVER_SHORT" => Some(ACTIVITY_SUBTYPE_POSITION_CLOSE),
+                _ => None,
+            }
+        } else if activity_type.eq_ignore_ascii_case(ACTIVITY_TYPE_SELL) {
+            match normalized.as_str() {
+                "STO" | "SELL_TO_OPEN" | "SELL_OPEN" | "OPEN_SELL" | "SELL_SHORT"
+                | "SHORT_SELL" | "SELL_SHORT_TO_OPEN" => Some(ACTIVITY_SUBTYPE_POSITION_OPEN),
+                "STC" | "SELL_TO_CLOSE" | "SELL_CLOSE" | "CLOSE_SELL" => {
+                    Some(ACTIVITY_SUBTYPE_POSITION_CLOSE)
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        canonical
+            .map(|value| value.to_string())
+            .or_else(|| Self::canonicalize_subtype(Some(subtype)))
     }
 
     pub(crate) fn is_asset_backed_income_subtype(

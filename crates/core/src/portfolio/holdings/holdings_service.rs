@@ -1,6 +1,6 @@
 use crate::activities::{
-    Activity, ActivityRepositoryTrait, ACTIVITY_TYPE_DIVIDEND, ACTIVITY_TYPE_INTEREST,
-    ACTIVITY_TYPE_SELL,
+    Activity, ActivityRepositoryTrait, ACTIVITY_TYPE_BUY, ACTIVITY_TYPE_DIVIDEND,
+    ACTIVITY_TYPE_INTEREST, ACTIVITY_TYPE_SELL,
 };
 use crate::assets::{
     Asset, AssetClassificationService, AssetKind, AssetServiceTrait, InstrumentType,
@@ -607,7 +607,7 @@ impl HoldingsService {
         if disposals.is_empty() {
             return;
         }
-        let sell_activity_ids = self.sell_activity_ids_for_account(account_id);
+        let disposal_trade_activity_ids = self.disposal_trade_activity_ids_for_account(account_id);
 
         #[derive(Default)]
         struct Totals {
@@ -619,8 +619,8 @@ impl HoldingsService {
 
         let mut totals_by_asset: HashMap<String, Totals> = HashMap::new();
         for disposal in disposals {
-            if let Some(sell_activity_ids) = &sell_activity_ids {
-                if !sell_activity_ids.contains(&disposal.disposal_activity_id) {
+            if let Some(disposal_trade_activity_ids) = &disposal_trade_activity_ids {
+                if !disposal_trade_activity_ids.contains(&disposal.disposal_activity_id) {
                     continue;
                 }
             }
@@ -682,14 +682,17 @@ impl HoldingsService {
         }
     }
 
-    fn sell_activity_ids_for_account(&self, account_id: &str) -> Option<HashSet<String>> {
+    fn disposal_trade_activity_ids_for_account(&self, account_id: &str) -> Option<HashSet<String>> {
         let activity_repository = self.activity_repository.as_ref()?;
         match activity_repository.get_activities_by_account_id(account_id) {
             Ok(activities) => Some(
                 activities
                     .into_iter()
                     .filter(|activity| activity.is_posted())
-                    .filter(|activity| activity.effective_type() == ACTIVITY_TYPE_SELL)
+                    .filter(|activity| {
+                        let activity_type = activity.effective_type();
+                        activity_type == ACTIVITY_TYPE_SELL || activity_type == ACTIVITY_TYPE_BUY
+                    })
                     .map(|activity| activity.id)
                     .collect(),
             ),
@@ -789,8 +792,9 @@ impl HoldingsService {
 }
 
 fn gain_pct(amount_base: Decimal, basis_base: Decimal) -> Option<Decimal> {
-    if basis_base > Decimal::ZERO {
-        Some((amount_base / basis_base).round_dp(DECIMAL_PRECISION))
+    let exposure_base = basis_base.abs();
+    if exposure_base > Decimal::ZERO {
+        Some((amount_base / exposure_base).round_dp(DECIMAL_PRECISION))
     } else if amount_base.is_zero() {
         Some(Decimal::ZERO)
     } else {
@@ -1023,19 +1027,19 @@ fn extract_purchase_price(metadata: &Value) -> Option<Decimal> {
 }
 
 fn apply_portfolio_weights(account_id: &str, holdings: &mut [Holding]) {
-    let total_portfolio_value_base: Decimal = holdings
+    let total_portfolio_exposure_base: Decimal = holdings
         .iter()
-        .map(|holding| holding.market_value.base)
+        .map(|holding| holding.market_value.base.abs())
         .sum();
 
-    if total_portfolio_value_base > dec!(0) {
+    if total_portfolio_exposure_base > dec!(0) {
         for holding in holdings {
-            holding.weight = (holding.market_value.base / total_portfolio_value_base)
+            holding.weight = (holding.market_value.base / total_portfolio_exposure_base)
                 .round_dp(DECIMAL_PRECISION);
         }
     } else {
         debug!(
-            "Total portfolio base value is zero or negative for account {}. Allocations set to 0.",
+            "Total portfolio base exposure is zero for account {}. Allocations set to 0.",
             account_id
         );
         for holding in holdings {
@@ -1322,11 +1326,12 @@ impl HoldingsServiceTrait for HoldingsService {
                 .as_ref()
                 .map(|cost_basis| cost_basis.base)
                 .unwrap_or(Decimal::ZERO);
-            if open_cost_base > Decimal::ZERO {
+            let open_exposure_base = open_cost_base.abs();
+            if open_exposure_base > Decimal::ZERO {
                 h.unrealized_gain_pct = h
                     .unrealized_gain
                     .as_ref()
-                    .map(|v| (v.base / open_cost_base).round_dp(DECIMAL_PRECISION));
+                    .map(|v| (v.base / open_exposure_base).round_dp(DECIMAL_PRECISION));
             } else {
                 h.unrealized_gain_pct = None;
             }
@@ -1340,8 +1345,12 @@ impl HoldingsServiceTrait for HoldingsService {
                 .as_ref()
                 .map(|p| p.base)
                 .unwrap_or(Decimal::ZERO);
-            if prev_close_base > Decimal::ZERO {
-                h.day_change_pct = h.day_change.as_ref().map(|v| v.base / prev_close_base);
+            let prev_close_exposure_base = prev_close_base.abs();
+            if prev_close_exposure_base > Decimal::ZERO {
+                h.day_change_pct = h
+                    .day_change
+                    .as_ref()
+                    .map(|v| v.base / prev_close_exposure_base);
             } else {
                 h.day_change_pct = None;
             }
@@ -2792,6 +2801,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_holdings_uses_gross_exposure_for_signed_weights() {
+        let account_id = "acc-1";
+        let long_asset_id = "AAPL";
+        let short_asset_id = "MSFT";
+        let mut short_position = test_position(account_id, short_asset_id);
+        short_position.quantity = dec!(-1);
+        short_position.total_cost_basis = dec!(-100);
+        short_position.average_cost = dec!(100);
+
+        let snapshot = AccountStateSnapshot {
+            account_id: account_id.to_string(),
+            currency: "USD".to_string(),
+            positions: HashMap::from([
+                (
+                    long_asset_id.to_string(),
+                    test_position(account_id, long_asset_id),
+                ),
+                (short_asset_id.to_string(), short_position),
+            ]),
+            ..Default::default()
+        };
+        let service = test_service(
+            snapshot,
+            vec![
+                test_asset(long_asset_id, "AAPL", InstrumentType::Equity),
+                test_asset(short_asset_id, "MSFT", InstrumentType::Equity),
+            ],
+            HashMap::from([
+                (long_asset_id.to_string(), dec!(100)),
+                (short_asset_id.to_string(), dec!(-100)),
+            ]),
+        );
+
+        let holdings = service.get_holdings(account_id, "USD").await.unwrap();
+        let long = holdings
+            .iter()
+            .find(|holding| holding.instrument.as_ref().unwrap().id == long_asset_id)
+            .expect("long holding");
+        let short = holdings
+            .iter()
+            .find(|holding| holding.instrument.as_ref().unwrap().id == short_asset_id)
+            .expect("short holding");
+
+        assert_eq!(long.weight, dec!(0.5));
+        assert_eq!(short.weight, dec!(-0.5));
+    }
+
+    #[tokio::test]
     async fn get_holding_returns_none_for_expired_option_position() {
         let account_id = "acc-1";
         let expired_asset_id = "TSLA200117C00397500";
@@ -3202,7 +3259,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn holdings_realized_gain_ignores_transfer_out_lot_disposals() {
+    async fn holdings_realized_gain_includes_buy_and_sell_but_ignores_transfer_out_disposals() {
         let account_id = "acc-1";
         let asset_id = "AAPL";
         let mut position = test_position(account_id, asset_id);
@@ -3219,6 +3276,10 @@ mod tests {
             test_lot_disposal(account_id, asset_id, dec!(50), dec!(50), dec!(20), dec!(20));
         sell_disposal.id = "sell-disposal".to_string();
         sell_disposal.disposal_activity_id = "sell-1".to_string();
+        let mut buy_disposal =
+            test_lot_disposal(account_id, asset_id, dec!(25), dec!(25), dec!(10), dec!(10));
+        buy_disposal.id = "buy-disposal".to_string();
+        buy_disposal.disposal_activity_id = "buy-1".to_string();
         let mut transfer_disposal =
             test_lot_disposal(account_id, asset_id, dec!(40), dec!(40), dec!(15), dec!(15));
         transfer_disposal.id = "transfer-disposal".to_string();
@@ -3230,13 +3291,22 @@ mod tests {
             "USD",
             dec!(100),
         )])
-        .with_disposals(vec![sell_disposal, transfer_disposal]);
+        .with_disposals(vec![sell_disposal, buy_disposal, transfer_disposal]);
         let activity_date = NaiveDate::from_ymd_opt(2025, 1, 2).unwrap();
         let sell_activity = test_income_activity(
             "sell-1",
             account_id,
             Some(asset_id),
             ACTIVITY_TYPE_SELL,
+            Decimal::ZERO,
+            "USD",
+            activity_date,
+        );
+        let buy_activity = test_income_activity(
+            "buy-1",
+            account_id,
+            Some(asset_id),
+            ACTIVITY_TYPE_BUY,
             Decimal::ZERO,
             "USD",
             activity_date,
@@ -3258,6 +3328,7 @@ mod tests {
         .with_lot_repository(Arc::new(lot_repository));
         service.activity_repository = Some(Arc::new(MockActivityRepository::new(vec![
             sell_activity,
+            buy_activity,
             transfer_out_activity,
         ])));
 
@@ -3265,11 +3336,77 @@ mod tests {
 
         assert_eq!(holdings.len(), 1);
         let holding = &holdings[0];
-        assert_eq!(holding.realized_gain.as_ref().unwrap().base, dec!(20));
+        assert_eq!(holding.realized_gain.as_ref().unwrap().base, dec!(30));
         assert_eq!(holding.realized_gain_pct, Some(dec!(0.4)));
-        assert_eq!(holding.return_basis.as_ref().unwrap().base, dec!(150));
-        assert_eq!(holding.total_gain.as_ref().unwrap().base, dec!(50));
-        assert_eq!(holding.total_gain_pct, Some(dec!(0.33333333)));
+        assert_eq!(holding.return_basis.as_ref().unwrap().base, dec!(175));
+        assert_eq!(holding.total_gain.as_ref().unwrap().base, dec!(60));
+        assert_eq!(holding.total_gain_pct, Some(dec!(0.34285714)));
+    }
+
+    #[tokio::test]
+    async fn short_holding_percentages_use_absolute_signed_basis() {
+        let account_id = "acc-1";
+        let asset_id = "AAPL";
+        let mut position = test_position(account_id, asset_id);
+        position.quantity = dec!(-5);
+        position.average_cost = dec!(-100);
+        position.total_cost_basis = dec!(-500);
+
+        let snapshot = AccountStateSnapshot {
+            account_id: account_id.to_string(),
+            currency: "USD".to_string(),
+            positions: HashMap::from([(asset_id.to_string(), position)]),
+            ..Default::default()
+        };
+
+        let mut cover_disposal = test_lot_disposal(
+            account_id,
+            asset_id,
+            dec!(-500),
+            dec!(-500),
+            dec!(100),
+            dec!(100),
+        );
+        cover_disposal.id = "cover-disposal".to_string();
+        cover_disposal.disposal_activity_id = "cover-1".to_string();
+
+        let lot_repository = MockLotRepository::new(vec![test_lot_record(
+            account_id,
+            asset_id,
+            "USD",
+            dec!(-500),
+        )])
+        .with_disposals(vec![cover_disposal]);
+        let cover_activity = test_income_activity(
+            "cover-1",
+            account_id,
+            Some(asset_id),
+            ACTIVITY_TYPE_BUY,
+            Decimal::ZERO,
+            "USD",
+            NaiveDate::from_ymd_opt(2025, 1, 2).unwrap(),
+        );
+        let mut service = test_service(
+            snapshot,
+            vec![test_asset(asset_id, "AAPL", InstrumentType::Equity)],
+            HashMap::from([(asset_id.to_string(), dec!(-450))]),
+        )
+        .with_lot_repository(Arc::new(lot_repository));
+        service.activity_repository =
+            Some(Arc::new(MockActivityRepository::new(vec![cover_activity])));
+
+        let holdings = service.get_holdings(account_id, "USD").await.unwrap();
+
+        assert_eq!(holdings.len(), 1);
+        let holding = &holdings[0];
+        assert_eq!(holding.cost_basis.as_ref().unwrap().base, dec!(-500));
+        assert_eq!(holding.unrealized_gain.as_ref().unwrap().base, dec!(50));
+        assert_eq!(holding.unrealized_gain_pct, Some(dec!(0.1)));
+        assert_eq!(holding.realized_gain.as_ref().unwrap().base, dec!(100));
+        assert_eq!(holding.realized_gain_pct, Some(dec!(0.2)));
+        assert_eq!(holding.return_basis.as_ref().unwrap().base, dec!(-1000));
+        assert_eq!(holding.total_gain.as_ref().unwrap().base, dec!(150));
+        assert_eq!(holding.total_gain_pct, Some(dec!(0.15)));
     }
 
     #[tokio::test]

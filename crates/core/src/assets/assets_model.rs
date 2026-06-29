@@ -362,6 +362,15 @@ impl Asset {
         self.instrument_type == Some(InstrumentType::Option)
     }
 
+    /// Returns true for stock/ETF/fund-style investment assets.
+    ///
+    /// Legacy assets may not have `instrument_type` populated, so untyped
+    /// investment assets are treated as equity-like for lot accounting.
+    pub fn is_equity_like(&self) -> bool {
+        matches!(self.kind, AssetKind::Investment)
+            && matches!(self.instrument_type, None | Some(InstrumentType::Equity))
+    }
+
     /// Returns true if this asset is a bond / fixed-income instrument.
     pub fn is_bond(&self) -> bool {
         self.instrument_type == Some(InstrumentType::Bond)

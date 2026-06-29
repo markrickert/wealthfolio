@@ -717,6 +717,144 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn security_short_valuation_uses_absolute_basis_for_percentages() {
+        let (_fx_service, market_data_service, valuation_service) = setup_test_env();
+
+        let latest_quote = create_quote("2024-01-10", dec!(90.0), "USD");
+        let prev_quote = create_quote("2024-01-09", dec!(100.0), "USD");
+        market_data_service.add_quote_pair("AAPL", latest_quote, Some(prev_quote));
+
+        let mut holdings = vec![create_holding(
+            "h-short",
+            HoldingType::Security,
+            "AAPL",
+            dec!(-10),
+            "USD",
+            "USD",
+            Some(dec!(-1000)),
+            Some("Apple Inc."),
+        )];
+
+        valuation_service
+            .calculate_holdings_live_valuation(&mut holdings)
+            .await
+            .unwrap();
+        let holding = &holdings[0];
+
+        assert_monetary_value_approx(
+            Some(&holding.market_value),
+            dec!(-900),
+            dec!(-900),
+            TOLERANCE,
+            "Market Value",
+        );
+        assert_monetary_value_approx(
+            holding.cost_basis.as_ref(),
+            dec!(-1000),
+            dec!(-1000),
+            TOLERANCE,
+            "Cost Basis",
+        );
+        assert_monetary_value_approx(
+            holding.unrealized_gain.as_ref(),
+            dec!(100),
+            dec!(100),
+            TOLERANCE,
+            "Unrealized Gain",
+        );
+        assert_decimal_approx(
+            holding.unrealized_gain_pct,
+            dec!(0.1),
+            TOLERANCE,
+            "Unrealized Gain Pct",
+        );
+        assert_monetary_value_approx(
+            holding.prev_close_value.as_ref(),
+            dec!(-1000),
+            dec!(-1000),
+            TOLERANCE,
+            "Prev Close Value",
+        );
+        assert_monetary_value_approx(
+            holding.day_change.as_ref(),
+            dec!(100),
+            dec!(100),
+            TOLERANCE,
+            "Day Change",
+        );
+        assert_decimal_approx(
+            holding.day_change_pct,
+            dec!(0.1),
+            TOLERANCE,
+            "Day Change Pct",
+        );
+        assert_monetary_value_approx(
+            holding.total_gain.as_ref(),
+            dec!(100),
+            dec!(100),
+            TOLERANCE,
+            "Total Gain",
+        );
+        assert_decimal_approx(
+            holding.total_gain_pct,
+            dec!(0.1),
+            TOLERANCE,
+            "Total Gain Pct",
+        );
+    }
+
+    #[tokio::test]
+    async fn expired_short_option_reports_positive_full_gain_percentage() {
+        let (_fx_service, _market_data_service, valuation_service) = setup_test_env();
+
+        let mut holding = create_holding(
+            "h-expired-short-option",
+            HoldingType::Security,
+            "AAPL260116C00200000",
+            dec!(-1),
+            "USD",
+            "USD",
+            Some(dec!(-200)),
+            Some("AAPL expired call"),
+        );
+        holding.metadata = Some(serde_json::json!({
+            "option": {
+                "expiration": "2000-01-01"
+            }
+        }));
+        let mut holdings = vec![holding];
+
+        valuation_service
+            .calculate_holdings_live_valuation(&mut holdings)
+            .await
+            .unwrap();
+        let holding = &holdings[0];
+
+        assert_eq!(holding.market_value, MonetaryValue::zero());
+        assert_monetary_value_approx(
+            holding.unrealized_gain.as_ref(),
+            dec!(200),
+            dec!(200),
+            TOLERANCE,
+            "Unrealized Gain",
+        );
+        assert_decimal_approx(
+            holding.unrealized_gain_pct,
+            dec!(1),
+            TOLERANCE,
+            "Unrealized Gain Pct",
+        );
+        assert_monetary_value_approx(
+            holding.total_gain.as_ref(),
+            dec!(200),
+            dec!(200),
+            TOLERANCE,
+            "Total Gain",
+        );
+        assert_decimal_approx(holding.total_gain_pct, dec!(1), TOLERANCE, "Total Gain Pct");
+    }
+
+    #[tokio::test]
     async fn security_valuation_with_zero_basis_returns_no_gain_percent() {
         let (_fx_service, market_data_service, valuation_service) = setup_test_env();
 

@@ -238,7 +238,7 @@ test.describe("Asset-backed income subtypes update holdings", () => {
 
     if (await loginInput.isVisible()) {
       await loginInput.fill(TEST_PASSWORD);
-      await page.getByRole("button", { name: "Sign In" }).click();
+      await page.getByRole("button", { name: "Sign In", exact: true }).click();
       await expect(continueButton.or(dashboardHeading).or(accountsHeading)).toBeVisible({
         timeout: 30_000,
       });

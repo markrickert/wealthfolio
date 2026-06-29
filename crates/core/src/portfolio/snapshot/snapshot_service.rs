@@ -1,4 +1,4 @@
-use super::holdings_calculator::HoldingsCalculator;
+use super::holdings_calculator::{HoldingsCalculator, ProjectionRun};
 use super::SnapshotRepositoryTrait;
 use crate::accounts::{
     Account, AccountAccountingSettings, AccountRepositoryTrait, CostBasisMethod, TrackingMode,
@@ -447,8 +447,14 @@ impl SnapshotService {
                 .ensure_supported_for_calculation()?;
         }
 
+        // Per-run projection state (transfer-lot cache, disposals, cost-basis
+        // methods). Lives for the whole recalculation run — across accounts and
+        // days — then is drained per account when persisting lots below.
+        let mut projection_run = ProjectionRun::new();
+
         let (final_holdings_states, keyframes_to_save, calculation_warnings) = self
             .calculate_daily_holdings_snapshots(
+                &mut projection_run,
                 &accounts_needing_calculation,
                 &accounting_settings,
                 &activities_by_account_date,
@@ -523,12 +529,8 @@ impl SnapshotService {
                         .holdings_calculator
                         .extract_lot_records_with_base(snapshot, cost_basis_method);
                     let _ = check_lot_quantity_consistency(snapshot, &open_lots);
-                    let closures = self
-                        .holdings_calculator
-                        .take_disposed_lots(acc_id, cost_basis_method);
-                    let disposals = self
-                        .holdings_calculator
-                        .take_lot_disposals(acc_id, cost_basis_method);
+                    let closures = projection_run.take_disposed_lots(acc_id, cost_basis_method);
+                    let disposals = projection_run.take_lot_disposals(acc_id, cost_basis_method);
                     let is_full = matches!(mode, SnapshotRecalcMode::Full);
                     let affected_disposal_activity_ids = if is_full {
                         Vec::new()
@@ -943,6 +945,7 @@ impl SnapshotService {
     #[allow(clippy::too_many_arguments, clippy::type_complexity)]
     fn calculate_daily_holdings_snapshots(
         &self,
+        run: &mut ProjectionRun,
         accounts_needing_calculation: &AccountsMap, // Actual accounts to process
         accounting_settings: &HashMap<String, AccountAccountingSettings>,
         activities_by_account_date: &ActivitiesByAccount,
@@ -960,11 +963,10 @@ impl SnapshotService {
         let mut all_warnings: Vec<HoldingsCalculationWarning> = Vec::new();
         let date_range = get_days_between(calculation_min_date, calculation_end_date);
 
-        // Clear lot-level caches from any previous run
-        self.holdings_calculator.clear_transfer_lots_cache();
-        self.holdings_calculator.clear_disposed_lots();
+        // Register each account's cost-basis method for this run. The run was
+        // created fresh by the caller, so there is no stale cache to clear.
         for account_id in accounts_needing_calculation.keys() {
-            self.holdings_calculator.set_cost_basis_method_for_account(
+            run.set_cost_basis_method(
                 account_id,
                 Self::accounting_method_for_account(accounting_settings, account_id),
             );
@@ -1030,6 +1032,7 @@ impl SnapshotService {
                     match self
                         .holdings_calculator
                         .calculate_next_holdings_for_account_type(
+                            run,
                             previous_holdings_snapshot,
                             &activities_today, // Pass the already fetched activities
                             current_date,

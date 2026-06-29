@@ -444,7 +444,7 @@ test.describe("Activity Creation Tests", () => {
 
     if (await loginInput.isVisible()) {
       await loginInput.fill(TEST_PASSWORD);
-      await page.getByRole("button", { name: "Sign In" }).click();
+      await page.getByRole("button", { name: "Sign In", exact: true }).click();
       // After login, wait for either dashboard or accounts page
       await expect(dashboardHeading.or(accountsHeading)).toBeVisible({ timeout: 15000 });
     }

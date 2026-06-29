@@ -10,6 +10,7 @@ import { importActivitySchema } from "@/lib/schemas";
 import { tryParseDate } from "@/lib/utils";
 import { logger } from "@/adapters";
 import { SUBTYPE_DISPLAY_NAMES } from "@/lib/constants";
+import { canonicalizeActivitySubtype } from "@/lib/activity-utils";
 import { looksLikeOccSymbol, normalizeOptionSymbol } from "@/lib/occ-symbol";
 import { looksLikeIsin } from "@/lib/isin";
 import { findMappedActivityType } from "./activity-type-mapping";
@@ -78,9 +79,9 @@ function normalizeSubtype(rawSubtype: string): string | undefined {
     return withUnderscores;
   }
 
-  // Return the uppercase version if no match found
-  // It will be validated later against allowed subtypes for the activity type
-  return upper;
+  // Preserve unknown provider labels as metadata. Canonicalization only applies
+  // to known subtype codes, display names, and activity-specific aliases.
+  return trimmed;
 }
 
 /**
@@ -93,9 +94,9 @@ function validateSubtypeForActivityType(
 ): string | undefined {
   if (!subtype || !activityType) return undefined;
 
-  if (subtype === activityType) return undefined;
+  if (subtype.toUpperCase() === activityType) return undefined;
 
-  return subtype;
+  return canonicalizeActivitySubtype(activityType, subtype);
 }
 
 /**

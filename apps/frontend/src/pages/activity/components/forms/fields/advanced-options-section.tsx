@@ -36,6 +36,8 @@ interface AdvancedOptionsSectionProps<TFieldValues extends FieldValues = FieldVa
   subtypeName?: FieldPath<TFieldValues>;
   /** Activity type to determine available subtypes */
   activityType?: ActivityType;
+  /** Explicit subtype options for scoped form flows */
+  subtypeOptions?: readonly string[];
   /** Asset currency (from selected symbol) */
   assetCurrency?: string;
   /** Account currency (from selected account) */
@@ -63,6 +65,7 @@ export function AdvancedOptionsSection<TFieldValues extends FieldValues = FieldV
   fxRateName,
   subtypeName,
   activityType,
+  subtypeOptions,
   assetCurrency,
   accountCurrency,
   baseCurrency,
@@ -95,9 +98,11 @@ export function AdvancedOptionsSection<TFieldValues extends FieldValues = FieldV
 
   // Get available subtypes for the current activity type
   const availableSubtypes = useMemo(() => {
-    if (!activityType || !showSubtype) return [];
-    return SUBTYPES_BY_ACTIVITY_TYPE[activityType] || [];
-  }, [activityType, showSubtype]);
+    if (!showSubtype) return [];
+    if (subtypeOptions) return subtypeOptions;
+    if (!activityType) return [];
+    return SUBTYPES_BY_ACTIVITY_TYPE[activityType] ?? [];
+  }, [activityType, showSubtype, subtypeOptions]);
 
   // Get prioritized currency list: asset currency, account currency, base currency
   // Remove duplicates while preserving order

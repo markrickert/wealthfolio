@@ -43,7 +43,10 @@ impl ActivityCompiler for DefaultActivityCompiler {
 
         // Use effective_type() to respect user overrides
         let activity_type = activity.effective_type();
-        let subtype = NewActivity::canonicalize_subtype(activity.subtype.as_deref());
+        let subtype = NewActivity::canonicalize_subtype_for_activity(
+            activity_type,
+            activity.subtype.as_deref(),
+        );
 
         match (activity_type, subtype.as_deref()) {
             // DRIP: Dividend + Buy

@@ -428,6 +428,39 @@ mod tests {
     }
 
     #[test]
+    fn test_position_intent_aliases_are_canonicalized_by_activity_type() {
+        assert_eq!(
+            NewActivity::canonicalize_subtype_for_activity("BUY", Some("BUY_TO_OPEN")).as_deref(),
+            Some("POSITION_OPEN")
+        );
+        assert_eq!(
+            NewActivity::canonicalize_subtype_for_activity("SELL", Some("STO")).as_deref(),
+            Some("POSITION_OPEN")
+        );
+        assert_eq!(
+            NewActivity::canonicalize_subtype_for_activity("BUY", Some("BUY_TO_CLOSE")).as_deref(),
+            Some("POSITION_CLOSE")
+        );
+        assert_eq!(
+            NewActivity::canonicalize_subtype_for_activity("SELL", Some("STC")).as_deref(),
+            Some("POSITION_CLOSE")
+        );
+        assert_eq!(
+            NewActivity::canonicalize_subtype_for_activity("DIVIDEND", Some("BUY_TO_OPEN"))
+                .as_deref(),
+            Some("BUY_TO_OPEN")
+        );
+        assert_eq!(
+            NewActivity::canonicalize_subtype_for_activity("SELL", Some("SELL_SHORT")).as_deref(),
+            Some("POSITION_OPEN")
+        );
+        assert_eq!(
+            NewActivity::canonicalize_subtype_for_activity("BUY", Some("BUY_TO_COVER")).as_deref(),
+            Some("POSITION_CLOSE")
+        );
+    }
+
+    #[test]
     fn test_new_activity_treats_zero_income_value_source_as_missing() {
         let mut activity = create_test_new_activity();
         activity.activity_type = "INTEREST".to_string();

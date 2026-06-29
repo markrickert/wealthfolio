@@ -116,6 +116,7 @@ export const ACTIVITY_FORM_CONFIG: Record<
         unitPrice: absNum(activity?.unitPrice),
         amount: absNum(activity?.amount),
         fee: absNum(activity?.fee) ?? 0,
+        subtype: activity?.subtype ?? null,
         quoteMode:
           activity?.assetQuoteMode === QuoteMode.MANUAL ? QuoteMode.MANUAL : QuoteMode.MARKET,
         // Advanced options
@@ -138,6 +139,7 @@ export const ACTIVITY_FORM_CONFIG: Record<
           expirationDate: parsed?.expiration,
           optionType: parsed?.optionType,
           contractMultiplier: 100,
+          subtype: activity?.subtype ?? ACTIVITY_SUBTYPES.POSITION_OPEN,
         };
       }
 
@@ -164,6 +166,7 @@ export const ACTIVITY_FORM_CONFIG: Record<
         quantity: d.quantity,
         unitPrice: d.unitPrice,
         fee: d.fee,
+        subtype: d.subtype ?? undefined,
         comment: d.comment,
         quoteMode: d.quoteMode,
         exchangeMic: d.exchangeMic ?? undefined,
@@ -201,6 +204,7 @@ export const ACTIVITY_FORM_CONFIG: Record<
         unitPrice: absNum(activity?.unitPrice),
         amount: absNum(activity?.amount),
         fee: absNum(activity?.fee) ?? 0,
+        subtype: activity?.subtype ?? null,
         quoteMode:
           activity?.assetQuoteMode === QuoteMode.MANUAL ? QuoteMode.MANUAL : QuoteMode.MARKET,
         // Advanced options
@@ -223,6 +227,7 @@ export const ACTIVITY_FORM_CONFIG: Record<
           expirationDate: parsed?.expiration,
           optionType: parsed?.optionType,
           contractMultiplier: 100,
+          subtype: activity?.subtype ?? ACTIVITY_SUBTYPES.POSITION_CLOSE,
         };
       }
 
@@ -249,6 +254,7 @@ export const ACTIVITY_FORM_CONFIG: Record<
         quantity: d.quantity,
         unitPrice: d.unitPrice,
         fee: d.fee,
+        subtype: d.subtype ?? undefined,
         comment: d.comment,
         quoteMode: d.quoteMode,
         exchangeMic: d.exchangeMic ?? undefined,

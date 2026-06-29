@@ -1692,16 +1692,17 @@ impl PerformanceService {
             }
         };
 
-        if let Some(sell_activity_ids) =
-            self.sell_activity_ids_for_period(account_ids, start_date, end_date)
+        if let Some(trade_activity_ids) =
+            self.disposal_trade_activity_ids_for_period(account_ids, start_date, end_date)
         {
-            disposals.retain(|disposal| sell_activity_ids.contains(&disposal.disposal_activity_id));
+            disposals
+                .retain(|disposal| trade_activity_ids.contains(&disposal.disposal_activity_id));
         }
 
         Some(disposals)
     }
 
-    fn sell_activity_ids_for_period(
+    fn disposal_trade_activity_ids_for_period(
         &self,
         account_ids: &[String],
         start_date: NaiveDate,
@@ -1717,7 +1718,7 @@ impl PerformanceService {
             Ok(activities) => activities,
             Err(e) => {
                 warn!(
-                    "Failed to load activities for sell disposal filtering: {}. Lot disposals remain unfiltered.",
+                    "Failed to load activities for trade disposal filtering: {}. Lot disposals remain unfiltered.",
                     e
                 );
                 return None;
@@ -1733,8 +1734,9 @@ impl PerformanceService {
                     activity_date > start_date && activity_date <= end_date
                 })
                 .filter(|activity| {
-                    ActivityType::from_str(activity.effective_type())
-                        .is_ok_and(|activity_type| activity_type == ActivityType::Sell)
+                    ActivityType::from_str(activity.effective_type()).is_ok_and(|activity_type| {
+                        matches!(activity_type, ActivityType::Buy | ActivityType::Sell)
+                    })
                 })
                 .map(|activity| activity.id)
                 .collect(),
@@ -2265,9 +2267,12 @@ impl PerformanceService {
 
         let cost_basis = parse_decimal_lossy(&disposal.cost_basis);
         let cost_basis_base = parse_decimal_lossy(&disposal.cost_basis_base);
+        let cost_basis_sign_mismatch = (cost_basis.is_sign_positive()
+            && cost_basis_base.is_sign_negative())
+            || (cost_basis.is_sign_negative() && cost_basis_base.is_sign_positive());
         if disposal.currency != disposal.base_currency
-            && cost_basis > Decimal::ZERO
-            && cost_basis_base <= Decimal::ZERO
+            && !cost_basis.is_zero()
+            && (cost_basis_base.is_zero() || cost_basis_sign_mismatch)
         {
             return Err(format!(
                 "Realized P&L attribution skipped for disposal {} because acquisition FX conversion was unavailable.",
@@ -4931,7 +4936,9 @@ mod tests {
     };
     use crate::fx::{ExchangeRate, FxServiceTrait, NewExchangeRate};
     use crate::lots::{AssetLotView, LotClosure};
-    use crate::portfolio::snapshot::{AccountStateSnapshot, HoldingsCalculator, Lot, Position};
+    use crate::portfolio::snapshot::{
+        AccountStateSnapshot, HoldingsCalculator, Lot, Position, ProjectionRun,
+    };
     use crate::portfolio::valuation::ValuationStatus;
     use crate::portfolio::valuation::{
         ExternalFlowSource, NegativeBalanceInfo, ValuationRecalcMode,
@@ -6224,6 +6231,20 @@ mod tests {
         activity
     }
 
+    fn buy_activity_on(
+        id: &str,
+        account_id: &str,
+        date_str: &str,
+        quantity: Decimal,
+        price: Decimal,
+    ) -> Activity {
+        let mut activity = test_activity(id, account_id, ActivityType::Buy, date_str);
+        activity.asset_id = Some("AAPL".to_string());
+        activity.quantity = Some(quantity);
+        activity.unit_price = Some(price);
+        activity
+    }
+
     fn sell_activity(id: &str, account_id: &str, quantity: Decimal, price: Decimal) -> Activity {
         sell_activity_on(id, account_id, "2026-05-02", quantity, price)
     }
@@ -6346,8 +6367,10 @@ mod tests {
             Arc::new(RwLock::new("USD".to_string())),
             Arc::new(TestAssetRepository),
         );
+        let mut run = ProjectionRun::new();
         let result = calculator
             .calculate_next_holdings(
+                &mut run,
                 &previous_snapshot,
                 &[sell_activity("sell-1", account_id, dec!(4), dec!(120))],
                 sell_date,
@@ -6362,7 +6385,7 @@ mod tests {
         assert_eq!(position.quantity, dec!(6));
         assert_eq!(position.total_cost_basis, dec!(600));
 
-        let disposals = calculator.take_lot_disposals(account_id, "FIFO");
+        let disposals = run.take_lot_disposals(account_id, "FIFO");
         assert_eq!(disposals.len(), 1);
         disposals.into_iter().next().unwrap()
     }
@@ -6421,8 +6444,10 @@ mod tests {
             Arc::new(RwLock::new("USD".to_string())),
             Arc::new(TestAssetRepository),
         );
+        let mut run = ProjectionRun::new();
         let split_result = calculator
             .calculate_next_holdings(
+                &mut run,
                 &previous_snapshot,
                 &[split_activity_on(
                     "split-1",
@@ -6446,6 +6471,7 @@ mod tests {
 
         let sell_result = calculator
             .calculate_next_holdings(
+                &mut run,
                 &split_result.snapshot,
                 &[sell_activity_on(
                     "sell-split-1",
@@ -6468,7 +6494,7 @@ mod tests {
         assert_eq!(position.lots[0].quantity, dec!(7));
         assert_eq!(position.lots[0].split_ratio, dec!(2));
 
-        let disposals = calculator.take_lot_disposals(account_id, "FIFO");
+        let disposals = run.take_lot_disposals(account_id, "FIFO");
         assert_eq!(disposals.len(), 1);
         disposals.into_iter().next().unwrap()
     }
@@ -6553,6 +6579,65 @@ mod tests {
             performance.series.last().unwrap().value.round_dp(4),
             dec!(0.2)
         );
+    }
+
+    #[tokio::test]
+    async fn buy_to_cover_lot_disposal_feeds_realized_pnl_into_performance() {
+        let mut start = valuation("2026-05-01", dec!(1000), dec!(1000), dec!(1000), dec!(1000));
+        start.account_currency = "USD".to_string();
+        start.base_currency = "USD".to_string();
+        start.external_flow_source = ExternalFlowSource::ActivityDerived;
+
+        let mut after_cover =
+            valuation("2026-05-03", dec!(1080), dec!(1000), dec!(1000), dec!(1000));
+        after_cover.account_currency = "USD".to_string();
+        after_cover.base_currency = "USD".to_string();
+        after_cover.external_flow_source = ExternalFlowSource::ActivityDerived;
+
+        let mut cover_disposal = lot_disposal("USD", "USD", "1", "-400", "-400", "80");
+        cover_disposal.id = "cover-disposal-1".to_string();
+        cover_disposal.disposal_activity_id = "cover-1".to_string();
+        cover_disposal.disposal_date = "2026-05-02".to_string();
+        cover_disposal.quantity = "-4".to_string();
+
+        let valuation_service = Arc::new(TestValuationService::new(vec![start, after_cover]));
+        let performance_service =
+            PerformanceService::new(valuation_service, Arc::new(TestQuoteService))
+                .with_lot_repository(Arc::new(TestLotRepository {
+                    disposals: vec![cover_disposal],
+                    ..Default::default()
+                }))
+                .with_activity_repository(
+                    Arc::new(TestActivityRepository::new(vec![buy_activity_on(
+                        "cover-1",
+                        "acct",
+                        "2026-05-02",
+                        dec!(4),
+                        dec!(80),
+                    )])),
+                    Arc::new(TestFxService),
+                );
+
+        let performance = performance_service
+            .calculate_performance_history_for_accounts(
+                "scope:acct",
+                &["acct".to_string()],
+                "USD",
+                &HashMap::new(),
+                &HashMap::new(),
+                Some(date("2026-05-01")),
+                Some(date("2026-05-03")),
+            )
+            .await
+            .expect("performance should include buy-to-cover disposal attribution");
+
+        assert_eq!(performance.attribution.contributions, Decimal::ZERO);
+        assert_eq!(performance.attribution.distributions, Decimal::ZERO);
+        assert_eq!(performance.attribution.realized_pnl, dec!(80));
+        assert_eq!(performance.attribution.unrealized_pnl_change, Decimal::ZERO);
+        assert_eq!(performance.attribution.residual, Decimal::ZERO);
+        assert_eq!(attribution_pnl(&performance), dec!(80));
+        assert_eq!(performance.summary.amount, Some(dec!(80)));
     }
 
     #[tokio::test]
@@ -7799,6 +7884,16 @@ mod tests {
     #[test]
     fn realized_pnl_attribution_warns_when_acquisition_fx_is_missing() {
         let disposal = lot_disposal("USD", "CAD", "1.1", "100", "0", "0");
+
+        let warning = PerformanceService::realized_pnl_base_from_disposal(&disposal)
+            .expect_err("missing acquisition FX should make base realized P&L unusable");
+
+        assert!(warning.contains("acquisition FX conversion was unavailable"));
+    }
+
+    #[test]
+    fn realized_pnl_attribution_warns_when_short_cover_acquisition_fx_is_missing() {
+        let disposal = lot_disposal("USD", "CAD", "1.1", "-100", "0", "0");
 
         let warning = PerformanceService::realized_pnl_base_from_disposal(&disposal)
             .expect_err("missing acquisition FX should make base realized P&L unusable");

@@ -161,7 +161,9 @@ impl Lot {
     }
 
     pub fn basis_status(&self) -> BasisStatus {
-        if self.quantity > Decimal::ZERO && self.cost_basis > Decimal::ZERO {
+        if (self.quantity > Decimal::ZERO && self.cost_basis > Decimal::ZERO)
+            || (self.quantity < Decimal::ZERO && self.cost_basis < Decimal::ZERO)
+        {
             BasisStatus::Complete
         } else {
             BasisStatus::Unknown
@@ -280,7 +282,7 @@ impl Position {
         }
 
         if self.lots.is_empty() {
-            return if self.total_cost_basis > Decimal::ZERO {
+            return if !self.total_cost_basis.is_zero() {
                 BasisStatus::Complete
             } else {
                 BasisStatus::Unknown
@@ -290,7 +292,7 @@ impl Position {
         let mut has_complete = false;
         let mut has_unknown = false;
         for lot in &self.lots {
-            if lot.quantity <= Decimal::ZERO {
+            if lot.quantity.is_zero() {
                 continue;
             }
             match lot.basis_status() {
@@ -360,6 +362,11 @@ impl Position {
 
     /// Recalculates aggregates based on current lots. Operates in the Position's currency.
     pub fn recalculate_aggregates(&mut self) {
+        self.recalculate_aggregates_with_policy(false);
+    }
+
+    /// Recalculates aggregates and optionally preserves negative signed lots.
+    pub fn recalculate_aggregates_with_policy(&mut self, allows_negative_lots: bool) {
         // Position.quantity is effective (current, post-split) shares for use by
         // valuation: market_value = position.quantity * current_quote_price.
         // lot.quantity is in as-acquired units; effective = quantity * split_ratio.
@@ -375,7 +382,18 @@ impl Position {
         self.quantity = total_quantity;
         self.total_cost_basis = total_cost_basis; // Already in asset currency
 
-        if self.quantity.is_sign_positive() && is_quantity_significant(&self.quantity) {
+        if allows_negative_lots && self.quantity.is_sign_negative() {
+            if is_quantity_significant(&self.quantity) {
+                self.average_cost = self.total_cost_basis.abs() / self.quantity.abs();
+            } else {
+                warn!(
+                    "Position {} negative quantity ({}) became insignificant after recalculation. Average cost zeroed.",
+                    self.id, self.quantity
+                );
+                self.quantity = Decimal::ZERO;
+                self.average_cost = Decimal::ZERO;
+            }
+        } else if self.quantity.is_sign_positive() && is_quantity_significant(&self.quantity) {
             // Calculate average cost (in asset currency) using unrounded values
             self.average_cost = self.total_cost_basis / self.quantity;
         } else {
@@ -564,6 +582,75 @@ impl Position {
         Ok(cost_basis)
     }
 
+    /// Adds a signed lot. Negative quantities are allowed only when explicitly enabled.
+    #[allow(clippy::too_many_arguments)]
+    pub fn open_lot_signed(
+        &mut self,
+        lot_id: String,
+        signed_quantity: Decimal,
+        unit_price: Decimal,
+        fee: Decimal,
+        acquisition_date: DateTime<Utc>,
+        fx_rate_used: Option<Decimal>,
+        source_activity_id: Option<String>,
+        book_basis: LotBookBasis,
+        allows_negative_lots: bool,
+    ) -> Result<Decimal> {
+        if signed_quantity.is_zero() {
+            warn!(
+                "Skipping open_lot_signed for lot {} with zero quantity",
+                lot_id
+            );
+            return Ok(Decimal::ZERO);
+        }
+
+        if signed_quantity.is_sign_negative() && !allows_negative_lots {
+            return Err(CalculatorError::InvalidActivity(format!(
+                "Negative lots are not allowed for position {}",
+                self.id
+            ))
+            .into());
+        }
+
+        if self.currency.is_empty() {
+            debug!(
+                "Position {} has empty currency on first open_lot_signed. This should have been set by caller.",
+                self.id
+            );
+        }
+
+        let cost_basis = signed_quantity * unit_price + fee;
+
+        let new_lot = Lot {
+            id: lot_id,
+            position_id: self.id.clone(),
+            acquisition_date,
+            acquisition_local_date: book_basis.acquisition_local_date,
+            quantity: signed_quantity,
+            original_quantity: signed_quantity,
+            cost_basis,
+            acquisition_price: unit_price,
+            acquisition_fees: fee,
+            original_acquisition_fees: fee,
+            fx_rate_to_position: fx_rate_used,
+            fx_rate_to_account: book_basis.fx_rate_to_account,
+            account_currency: book_basis.account_currency,
+            fx_rate_to_base: book_basis.fx_rate_to_base,
+            base_currency: book_basis.base_currency,
+            source_activity_id,
+            split_ratio: Decimal::ONE,
+        };
+
+        self.lots.push_back(new_lot);
+
+        let mut vec_lots: Vec<_> = self.lots.drain(..).collect();
+        vec_lots.sort_by_key(|lot| lot.acquisition_date);
+        self.lots = vec_lots.into();
+
+        self.recalculate_aggregates_with_policy(allows_negative_lots);
+        Ok(cost_basis)
+    }
+
     /// Adds transferred lots to this position, preserving original acquisition dates and prices.
     /// Used for internal transfers where lots carry over from the source account.
     ///
@@ -578,11 +665,15 @@ impl Position {
         lot_id_prefix: &str,
         lots: &[Lot],
         fx_rate: Option<Decimal>,
+        allows_negative_lots: bool,
     ) -> Result<Decimal> {
         let mut total_cost_basis_added = Decimal::ZERO;
 
         for (i, src_lot) in lots.iter().enumerate() {
-            if !src_lot.quantity.is_sign_positive() {
+            if src_lot.quantity.is_sign_negative() && !allows_negative_lots {
+                continue;
+            }
+            if src_lot.quantity.is_zero() {
                 continue;
             }
 
@@ -655,7 +746,7 @@ impl Position {
         vec_lots.sort_by_key(|lot| lot.acquisition_date);
         self.lots = vec_lots.into();
 
-        self.recalculate_aggregates();
+        self.recalculate_aggregates_with_policy(allows_negative_lots);
         Ok(total_cost_basis_added)
     }
 
@@ -688,11 +779,16 @@ impl Position {
             .into());
         }
 
-        // Sum lot effective remaining (in current units) for the available check.
+        // Sum positive lot effective remaining (in current units) for the available check.
+        // Negative lots are reduced by `reduce_negative_lots_fifo` and must not
+        // reduce the positive-side availability.
         let available_effective: Decimal = self
             .lots
             .iter()
-            .map(|lot| lot.quantity * lot.effective_split_ratio())
+            .filter_map(|lot| {
+                let effective_quantity = lot.quantity * lot.effective_split_ratio();
+                (effective_quantity > Decimal::ZERO).then_some(effective_quantity)
+            })
             .sum();
 
         if !is_quantity_significant(&available_effective) || available_effective <= Decimal::ZERO {
@@ -847,11 +943,174 @@ impl Position {
         // Convert the final Vec back to VecDeque and assign to self.lots
         self.lots = vec_lots.into();
 
-        self.recalculate_aggregates();
+        let allows_negative_lots = self.lots.iter().any(|lot| lot.quantity < Decimal::ZERO);
+        self.recalculate_aggregates_with_policy(allows_negative_lots);
 
         Ok(FifoReductionResult {
             quantity_reduced: actual_quantity_reduced_effective,
             cost_basis_removed: cost_basis_of_sold_lots_asset_currency,
+            removed_lots,
+            fully_consumed_lot_ids,
+            fully_consumed_lots,
+        })
+    }
+
+    pub fn reduce_positive_lots_fifo(
+        &mut self,
+        quantity_to_reduce_input: Decimal,
+    ) -> Result<FifoReductionResult> {
+        self.reduce_lots_fifo(quantity_to_reduce_input)
+    }
+
+    pub fn reduce_negative_lots_fifo(
+        &mut self,
+        quantity_to_reduce_input: Decimal,
+    ) -> Result<FifoReductionResult> {
+        if !quantity_to_reduce_input.is_sign_positive() {
+            return Err(CalculatorError::InvalidActivity(
+                "Quantity to reduce must be positive".to_string(),
+            )
+            .into());
+        }
+
+        let available_effective_abs: Decimal = self
+            .lots
+            .iter()
+            .filter(|lot| lot.quantity < Decimal::ZERO)
+            .map(|lot| (lot.quantity * lot.effective_split_ratio()).abs())
+            .sum();
+
+        if !is_quantity_significant(&available_effective_abs) {
+            warn!(
+                "Attempting to reduce negative lots for position {} with no short quantity. Skipping reduction.",
+                self.id
+            );
+            return Ok(FifoReductionResult {
+                quantity_reduced: Decimal::ZERO,
+                cost_basis_removed: Decimal::ZERO,
+                removed_lots: Vec::new(),
+                fully_consumed_lot_ids: Vec::new(),
+                fully_consumed_lots: Vec::new(),
+            });
+        }
+
+        let mut quantity_to_reduce_effective = quantity_to_reduce_input;
+        if available_effective_abs < quantity_to_reduce_effective {
+            warn!(
+                "Reduce short quantity {} exceeds available {} for position {}. Reducing by available amount.",
+                quantity_to_reduce_effective, available_effective_abs, self.id
+            );
+            quantity_to_reduce_effective = available_effective_abs;
+        }
+
+        let mut vec_lots: Vec<_> = self.lots.drain(..).collect();
+        vec_lots.sort_by_key(|lot| lot.acquisition_date);
+
+        let mut lot_indices_to_remove = Vec::new();
+        let mut lot_updates = Vec::new();
+        let mut actual_quantity_reduced_effective = Decimal::ZERO;
+        let mut cost_basis_removed_total = Decimal::ZERO;
+        let mut removed_lots: Vec<Lot> = Vec::new();
+        let mut fully_consumed_lot_ids: Vec<String> = Vec::new();
+        let mut fully_consumed_lots: Vec<Lot> = Vec::new();
+
+        for (index, lot) in vec_lots.iter().enumerate() {
+            if quantity_to_reduce_effective <= Decimal::ZERO {
+                break;
+            }
+            if lot.quantity >= Decimal::ZERO {
+                continue;
+            }
+
+            let lot_split_ratio = lot.effective_split_ratio();
+            let lot_effective_abs = (lot.quantity * lot_split_ratio).abs();
+            if lot_effective_abs <= Decimal::ZERO {
+                continue;
+            }
+
+            let consume_effective = std::cmp::min(lot_effective_abs, quantity_to_reduce_effective);
+            let qty_from_this_lot_abs = if lot_split_ratio.is_zero() {
+                consume_effective
+            } else {
+                consume_effective / lot_split_ratio
+            };
+            let removed_signed_quantity = -qty_from_this_lot_abs;
+
+            let cost_basis_removed = if lot.quantity.is_zero() {
+                Decimal::ZERO
+            } else {
+                lot.cost_basis * qty_from_this_lot_abs / lot.quantity.abs()
+            };
+            let fees_removed = if lot.quantity.is_zero() {
+                Decimal::ZERO
+            } else {
+                lot.acquisition_fees * qty_from_this_lot_abs / lot.quantity.abs()
+            };
+
+            removed_lots.push(Lot {
+                id: lot.id.clone(),
+                position_id: lot.position_id.clone(),
+                acquisition_date: lot.acquisition_date,
+                acquisition_local_date: lot.acquisition_local_date,
+                quantity: removed_signed_quantity,
+                original_quantity: removed_signed_quantity,
+                cost_basis: cost_basis_removed,
+                acquisition_price: lot.acquisition_price,
+                acquisition_fees: fees_removed,
+                original_acquisition_fees: fees_removed,
+                fx_rate_to_position: lot.fx_rate_to_position,
+                fx_rate_to_account: lot.fx_rate_to_account,
+                account_currency: lot.account_currency.clone(),
+                fx_rate_to_base: lot.fx_rate_to_base,
+                base_currency: lot.base_currency.clone(),
+                source_activity_id: lot.source_activity_id.clone(),
+                split_ratio: lot_split_ratio,
+            });
+
+            actual_quantity_reduced_effective += consume_effective;
+            cost_basis_removed_total += cost_basis_removed;
+            quantity_to_reduce_effective -= consume_effective;
+
+            let remaining_lot_qty = lot.quantity + qty_from_this_lot_abs;
+            if remaining_lot_qty >= Decimal::ZERO || !is_quantity_significant(&remaining_lot_qty) {
+                lot_indices_to_remove.push(index);
+                fully_consumed_lot_ids.push(lot.id.clone());
+                fully_consumed_lots.push(lot.clone());
+            } else {
+                lot_updates.push((
+                    index,
+                    remaining_lot_qty,
+                    lot.cost_basis - cost_basis_removed,
+                    lot.acquisition_fees - fees_removed,
+                ));
+            }
+        }
+
+        for (index, new_quantity, new_cost_basis, new_fees) in lot_updates {
+            if let Some(lot) = vec_lots.get_mut(index) {
+                lot.quantity = new_quantity;
+                lot.cost_basis = new_cost_basis;
+                lot.acquisition_fees = new_fees;
+            } else {
+                error!(
+                    "Failed to get mutable negative lot at index {} for position {} during update",
+                    index, self.id
+                );
+            }
+        }
+
+        let mut i = 0;
+        vec_lots.retain(|_| {
+            let keep = !lot_indices_to_remove.contains(&i);
+            i += 1;
+            keep
+        });
+        self.lots = vec_lots.into();
+        self.recalculate_aggregates_with_policy(true);
+
+        Ok(FifoReductionResult {
+            quantity_reduced: actual_quantity_reduced_effective,
+            cost_basis_removed: cost_basis_removed_total,
             removed_lots,
             fully_consumed_lot_ids,
             fully_consumed_lots,
@@ -896,7 +1155,181 @@ impl Position {
                 lot.split_ratio = prior * split_ratio;
             }
         }
-        self.recalculate_aggregates();
+        let allows_negative_lots = self.lots.iter().any(|lot| lot.quantity < Decimal::ZERO);
+        self.recalculate_aggregates_with_policy(allows_negative_lots);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::portfolio::economic_events::BasisStatus;
+    use chrono::TimeZone;
+    use rust_decimal_macros::dec;
+
+    fn test_position() -> Position {
+        Position::new(
+            "acc_1".to_string(),
+            "OPT".to_string(),
+            "USD".to_string(),
+            Utc.with_ymd_and_hms(2025, 1, 1, 12, 0, 0).unwrap(),
+        )
+    }
+
+    fn book_basis() -> LotBookBasis {
+        LotBookBasis::default()
+    }
+
+    #[test]
+    fn open_lot_signed_rejects_negative_lot_when_policy_disabled() {
+        let mut position = test_position();
+
+        let result = position.open_lot_signed(
+            "short_open".to_string(),
+            dec!(-1),
+            dec!(200),
+            dec!(1),
+            Utc.with_ymd_and_hms(2025, 1, 2, 12, 0, 0).unwrap(),
+            None,
+            Some("short_open".to_string()),
+            book_basis(),
+            false,
+        );
+
+        assert!(result.is_err());
+        assert!(position.lots.is_empty());
+        assert_eq!(position.quantity, Decimal::ZERO);
+    }
+
+    #[test]
+    fn open_lot_signed_preserves_short_quantity_and_basis_when_policy_enabled() {
+        let mut position = test_position();
+
+        let cost_basis = position
+            .open_lot_signed(
+                "short_open".to_string(),
+                dec!(-1),
+                dec!(200),
+                dec!(1),
+                Utc.with_ymd_and_hms(2025, 1, 2, 12, 0, 0).unwrap(),
+                None,
+                Some("short_open".to_string()),
+                book_basis(),
+                true,
+            )
+            .unwrap();
+
+        assert_eq!(cost_basis, dec!(-199));
+        assert_eq!(position.quantity, dec!(-1));
+        assert_eq!(position.total_cost_basis, dec!(-199));
+        assert_eq!(position.average_cost, dec!(199));
+        assert_eq!(position.basis_status(), BasisStatus::Complete);
+        assert_eq!(position.lots[0].basis_status(), BasisStatus::Complete);
+    }
+
+    #[test]
+    fn reduce_negative_lots_fifo_partially_closes_short_lot() {
+        let mut position = test_position();
+        position
+            .open_lot_signed(
+                "short_open".to_string(),
+                dec!(-3),
+                dec!(200),
+                dec!(3),
+                Utc.with_ymd_and_hms(2025, 1, 2, 12, 0, 0).unwrap(),
+                None,
+                Some("short_open".to_string()),
+                book_basis(),
+                true,
+            )
+            .unwrap();
+
+        let reduction = position.reduce_negative_lots_fifo(dec!(1)).unwrap();
+
+        assert_eq!(reduction.quantity_reduced, dec!(1));
+        assert_eq!(reduction.cost_basis_removed, dec!(-199));
+        assert_eq!(reduction.removed_lots.len(), 1);
+        assert_eq!(reduction.removed_lots[0].quantity, dec!(-1));
+        assert_eq!(reduction.removed_lots[0].cost_basis, dec!(-199));
+        assert_eq!(position.quantity, dec!(-2));
+        assert_eq!(position.total_cost_basis, dec!(-398));
+        assert_eq!(position.average_cost, dec!(199));
+    }
+
+    #[test]
+    fn reduce_lots_fifo_uses_only_positive_lots_for_availability() {
+        let mut position = test_position();
+        let acquisition = Utc.with_ymd_and_hms(2025, 1, 2, 12, 0, 0).unwrap();
+
+        position
+            .open_lot_signed(
+                "long_open".to_string(),
+                dec!(5),
+                dec!(100),
+                dec!(0),
+                acquisition,
+                None,
+                Some("long_open".to_string()),
+                book_basis(),
+                true,
+            )
+            .unwrap();
+        position
+            .open_lot_signed(
+                "short_open".to_string(),
+                dec!(-10),
+                dec!(100),
+                dec!(0),
+                Utc.with_ymd_and_hms(2025, 1, 3, 12, 0, 0).unwrap(),
+                None,
+                Some("short_open".to_string()),
+                book_basis(),
+                true,
+            )
+            .unwrap();
+
+        let reduction = position.reduce_lots_fifo(dec!(8)).unwrap();
+
+        assert_eq!(reduction.quantity_reduced, dec!(5));
+        assert_eq!(reduction.cost_basis_removed, dec!(500));
+        assert_eq!(position.quantity, dec!(-10));
+        assert_eq!(position.total_cost_basis, dec!(-1000));
+        assert_eq!(position.average_cost, dec!(100));
+        assert_eq!(position.lots.len(), 1);
+        assert_eq!(position.lots[0].id, "short_open");
+    }
+
+    #[test]
+    fn split_preserves_negative_effective_quantity() {
+        let mut position = test_position();
+        let acquisition = Utc.with_ymd_and_hms(2025, 1, 2, 12, 0, 0).unwrap();
+        position
+            .open_lot_signed(
+                "short_open".to_string(),
+                dec!(-1),
+                dec!(200),
+                dec!(0),
+                acquisition,
+                None,
+                Some("short_open".to_string()),
+                book_basis(),
+                true,
+            )
+            .unwrap();
+
+        position
+            .apply_split(
+                dec!(2),
+                acquisition.date_naive().succ_opt().unwrap(),
+                "split",
+                |dt| dt.date_naive(),
+            )
+            .unwrap();
+
+        assert_eq!(position.lots[0].effective_split_ratio(), dec!(2));
+        assert_eq!(position.quantity, dec!(-2));
+        assert_eq!(position.total_cost_basis, dec!(-200));
+        assert_eq!(position.average_cost, dec!(100));
     }
 }

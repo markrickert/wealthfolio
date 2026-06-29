@@ -123,7 +123,7 @@ test.describe("FX Cash Balance - Cross-currency Buy", () => {
     if (await loginInput.isVisible()) {
       // Login page
       await loginInput.fill(TEST_PASSWORD);
-      await page.getByRole("button", { name: "Sign In" }).click();
+      await page.getByRole("button", { name: "Sign In", exact: true }).click();
 
       // After login, might land on onboarding or dashboard
       await expect(continueButton.or(dashboardHeading).or(accountsHeading)).toBeVisible({

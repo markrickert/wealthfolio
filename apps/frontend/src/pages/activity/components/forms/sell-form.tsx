@@ -1,6 +1,6 @@
 import { useHoldings } from "@/hooks/use-holdings";
 import { useSettings } from "@/hooks/use-settings";
-import { ActivityType, QuoteMode } from "@/lib/constants";
+import { ACTIVITY_SUBTYPES, ActivityType, QuoteMode } from "@/lib/constants";
 import { buildOccSymbol } from "@/lib/occ-symbol";
 import { normalizeCurrency } from "@/lib/utils";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from "@wealthfolio/ui/components/ui/alert";
 import { Button } from "@wealthfolio/ui/components/ui/button";
 import { Card, CardContent } from "@wealthfolio/ui/components/ui/card";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { FormProvider, useForm, type Resolver } from "react-hook-form";
 import { z } from "zod";
 import {
@@ -20,7 +20,9 @@ import {
   DatePicker,
   NotesInput,
   OptionContractFields,
+  PositionIntentSelector,
   QuantityInput,
+  StockTradeIntentSelector,
   SymbolSearch,
   type AssetType,
   type AccountSelectOption,
@@ -65,6 +67,7 @@ export const sellFormSchema = z
       .min(0, { message: "Fee must be non-negative." })
       .default(0),
     comment: z.string().optional().nullable(),
+    subtype: z.string().optional().nullable(),
     // Advanced options
     currency: z.string().min(1, { message: "Currency is required." }),
     fxRate: z.coerce
@@ -98,6 +101,17 @@ export const sellFormSchema = z
     }
     // Option contracts require all 4 structured fields
     if (data.assetType === "option") {
+      // Require an explicit Open/Close choice — never silently default the intent.
+      if (
+        data.subtype !== ACTIVITY_SUBTYPES.POSITION_OPEN &&
+        data.subtype !== ACTIVITY_SUBTYPES.POSITION_CLOSE
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Select whether this opens or closes a position.",
+          path: ["subtype"],
+        });
+      }
       if (!data.underlyingSymbol?.trim()) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -179,6 +193,7 @@ export function SellForm({
       unitPrice: undefined,
       fee: 0,
       comment: null,
+      subtype: null,
       fxRate: undefined,
       quoteMode: QuoteMode.MARKET,
       exchangeMic: undefined,
@@ -211,6 +226,30 @@ export function SellForm({
   const assetType = watch("assetType") ?? "stock";
   const isManualAsset = quoteMode === QuoteMode.MANUAL;
   const isOption = assetType === "option";
+  const isStock = assetType === "stock";
+  const subtype = watch("subtype");
+
+  // Reset the stock "Sell Short" intent when the selected symbol changes — a
+  // short intent for one symbol must not silently carry over to another.
+  // SymbolSearch owns the assetId field and exposes no onChange, so we track the
+  // previous value to fire only on an actual symbol switch (not on mount/edit).
+  const prevAssetIdRef = useRef(assetId);
+  useEffect(() => {
+    if (prevAssetIdRef.current !== assetId) {
+      if (isStock && subtype === ACTIVITY_SUBTYPES.POSITION_OPEN) {
+        setValue("subtype", null);
+      }
+      prevAssetIdRef.current = assetId;
+    }
+  }, [assetId, isStock, subtype, setValue]);
+  const optionSubmitLabel =
+    subtype === ACTIVITY_SUBTYPES.POSITION_OPEN
+      ? "Sell to Open"
+      : subtype === ACTIVITY_SUBTYPES.POSITION_CLOSE
+        ? "Sell to Close"
+        : "Add Sell";
+  const isStockSellShort = isStock && subtype === ACTIVITY_SUBTYPES.POSITION_OPEN;
+  const stockSubmitLabel = isStockSellShort ? "Sell Short" : "Add Sell";
 
   // Option total calculation
   const optQuantity = watch("quantity");
@@ -231,12 +270,16 @@ export function SellForm({
     if (value === "option") {
       setValue("quoteMode", QuoteMode.MARKET);
       setValue("assetKind", "OPTION");
+      // No default position intent — the user must explicitly pick Open or Close.
+      setValue("subtype", null);
     } else if (value === "bond") {
       setValue("quoteMode", QuoteMode.MARKET);
       setValue("assetKind", "BOND");
+      setValue("subtype", null);
     } else {
       setValue("quoteMode", QuoteMode.MARKET);
       setValue("assetKind", undefined);
+      setValue("subtype", null);
     }
     setValue("assetId", "");
     setValue("existingAssetId", undefined);
@@ -331,9 +374,21 @@ export function SellForm({
 
   // Check if selling more than the quantity available for this form state
   const isSellingMoreThanHoldings = useMemo(() => {
+    if (isStockSellShort) return false;
     if (!optQuantity || optQuantity <= 0 || !effectiveAssetId) return false;
+    if (isStock && availableHoldingQuantity < 0) return false;
     return optQuantity > availableHoldingQuantity;
-  }, [optQuantity, availableHoldingQuantity, effectiveAssetId]);
+  }, [isStockSellShort, isStock, optQuantity, availableHoldingQuantity, effectiveAssetId]);
+
+  const isSellShortWhileLong = useMemo(() => {
+    if (isEditing || !isStockSellShort || !effectiveAssetId) return false;
+    return availableHoldingQuantity > 0;
+  }, [isEditing, isStockSellShort, effectiveAssetId, availableHoldingQuantity]);
+
+  const isSellWhileShortWithoutShortIntent = useMemo(() => {
+    if (isEditing || !isStock || isStockSellShort || !effectiveAssetId) return false;
+    return availableHoldingQuantity < 0;
+  }, [isEditing, isStock, isStockSellShort, effectiveAssetId, availableHoldingQuantity]);
 
   const handleSubmit = createValidatedSubmit(form, async (data) => {
     // Ensure currency is set (required by backend) — fall back to account currency
@@ -343,6 +398,10 @@ export function SellForm({
     // Ensure symbolQuoteCcy is set — manual/custom symbols leave it undefined
     if (!data.symbolQuoteCcy && data.currency) {
       data.symbolQuoteCcy = data.currency;
+    }
+    // Stocks only use subtype for explicit Sell Short.
+    if (data.assetType === "stock" && data.subtype !== ACTIVITY_SUBTYPES.POSITION_OPEN) {
+      data.subtype = null;
     }
     // For options: build OCC symbol from structured fields
     if (
@@ -361,6 +420,7 @@ export function SellForm({
       data.assetId = occSymbol;
       data.existingAssetId = undefined;
       data.symbolInstrumentType = "OPTION";
+      // subtype is required for options by the schema — no silent default here.
       data.assetMetadata = {
         ...data.assetMetadata,
         name: `${data.underlyingSymbol.toUpperCase()} ${data.expirationDate} ${data.optionType} ${data.strikePrice}`,
@@ -430,9 +490,17 @@ export function SellForm({
             )}
 
             {/* Quantity, Price, Fee Row */}
-            {isOption && (
-              <h4 className="text-muted-foreground text-sm font-medium">Trade Details</h4>
-            )}
+            {isOption ? (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <h4 className="text-muted-foreground text-sm font-medium">Trade Details</h4>
+                <PositionIntentSelector control={form.control} name="subtype" />
+              </div>
+            ) : isStock ? (
+              <div className="space-y-3">
+                <h4 className="text-muted-foreground text-sm font-medium">Trade Details</h4>
+                <StockTradeIntentSelector control={form.control} name="subtype" side="sell" />
+              </div>
+            ) : null}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
                 <QuantityInput name="quantity" label={quantityLabel} />
@@ -517,9 +585,30 @@ export function SellForm({
               <Alert variant="default" className="border-warning bg-warning/10">
                 <Icons.AlertTriangle className="text-warning h-4 w-4" />
                 <AlertDescription className="text-warning text-sm">
-                  You are selling more {isOption ? "contracts" : "shares"} (
-                  {optQuantity?.toLocaleString()}) than your available holdings (
-                  {availableHoldingQuantity.toLocaleString()}). This may result in a short position.
+                  {isOption
+                    ? `You are selling more contracts (${optQuantity?.toLocaleString()}) than your available holdings (${availableHoldingQuantity.toLocaleString()}). This may create or extend a short option position.`
+                    : `You are selling more shares (${optQuantity?.toLocaleString()}) than your available holdings (${availableHoldingQuantity.toLocaleString()}). Split the excess into a separate Sell Short activity.`}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {isSellShortWhileLong && (
+              <Alert variant="default" className="border-warning bg-warning/10">
+                <Icons.AlertTriangle className="text-warning h-4 w-4" />
+                <AlertDescription className="text-warning text-sm">
+                  You currently hold {availableHoldingQuantity.toLocaleString()} shares. Sell Short
+                  is for opening a short position; split this into a normal Sell first, then Sell
+                  Short for any remaining short quantity.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {isSellWhileShortWithoutShortIntent && (
+              <Alert variant="default" className="border-warning bg-warning/10">
+                <Icons.AlertTriangle className="text-warning h-4 w-4" />
+                <AlertDescription className="text-warning text-sm">
+                  You already have a short position in this stock. Use Sell Short to increase it;
+                  enter a normal Sell only when you have a long position to close.
                 </AlertDescription>
               </Alert>
             )}
@@ -532,7 +621,6 @@ export function SellForm({
               assetCurrency={assetCurrencyFromSymbol ?? normalizeCurrency(assetCurrency)}
               accountCurrency={accountCurrency}
               baseCurrency={baseCurrency}
-              showSubtype={false}
             />
 
             {/* Notes */}
@@ -554,7 +642,7 @@ export function SellForm({
             ) : (
               <Icons.Plus className="mr-2 h-4 w-4" />
             )}
-            {isEditing ? "Update" : isOption ? "Sell to Close" : "Add Sell"}
+            {isEditing ? "Update" : isOption ? optionSubmitLabel : stockSubmitLabel}
           </Button>
         </div>
       </form>

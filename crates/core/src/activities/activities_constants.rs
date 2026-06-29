@@ -258,6 +258,14 @@ pub const ACTIVITY_SUBTYPE_REIMBURSEMENT: &str = "REIMBURSEMENT";
 /// Removes lots via FIFO with no cash effect.
 pub const ACTIVITY_SUBTYPE_OPTION_EXPIRY: &str = "OPTION_EXPIRY";
 
+/// Position-opening trade intent.
+/// Examples: buy-to-open for long options, sell-to-open for short options.
+pub const ACTIVITY_SUBTYPE_POSITION_OPEN: &str = "POSITION_OPEN";
+
+/// Position-closing trade intent.
+/// Examples: sell-to-close for long options, buy-to-close for short options.
+pub const ACTIVITY_SUBTYPE_POSITION_CLOSE: &str = "POSITION_CLOSE";
+
 #[cfg(test)]
 mod tests {
     use super::*;

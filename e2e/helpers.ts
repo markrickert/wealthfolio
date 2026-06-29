@@ -216,6 +216,14 @@ export async function completeOnboardingIfNeeded(page: Page) {
     timeout: 120000,
   });
 
+  if (await loginInput.isVisible()) {
+    await loginInput.fill(TEST_PASSWORD);
+    await page.getByRole("button", { name: "Sign In", exact: true }).click();
+    await expect(continueButton.or(dashboardHeading).or(accountsHeading)).toBeVisible({
+      timeout: 15000,
+    });
+  }
+
   if (!(await continueButton.isVisible())) return;
 
   // Step 1: Info screen — click Continue
@@ -242,16 +250,23 @@ export async function loginIfNeeded(page: Page) {
   await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
 
   const loginInput = page.getByPlaceholder("Enter your password");
+  const continueButton = page.getByRole("button", { name: "Continue" });
   const dashboardHeading = page.getByRole("heading", { name: "Dashboard" });
   const accountsHeading = page.getByRole("heading", { name: "Accounts" });
 
-  await expect(loginInput.or(dashboardHeading).or(accountsHeading)).toBeVisible({
+  await expect(loginInput.or(continueButton).or(dashboardHeading).or(accountsHeading)).toBeVisible({
     timeout: 120000,
   });
 
   if (await loginInput.isVisible()) {
     await loginInput.fill(TEST_PASSWORD);
-    await page.getByRole("button", { name: "Sign In" }).click();
-    await expect(dashboardHeading.or(accountsHeading)).toBeVisible({ timeout: 15000 });
+    await page.getByRole("button", { name: "Sign In", exact: true }).click();
+    await expect(continueButton.or(dashboardHeading).or(accountsHeading)).toBeVisible({
+      timeout: 15000,
+    });
+  }
+
+  if (await continueButton.isVisible().catch(() => false)) {
+    await completeOnboardingIfNeeded(page);
   }
 }

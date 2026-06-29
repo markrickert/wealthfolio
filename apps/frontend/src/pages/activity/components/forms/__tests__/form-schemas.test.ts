@@ -776,7 +776,7 @@ describe("Form Schemas Validation", () => {
       }
     });
 
-    it("passes when all option fields are provided", () => {
+    it("requires an explicit Open/Close position intent for options", () => {
       const data = {
         assetType: "option",
         accountId: "acc-123",
@@ -790,6 +790,31 @@ describe("Form Schemas Validation", () => {
         expirationDate: "2025-01-17",
         optionType: "CALL",
         contractMultiplier: 100,
+        // no subtype chosen
+      };
+
+      const result = buyFormSchema.safeParse(data);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues.map((i) => i.path[0])).toContain("subtype");
+      }
+    });
+
+    it("passes when all option fields and an intent are provided", () => {
+      const data = {
+        assetType: "option",
+        accountId: "acc-123",
+        activityDate: new Date(),
+        quantity: 1,
+        unitPrice: 5.0,
+        fee: 0,
+        currency: "USD",
+        underlyingSymbol: "AAPL",
+        strikePrice: 150,
+        expirationDate: "2025-01-17",
+        optionType: "CALL",
+        contractMultiplier: 100,
+        subtype: ACTIVITY_SUBTYPES.POSITION_OPEN,
       };
 
       const result = buyFormSchema.safeParse(data);

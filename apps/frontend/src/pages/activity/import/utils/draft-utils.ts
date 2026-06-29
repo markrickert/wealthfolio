@@ -1,4 +1,11 @@
-import { ACTIVITY_SUBTYPES, AccountType, ActivityType, ImportFormat } from "@/lib/constants";
+import {
+  ACTIVITY_SUBTYPES,
+  AccountType,
+  ActivityType,
+  ImportFormat,
+  POSITION_INTENT_ALIASES,
+} from "@/lib/constants";
+import { canonicalizeActivitySubtype } from "@/lib/activity-utils";
 import type { ActivityImport } from "@/lib/types";
 import { tryParseDate } from "@/lib/utils";
 import { isValid, parse, parseISO } from "date-fns";
@@ -173,6 +180,28 @@ function signedDirection(value: string | undefined): "positive" | "negative" | u
   return amount < 0 ? "negative" : "positive";
 }
 
+const BUY_POSITION_INTENT_ALIASES = [
+  ...POSITION_INTENT_ALIASES[ActivityType.BUY][ACTIVITY_SUBTYPES.POSITION_OPEN],
+  ...POSITION_INTENT_ALIASES[ActivityType.BUY][ACTIVITY_SUBTYPES.POSITION_CLOSE],
+] as readonly string[];
+const SELL_POSITION_INTENT_ALIASES = [
+  ...POSITION_INTENT_ALIASES[ActivityType.SELL][ACTIVITY_SUBTYPES.POSITION_OPEN],
+  ...POSITION_INTENT_ALIASES[ActivityType.SELL][ACTIVITY_SUBTYPES.POSITION_CLOSE],
+] as readonly string[];
+
+function inferTradeTypeFromPositionIntentSubtype(
+  subtypeValue: string | undefined,
+): typeof ActivityType.BUY | typeof ActivityType.SELL | undefined {
+  const subtype = normalizeSignAwareActivityLabel(subtypeValue);
+  if (BUY_POSITION_INTENT_ALIASES.includes(subtype)) {
+    return ActivityType.BUY;
+  }
+  if (SELL_POSITION_INTENT_ALIASES.includes(subtype)) {
+    return ActivityType.SELL;
+  }
+  return undefined;
+}
+
 function inferSignedTradeType(
   csvValue: string | undefined,
   subtypeValue: string | undefined,
@@ -186,6 +215,8 @@ function inferSignedTradeType(
   const subtype = normalizeSignAwareActivityLabel(subtypeValue);
   if (subtype === "BUY" || subtype === "DRIP") return ActivityType.BUY;
   if (subtype === "SELL") return ActivityType.SELL;
+  const positionIntentType = inferTradeTypeFromPositionIntentSubtype(subtypeValue);
+  if (positionIntentType) return positionIntentType;
 
   const quantityDirection = signedDirection(signedQuantity);
   if (quantityDirection) {
@@ -561,6 +592,7 @@ export function createDraftActivities(
     );
     const mappedActivityType = mapActivityType(rawType, activityMappings);
     const signedTradeType = inferSignedTradeType(rawType, rawSubtype, signedQuantity, signedAmount);
+    const rawTypePositionIntentType = inferTradeTypeFromPositionIntentSubtype(rawType);
     const signedFxTransferType = inferSignedFxTransferType(rawType, signedAmount);
     const signedCashMovementType = inferSignedCashMovementType(
       rawType,
@@ -574,6 +606,7 @@ export function createDraftActivities(
     );
     const activityType =
       signedTradeType ??
+      rawTypePositionIntentType ??
       signedFxTransferType ??
       signedCashMovementType ??
       signedSecurityTransferType ??
@@ -608,16 +641,19 @@ export function createDraftActivities(
     const signedFxSubtype = signedFxTransferType
       ? normalizeSignAwareActivityLabel(rawType)
       : undefined;
-    const normalizedSubtype = rawSubtype?.trim().toUpperCase() ?? signedFxSubtype;
+    const rawTypePositionIntentSubtype = rawTypePositionIntentType ? rawType : undefined;
+    const normalizedSubtype = rawSubtype?.trim() ?? rawTypePositionIntentSubtype ?? signedFxSubtype;
     const inferredCreditSubtype =
       activityType === ActivityType.CREDIT &&
       (REIMBURSEMENT_LABELS.has(normalizeSignAwareActivityLabel(rawType)) ||
         REIMBURSEMENT_LABELS.has(normalizeSignAwareActivityLabel(rawSubtype)))
         ? ACTIVITY_SUBTYPES.REIMBURSEMENT
         : undefined;
-    const subtype =
-      inferredCreditSubtype ??
-      (normalizedSubtype && normalizedSubtype !== activityType ? normalizedSubtype : undefined);
+    const canonicalSubtype =
+      normalizedSubtype && normalizedSubtype.toUpperCase() !== activityType
+        ? canonicalizeActivitySubtype(activityType ?? "", normalizedSubtype)
+        : undefined;
+    const subtype = inferredCreditSubtype ?? canonicalSubtype;
 
     // Resolve account ID: use CSV account mapping, or fall back to default
     let accountId = accountMappings[""] || defaultAccountId;
@@ -701,7 +737,7 @@ export function createDraftActivities(
 
 export function draftToActivityImport(draft: DraftActivity): ActivityImport {
   const activityType = draft.activityType?.trim().toUpperCase();
-  const subtype = draft.subtype?.trim().toUpperCase();
+  const subtype = canonicalizeActivitySubtype(draft.activityType ?? "", draft.subtype?.trim());
   const isTransfer =
     activityType === ActivityType.TRANSFER_IN || activityType === ActivityType.TRANSFER_OUT;
 
@@ -719,7 +755,7 @@ export function draftToActivityImport(draft: DraftActivity): ActivityImport {
     unitPrice: draft.unitPrice,
     fee: draft.fee,
     fxRate: draft.fxRate,
-    subtype: subtype && subtype !== activityType ? subtype : undefined,
+    subtype: subtype && subtype.toUpperCase() !== activityType ? subtype : undefined,
     exchangeMic: draft.exchangeMic,
     quoteCcy: draft.quoteCcy,
     instrumentType: draft.instrumentType,

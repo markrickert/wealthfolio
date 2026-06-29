@@ -1,25 +1,29 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useHoldings } from "@/hooks/use-holdings";
+import { useSettings } from "@/hooks/use-settings";
+import { ACTIVITY_SUBTYPES, ActivityType, QuoteMode } from "@/lib/constants";
+import { buildOccSymbol } from "@/lib/occ-symbol";
 import { normalizeCurrency } from "@/lib/utils";
-import { useForm, FormProvider, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import { Alert, AlertDescription } from "@wealthfolio/ui/components/ui/alert";
 import { Button } from "@wealthfolio/ui/components/ui/button";
 import { Card, CardContent } from "@wealthfolio/ui/components/ui/card";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
-import { ActivityType, QuoteMode } from "@/lib/constants";
-import { buildOccSymbol } from "@/lib/occ-symbol";
-import { useSettings } from "@/hooks/use-settings";
+import { FormProvider, useForm, type Resolver } from "react-hook-form";
+import { z } from "zod";
 import {
   AccountSelect,
-  SymbolSearch,
-  DatePicker,
-  AmountInput,
-  QuantityInput,
-  NotesInput,
   AdvancedOptionsSection,
+  AmountInput,
   AssetTypeSelector,
-  OptionContractFields,
   createValidatedSubmit,
+  DatePicker,
+  NotesInput,
+  OptionContractFields,
+  PositionIntentSelector,
+  QuantityInput,
+  StockTradeIntentSelector,
+  SymbolSearch,
   type AssetType,
   type AccountSelectOption,
 } from "./fields";
@@ -63,6 +67,7 @@ export const buyFormSchema = z
       .min(0, { message: "Fee must be non-negative." })
       .default(0),
     comment: z.string().optional().nullable(),
+    subtype: z.string().optional().nullable(),
     // Advanced options
     currency: z.string().min(1, { message: "Currency is required." }),
     fxRate: z.coerce
@@ -96,6 +101,17 @@ export const buyFormSchema = z
     }
     // Option contracts require all 4 structured fields
     if (data.assetType === "option") {
+      // Require an explicit Open/Close choice — never silently default the intent.
+      if (
+        data.subtype !== ACTIVITY_SUBTYPES.POSITION_OPEN &&
+        data.subtype !== ACTIVITY_SUBTYPES.POSITION_CLOSE
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Select whether this opens or closes a position.",
+          path: ["subtype"],
+        });
+      }
       if (!data.underlyingSymbol?.trim()) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -177,6 +193,7 @@ export function BuyForm({
       unitPrice: undefined,
       fee: 0,
       comment: null,
+      subtype: null,
       fxRate: undefined,
       quoteMode: QuoteMode.MARKET,
       exchangeMic: undefined,
@@ -193,6 +210,7 @@ export function BuyForm({
 
   const { watch, setValue } = form;
   const accountId = watch("accountId");
+  const assetId = watch("assetId");
   const currency = watch("currency");
   const quoteMode = watch("quoteMode");
   const symbolQuoteCcy = watch("symbolQuoteCcy");
@@ -207,6 +225,30 @@ export function BuyForm({
   const assetType = watch("assetType") ?? "stock";
   const isManualAsset = quoteMode === QuoteMode.MANUAL;
   const isOption = assetType === "option";
+  const isStock = assetType === "stock";
+  const subtype = watch("subtype");
+
+  // Reset the stock "Buy to Cover" intent when the selected symbol changes — a
+  // cover intent for one symbol must not silently carry over to another.
+  // SymbolSearch owns the assetId field and exposes no onChange, so we track the
+  // previous value to fire only on an actual symbol switch (not on mount/edit).
+  const prevAssetIdRef = useRef(assetId);
+  useEffect(() => {
+    if (prevAssetIdRef.current !== assetId) {
+      if (isStock && subtype === ACTIVITY_SUBTYPES.POSITION_CLOSE) {
+        setValue("subtype", null);
+      }
+      prevAssetIdRef.current = assetId;
+    }
+  }, [assetId, isStock, subtype, setValue]);
+  const optionSubmitLabel =
+    subtype === ACTIVITY_SUBTYPES.POSITION_CLOSE
+      ? "Buy to Close"
+      : subtype === ACTIVITY_SUBTYPES.POSITION_OPEN
+        ? "Buy to Open"
+        : "Add Buy";
+  const isStockCover = isStock && subtype === ACTIVITY_SUBTYPES.POSITION_CLOSE;
+  const buySubmitLabel = isStockCover ? "Buy to Cover" : "Add Buy";
 
   // Option total premium calculation
   const optQuantity = watch("quantity");
@@ -227,12 +269,16 @@ export function BuyForm({
     if (value === "option") {
       setValue("quoteMode", QuoteMode.MARKET);
       setValue("assetKind", "OPTION");
+      // No default position intent — the user must explicitly pick Open or Close.
+      setValue("subtype", null);
     } else if (value === "bond") {
       setValue("quoteMode", QuoteMode.MARKET);
       setValue("assetKind", "BOND");
+      setValue("subtype", null);
     } else {
       setValue("quoteMode", QuoteMode.MARKET);
       setValue("assetKind", undefined);
+      setValue("subtype", null);
     }
     setValue("assetId", "");
     setValue("existingAssetId", undefined);
@@ -252,6 +298,31 @@ export function BuyForm({
   const accountCurrency = selectedAccount?.currency;
   const assetCurrencyFromSymbol = normalizeCurrency(symbolQuoteCcy ?? undefined)?.toUpperCase();
 
+  const { holdings } = useHoldings({ type: "account", accountId });
+  const currentHoldingQuantity = useMemo(() => {
+    if (!assetId || !holdings) return 0;
+    const holding = holdings.find(
+      (h) => h.instrument?.symbol === assetId || h.instrument?.id === assetId || h.id === assetId,
+    );
+    return holding?.quantity ?? 0;
+  }, [assetId, holdings]);
+  const currentShortQuantity = currentHoldingQuantity < 0 ? Math.abs(currentHoldingQuantity) : 0;
+  const isEditingCoverActivity =
+    isEditing &&
+    (defaultValues?.assetType ?? "stock") === "stock" &&
+    defaultValues?.subtype === ACTIVITY_SUBTYPES.POSITION_CLOSE;
+  const showBuyToCover =
+    isStock && (currentShortQuantity > 0 || isStockCover || isEditingCoverActivity);
+  const isCoverWithoutShort = !isEditing && isStockCover && !!assetId && currentShortQuantity === 0;
+  const isBuyWhileShortWithoutCover =
+    !isEditing && isStock && !!assetId && currentShortQuantity > 0 && !isStockCover;
+  const isCoverQuantityExcess =
+    !isEditing &&
+    isStockCover &&
+    !!assetId &&
+    currentShortQuantity > 0 &&
+    Number(optQuantity) > currentShortQuantity;
+
   const handleSubmit = createValidatedSubmit(form, async (data) => {
     // Ensure currency is set (required by backend) — fall back to account currency
     if (!data.currency && accountId) {
@@ -260,6 +331,10 @@ export function BuyForm({
     // Ensure symbolQuoteCcy is set — manual/custom symbols leave it undefined
     if (!data.symbolQuoteCcy && data.currency) {
       data.symbolQuoteCcy = data.currency;
+    }
+    // Stocks only use subtype for explicit Buy to Cover.
+    if (data.assetType === "stock" && data.subtype !== ACTIVITY_SUBTYPES.POSITION_CLOSE) {
+      data.subtype = null;
     }
     // For options: build OCC symbol from structured fields
     if (
@@ -278,6 +353,7 @@ export function BuyForm({
       data.assetId = occSymbol;
       data.existingAssetId = undefined;
       data.symbolInstrumentType = "OPTION";
+      // subtype is required for options by the schema — no silent default here.
       data.assetMetadata = {
         ...data.assetMetadata,
         name: `${data.underlyingSymbol.toUpperCase()} ${data.expirationDate} ${data.optionType} ${data.strikePrice}`,
@@ -346,9 +422,17 @@ export function BuyForm({
             )}
 
             {/* Quantity, Price, Fee Row */}
-            {isOption && (
-              <h4 className="text-muted-foreground text-sm font-medium">Trade Details</h4>
-            )}
+            {isOption ? (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <h4 className="text-muted-foreground text-sm font-medium">Trade Details</h4>
+                <PositionIntentSelector control={form.control} name="subtype" />
+              </div>
+            ) : showBuyToCover ? (
+              <div className="space-y-3">
+                <h4 className="text-muted-foreground text-sm font-medium">Trade Details</h4>
+                <StockTradeIntentSelector control={form.control} name="subtype" side="buy" />
+              </div>
+            ) : null}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
                 <QuantityInput name="quantity" label={quantityLabel} />
@@ -365,6 +449,11 @@ export function BuyForm({
                     />
                     <span>x</span>
                   </div>
+                )}
+                {isStock && currentShortQuantity > 0 && (
+                  <p className="text-muted-foreground mt-1.5 text-xs">
+                    Short: {currentShortQuantity.toLocaleString()} shares
+                  </p>
                 )}
               </div>
               <AmountInput
@@ -418,6 +507,37 @@ export function BuyForm({
               </div>
             )}
 
+            {isBuyWhileShortWithoutCover && (
+              <Alert variant="default" className="border-warning bg-warning/10">
+                <Icons.AlertTriangle className="text-warning h-4 w-4" />
+                <AlertDescription className="text-warning text-sm">
+                  You currently have a short position in this stock. Use Buy to Cover to reduce it;
+                  enter a normal Buy only after the short position is closed.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {isCoverWithoutShort && (
+              <Alert variant="default" className="border-warning bg-warning/10">
+                <Icons.AlertTriangle className="text-warning h-4 w-4" />
+                <AlertDescription className="text-warning text-sm">
+                  Buy to Cover requires an existing short position for this stock in the selected
+                  account.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {isCoverQuantityExcess && (
+              <Alert variant="default" className="border-warning bg-warning/10">
+                <Icons.AlertTriangle className="text-warning h-4 w-4" />
+                <AlertDescription className="text-warning text-sm">
+                  You are covering {Number(optQuantity).toLocaleString()} shares, but the current
+                  short position is {currentShortQuantity.toLocaleString()} shares. Enter any excess
+                  as a separate Buy activity.
+                </AlertDescription>
+              </Alert>
+            )}
+
             {/* Advanced Options */}
             <AdvancedOptionsSection
               currencyName="currency"
@@ -426,7 +546,6 @@ export function BuyForm({
               assetCurrency={assetCurrencyFromSymbol ?? normalizeCurrency(assetCurrency)}
               accountCurrency={accountCurrency}
               baseCurrency={baseCurrency}
-              showSubtype={false}
             />
 
             {/* Notes */}
@@ -448,7 +567,7 @@ export function BuyForm({
             ) : (
               <Icons.Plus className="mr-2 h-4 w-4" />
             )}
-            {isEditing ? "Update" : isOption ? "Buy to Open" : "Add Buy"}
+            {isEditing ? "Update" : isOption ? optionSubmitLabel : buySubmitLabel}
           </Button>
         </div>
       </form>

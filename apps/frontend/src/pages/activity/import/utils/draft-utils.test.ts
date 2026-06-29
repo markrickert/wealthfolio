@@ -193,6 +193,7 @@ describe("createDraftActivities explicit activity mapping", () => {
         ["2025-08-07", "Trade", "SELL", "AAPL", "-170", "36541.5", "USD"],
         ["2025-08-08", "Trade", "BUY", "AAPL", "10", "-2000", "USD"],
         ["2025-08-09", "Trade", "", "MSFT", "-2", "600", "USD"],
+        ["2025-08-10", "Trade", "STO", "AAPL251219C00200000", "1", "500", "USD"],
       ],
       [
         ImportFormat.DATE,
@@ -223,7 +224,7 @@ describe("createDraftActivities explicit activity mapping", () => {
       "account-1",
     );
 
-    expect(drafts).toHaveLength(3);
+    expect(drafts).toHaveLength(4);
     expect(drafts[0].activityType).toBe(ActivityType.SELL);
     expect(drafts[0].subtype).toBeUndefined();
     expect(drafts[0].quantity).toBe("170");
@@ -235,6 +236,46 @@ describe("createDraftActivities explicit activity mapping", () => {
     expect(drafts[2].activityType).toBe(ActivityType.SELL);
     expect(drafts[2].quantity).toBe("2");
     expect(drafts[2].amount).toBe("600");
+    expect(drafts[3].activityType).toBe(ActivityType.SELL);
+    expect(drafts[3].subtype).toBe(ACTIVITY_SUBTYPES.POSITION_OPEN);
+    expect(drafts[3].quantity).toBe("1");
+    expect(drafts[3].amount).toBe("500");
+  });
+
+  it("infers stock short intent from raw activity type aliases", () => {
+    const drafts = createDraftActivities(
+      [
+        ["2024-03-15", "SELL_SHORT", "AAPL", "1", "200", "USD"],
+        ["2024-03-16", "BUY_TO_COVER", "AAPL", "1", "180", "USD"],
+      ],
+      [
+        ImportFormat.DATE,
+        ImportFormat.ACTIVITY_TYPE,
+        ImportFormat.SYMBOL,
+        ImportFormat.QUANTITY,
+        ImportFormat.UNIT_PRICE,
+        ImportFormat.CURRENCY,
+      ],
+      {
+        ...baseMapping,
+        fieldMappings: {
+          [ImportFormat.DATE]: ImportFormat.DATE,
+          [ImportFormat.ACTIVITY_TYPE]: ImportFormat.ACTIVITY_TYPE,
+          [ImportFormat.SYMBOL]: ImportFormat.SYMBOL,
+          [ImportFormat.QUANTITY]: ImportFormat.QUANTITY,
+          [ImportFormat.UNIT_PRICE]: ImportFormat.UNIT_PRICE,
+          [ImportFormat.CURRENCY]: ImportFormat.CURRENCY,
+        },
+      },
+      parseConfig,
+      "account-1",
+    );
+
+    expect(drafts).toHaveLength(2);
+    expect(drafts[0].activityType).toBe(ActivityType.SELL);
+    expect(drafts[0].subtype).toBe(ACTIVITY_SUBTYPES.POSITION_OPEN);
+    expect(drafts[1].activityType).toBe(ActivityType.BUY);
+    expect(drafts[1].subtype).toBe(ACTIVITY_SUBTYPES.POSITION_CLOSE);
   });
 
   it("infers Wealthsimple FxExchange transfer direction from signed amount", () => {
@@ -491,6 +532,40 @@ describe("createDraftActivities explicit activity mapping", () => {
     expect(draftToActivityImport(draft).subtype).toBe(ACTIVITY_SUBTYPES.STAKING_REWARD);
   });
 
+  it("preserves unknown provider subtype labels without separator normalization", () => {
+    const providerSubtype = "Broker Label-Test";
+    const [draft] = createDraftActivities(
+      [["2024-03-15", "DIVIDEND", "AAPL", "100", "USD", providerSubtype]],
+      [
+        ImportFormat.DATE,
+        ImportFormat.ACTIVITY_TYPE,
+        ImportFormat.SYMBOL,
+        ImportFormat.AMOUNT,
+        ImportFormat.CURRENCY,
+        ImportFormat.SUBTYPE,
+      ],
+      {
+        ...baseMapping,
+        fieldMappings: {
+          [ImportFormat.DATE]: ImportFormat.DATE,
+          [ImportFormat.ACTIVITY_TYPE]: ImportFormat.ACTIVITY_TYPE,
+          [ImportFormat.SYMBOL]: ImportFormat.SYMBOL,
+          [ImportFormat.AMOUNT]: ImportFormat.AMOUNT,
+          [ImportFormat.CURRENCY]: ImportFormat.CURRENCY,
+          [ImportFormat.SUBTYPE]: ImportFormat.SUBTYPE,
+        },
+        activityMappings: { [ActivityType.DIVIDEND]: ["DIVIDEND"] },
+      },
+      parseConfig,
+      "account-1",
+    );
+
+    expect(draft.status).toBe("valid");
+    expect(draft.errors.subtype).toBeUndefined();
+    expect(draft.subtype).toBe(providerSubtype);
+    expect(draftToActivityImport(draft).subtype).toBe(providerSubtype);
+  });
+
   it("clears broker subtype labels that mirror the activity type", () => {
     const [draft] = createDraftActivities(
       [["2024-03-15", "DIVIDEND", "AAPL", "100", "USD", "DIVIDEND"]],
@@ -523,7 +598,7 @@ describe("createDraftActivities explicit activity mapping", () => {
     expect(draftToActivityImport(draft).subtype).toBeUndefined();
   });
 
-  it("allows unknown provider subtype labels without treating them as semantic subtype errors", () => {
+  it("canonicalizes position intent subtype aliases without treating them as errors", () => {
     const [draft] = createDraftActivities(
       [["2024-03-15", "BUY", "AAPL251219C00200000", "1", "5", "USD", "BUY_TO_OPEN"]],
       [
@@ -554,8 +629,42 @@ describe("createDraftActivities explicit activity mapping", () => {
 
     expect(draft.status).toBe("valid");
     expect(draft.errors.subtype).toBeUndefined();
-    expect(draft.subtype).toBe("BUY_TO_OPEN");
-    expect(draftToActivityImport(draft).subtype).toBe("BUY_TO_OPEN");
+    expect(draft.subtype).toBe(ACTIVITY_SUBTYPES.POSITION_OPEN);
+    expect(draftToActivityImport(draft).subtype).toBe(ACTIVITY_SUBTYPES.POSITION_OPEN);
+  });
+
+  it("canonicalizes stock short subtype aliases", () => {
+    const [draft] = createDraftActivities(
+      [["2024-03-15", "SELL", "AAPL", "1", "200", "USD", "SELL_SHORT"]],
+      [
+        ImportFormat.DATE,
+        ImportFormat.ACTIVITY_TYPE,
+        ImportFormat.SYMBOL,
+        ImportFormat.QUANTITY,
+        ImportFormat.UNIT_PRICE,
+        ImportFormat.CURRENCY,
+        ImportFormat.SUBTYPE,
+      ],
+      {
+        ...baseMapping,
+        fieldMappings: {
+          [ImportFormat.DATE]: ImportFormat.DATE,
+          [ImportFormat.ACTIVITY_TYPE]: ImportFormat.ACTIVITY_TYPE,
+          [ImportFormat.SYMBOL]: ImportFormat.SYMBOL,
+          [ImportFormat.QUANTITY]: ImportFormat.QUANTITY,
+          [ImportFormat.UNIT_PRICE]: ImportFormat.UNIT_PRICE,
+          [ImportFormat.CURRENCY]: ImportFormat.CURRENCY,
+          [ImportFormat.SUBTYPE]: ImportFormat.SUBTYPE,
+        },
+        activityMappings: { [ActivityType.SELL]: ["SELL"] },
+      },
+      parseConfig,
+      "account-1",
+    );
+
+    expect(draft.status).toBe("valid");
+    expect(draft.subtype).toBe(ACTIVITY_SUBTYPES.POSITION_OPEN);
+    expect(draftToActivityImport(draft).subtype).toBe(ACTIVITY_SUBTYPES.POSITION_OPEN);
   });
 
   it("rejects investment activities for credit card imports", () => {

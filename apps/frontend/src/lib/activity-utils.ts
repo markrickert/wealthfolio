@@ -5,6 +5,8 @@ import {
   INCOME_ACTIVITY_TYPES,
   InstrumentType,
   METADATA_CONTRACT_MULTIPLIER,
+  normalizePositionIntentAlias,
+  POSITION_INTENT_ALIASES,
   SYMBOL_REQUIRED_TYPES,
 } from "./constants";
 import { ActivityDetails } from "./types";
@@ -83,6 +85,41 @@ export const needsImportAssetResolution = (
   subtype?: string | null,
 ): boolean => {
   return isAssetIdentityRequired(activityType, subtype);
+};
+
+export const canonicalizeActivitySubtype = (
+  activityType: string,
+  subtype?: string | null,
+): string | undefined => {
+  const trimmedSubtype = subtype?.trim() ?? "";
+  if (!trimmedSubtype) return undefined;
+  const normalizedSubtype = normalizePositionIntentAlias(trimmedSubtype);
+
+  const normalizedActivityType = activityType?.trim().toUpperCase();
+  const sideAliases =
+    normalizedActivityType === ActivityType.BUY
+      ? POSITION_INTENT_ALIASES[ActivityType.BUY]
+      : normalizedActivityType === ActivityType.SELL
+        ? POSITION_INTENT_ALIASES[ActivityType.SELL]
+        : undefined;
+  if (sideAliases) {
+    if (
+      (sideAliases[ACTIVITY_SUBTYPES.POSITION_OPEN] as readonly string[]).includes(
+        normalizedSubtype,
+      )
+    ) {
+      return ACTIVITY_SUBTYPES.POSITION_OPEN;
+    }
+    if (
+      (sideAliases[ACTIVITY_SUBTYPES.POSITION_CLOSE] as readonly string[]).includes(
+        normalizedSubtype,
+      )
+    ) {
+      return ACTIVITY_SUBTYPES.POSITION_CLOSE;
+    }
+  }
+
+  return trimmedSubtype;
 };
 
 /**

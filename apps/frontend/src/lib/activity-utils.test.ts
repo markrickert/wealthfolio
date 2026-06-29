@@ -14,6 +14,7 @@ import {
   needsImportAssetResolution,
   calculateActivityValue,
   calculateActivityCashImpact,
+  canonicalizeActivitySubtype,
   formatSplitRatio,
 } from "./activity-utils";
 import { ActivityDetails } from "./types";
@@ -112,6 +113,38 @@ describe("Activity Utilities", () => {
 
     it("does not force cash-only interest imports through asset resolution", () => {
       expect(needsImportAssetResolution(ActivityType.INTEREST)).toBe(false);
+    });
+  });
+
+  describe("canonicalizeActivitySubtype", () => {
+    it("canonicalizes option position intent aliases by activity side", () => {
+      expect(canonicalizeActivitySubtype(ActivityType.BUY, "BUY_TO_OPEN")).toBe(
+        ACTIVITY_SUBTYPES.POSITION_OPEN,
+      );
+      expect(canonicalizeActivitySubtype(ActivityType.BUY, "BTC")).toBe(
+        ACTIVITY_SUBTYPES.POSITION_CLOSE,
+      );
+      expect(canonicalizeActivitySubtype(ActivityType.SELL, "STO")).toBe(
+        ACTIVITY_SUBTYPES.POSITION_OPEN,
+      );
+      expect(canonicalizeActivitySubtype(ActivityType.SELL, "SELL_TO_CLOSE")).toBe(
+        ACTIVITY_SUBTYPES.POSITION_CLOSE,
+      );
+    });
+
+    it("canonicalizes stock short aliases by activity side", () => {
+      expect(canonicalizeActivitySubtype(ActivityType.SELL, "SELL_SHORT")).toBe(
+        ACTIVITY_SUBTYPES.POSITION_OPEN,
+      );
+      expect(canonicalizeActivitySubtype(ActivityType.SELL, "SHORT_SELL")).toBe(
+        ACTIVITY_SUBTYPES.POSITION_OPEN,
+      );
+      expect(canonicalizeActivitySubtype(ActivityType.BUY, "BUY_TO_COVER")).toBe(
+        ACTIVITY_SUBTYPES.POSITION_CLOSE,
+      );
+      expect(canonicalizeActivitySubtype(ActivityType.BUY, "COVER_SHORT")).toBe(
+        ACTIVITY_SUBTYPES.POSITION_CLOSE,
+      );
     });
   });
 
