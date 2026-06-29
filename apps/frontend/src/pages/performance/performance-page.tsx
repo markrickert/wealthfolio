@@ -22,7 +22,7 @@ import { AccountPurpose, PORTFOLIO_SCOPE_ID } from "@/lib/constants";
 import { performancePeriodPnl, performanceSummaryReturn } from "@/lib/performance";
 import { getPerformanceDateRangeForRequest } from "@/lib/performance-date-range";
 import { DateRange, PerformanceResult, TrackedItem } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, formatAmount } from "@/lib/utils";
 import {
   AlertFeedback,
   Badge,
@@ -236,6 +236,24 @@ function firstNotApplicableReason(result: PerformanceResult): string | undefined
   return result.dataQuality.notApplicableReasons?.[0];
 }
 
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+const DECIMAL_RE = /\d+\.\d+/g;
+
+/** Replace raw account UUIDs embedded in data-quality warnings with human-readable account names. */
+function humanizeAccountIds(text: string, namesById: Map<string, string>): string {
+  return text.replace(UUID_RE, (id) => namesById.get(id.toLowerCase()) ?? id);
+}
+
+/** Trim long raw decimals (e.g. "95.50000000") in warnings to readable amounts. */
+function formatWarningNumbers(text: string): string {
+  return text.replace(DECIMAL_RE, (value) => formatAmount(Number(value), "USD", false));
+}
+
+/** Make a data-quality warning user-facing: real account names + tidy numbers. */
+function presentWarning(text: string, namesById: Map<string, string>): string {
+  return formatWarningNumbers(humanizeAccountIds(text, namesById));
+}
+
 function MetricValue({
   value,
   className,
@@ -246,7 +264,7 @@ function MetricValue({
   tone?: "gain" | "neutral";
 }) {
   if (value == null) {
-    return <span className={cn("text-muted-foreground font-medium", className)}>N/A</span>;
+    return <span className={cn(className, "text-muted-foreground/50 font-normal")}>N/A</span>;
   }
 
   if (tone === "neutral") {
@@ -262,6 +280,7 @@ function HeaderMetric({
   label,
   infoText,
   warningText,
+  boldTerms,
   value,
   tone = "gain",
   align = "center",
@@ -271,6 +290,7 @@ function HeaderMetric({
   label: string;
   infoText: string;
   warningText?: string | string[];
+  boldTerms?: string[];
   value: number | null;
   tone?: "gain" | "neutral";
   align?: "left" | "center" | "right";
@@ -290,21 +310,23 @@ function HeaderMetric({
         label={label}
         infoText={infoText}
         warningText={warningText}
+        boldTerms={boldTerms}
         className={cn(
           align === "left" && "justify-start",
           align === "center" && "justify-center",
           align === "right" && "justify-end",
         )}
       />
-      <MetricValue
-        value={value}
-        tone={tone}
-        className={cn("text-base font-semibold", valueClassName)}
-      />
-      {reason && (
-        <span className="text-muted-foreground line-clamp-1 max-w-[12rem] text-[10px]">
+      {value == null && reason ? (
+        <span className="text-muted-foreground line-clamp-2 max-w-[12rem] text-xs leading-snug">
           {reason}
         </span>
+      ) : (
+        <MetricValue
+          value={value}
+          tone={tone}
+          className={cn("text-base font-semibold", valueClassName)}
+        />
       )}
     </div>
   );
@@ -820,6 +842,12 @@ export default function PerformancePage() {
     setSelectedItems,
   ]);
 
+  const accountNamesById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const account of accounts) map.set(account.id.toLowerCase(), account.name);
+    return map;
+  }, [accounts]);
+
   // Helper function to sort comparison items (accounts first, then symbols)
   const sortComparisonItems = (items: TrackedItem[]): TrackedItem[] => {
     return [...items].sort((a, b) => {
@@ -942,15 +970,18 @@ export default function PerformancePage() {
           }
         : metricPresentation(selectedMetric);
     const selectedMetricValue = displayMetricValue(found, selectedMetric);
-    const visibleWarnings = found.dataQuality.warnings ?? [];
+    const visibleWarnings = (found.dataQuality.warnings ?? []).map((warning) =>
+      presentWarning(warning, accountNamesById),
+    );
+    const rawReason = selectedMetricValue == null ? firstNotApplicableReason(found) : undefined;
     return {
       id: found.id,
       name: selectedPerformanceData.name,
       result: found,
       chartMetric: selectedMetric,
       selectedMetricValue,
-      selectedMetricReason:
-        selectedMetricValue == null ? firstNotApplicableReason(found) : undefined,
+      selectedMetricReason: rawReason ? presentWarning(rawReason, accountNamesById) : undefined,
+      warningTerms: Array.from(accountNamesById.values()),
       annualizedReturn: annualizedDisplayMetricValue(found, selectedMetric),
       volatility: metricValue(found, "volatility"),
       maxDrawdown: metricValue(found, "drawdown"),
@@ -962,7 +993,7 @@ export default function PerformancePage() {
       warnings: visibleWarnings,
       notApplicableReasons: found.dataQuality.notApplicableReasons ?? [],
     };
-  }, [selectedPerformanceData]);
+  }, [selectedPerformanceData, accountNamesById]);
 
   const preserveCurrentChartAnchor = (fallbackId: string) => {
     setSelectedItemId(
@@ -1260,6 +1291,7 @@ export default function PerformancePage() {
                                 label={selectedItemData?.mobileLabel ?? "Return"}
                                 infoText={selectedItemData?.infoText ?? SIMPLE_RETURN_INFO}
                                 warningText={selectedItemData?.returnWarnings}
+                                boldTerms={selectedItemData?.warningTerms}
                                 value={selectedItemData?.selectedMetricValue ?? null}
                                 reason={selectedItemData?.selectedMetricReason}
                                 align="left"
@@ -1320,7 +1352,7 @@ export default function PerformancePage() {
                     ) : (
                       <div
                         className={cn(
-                          "grid min-w-0 gap-4 rounded-lg p-2 backdrop-blur-sm sm:gap-5",
+                          "grid min-w-0 items-start gap-4 rounded-lg p-2 backdrop-blur-sm sm:gap-5",
                           selectedItemData?.periodPnl != null
                             ? "grid-cols-5 xl:min-w-[58rem]"
                             : "grid-cols-4 xl:min-w-[46rem]",
@@ -1330,6 +1362,7 @@ export default function PerformancePage() {
                           label={selectedItemData?.label ?? "Return"}
                           infoText={selectedItemData?.infoText ?? SIMPLE_RETURN_INFO}
                           warningText={selectedItemData?.returnWarnings}
+                          boldTerms={selectedItemData?.warningTerms}
                           value={selectedItemData?.selectedMetricValue ?? null}
                           reason={selectedItemData?.selectedMetricReason}
                           valueClassName="text-base"
@@ -1361,6 +1394,9 @@ export default function PerformancePage() {
                             dateRangeLabel={displayDateRange}
                             isMobile={isMobile}
                             valueClassName="text-base"
+                            // Offset the button's own py-1 so its label/value top-align with the
+                            // no-padding HeaderMetric siblings in this top-aligned grid row.
+                            className="-my-1"
                           />
                         )}
                       </div>

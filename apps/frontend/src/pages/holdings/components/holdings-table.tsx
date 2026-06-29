@@ -1,3 +1,7 @@
+import { parseOccSymbol } from "@/lib/occ-symbol";
+import { safeDivide } from "@/lib/utils";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Badge, GainPercent } from "@wealthfolio/ui";
 import { Button } from "@wealthfolio/ui/components/ui/button";
 import { DataTable } from "@wealthfolio/ui/components/ui/data-table";
 import { DataTableColumnHeader } from "@wealthfolio/ui/components/ui/data-table/data-table-column-header";
@@ -8,19 +12,15 @@ import {
   DropdownMenuTrigger,
 } from "@wealthfolio/ui/components/ui/dropdown-menu";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
-import { parseOccSymbol } from "@/lib/occ-symbol";
-import { safeDivide } from "@/lib/utils";
-import type { ColumnDef } from "@tanstack/react-table";
-import { GainPercent, Badge } from "@wealthfolio/ui";
 
 import { TickerAvatar } from "@/components/ticker-avatar";
-import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@wealthfolio/ui/components/ui/tooltip";
 import { useBalancePrivacy } from "@/hooks/use-balance-privacy";
 import { HoldingType } from "@/lib/constants";
 import { useSettingsContext } from "@/lib/settings-provider";
 import { Holding } from "@/lib/types";
 import { AmountDisplay, QuantityDisplay, formatPercent } from "@wealthfolio/ui";
+import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@wealthfolio/ui/components/ui/tooltip";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -136,6 +136,7 @@ export const HoldingsTable = ({
           bookValue: false,
           totalPnl: false,
           unrealizedPnl: false,
+          realizedPnl: false,
           income: false,
           dayPnl: false,
         }}
@@ -560,6 +561,40 @@ const getColumns = (
     sortingFn: (rowA, rowB) => {
       const valueA = rowA.original.unrealizedGain?.base ?? 0;
       const valueB = rowB.original.unrealizedGain?.base ?? 0;
+      return valueA - valueB;
+    },
+  },
+  {
+    id: "realizedPnl",
+    accessorFn: (row) => row.realizedGain?.base ?? 0,
+    enableHiding: true,
+    header: ({ column }) => (
+      <DataTableColumnHeader className="justify-end" column={column} title="Realized P&L" />
+    ),
+    meta: {
+      label: "Realized P&L",
+    },
+    cell: ({ row }) => {
+      const holding = row.original;
+      const value = showConvertedValues
+        ? (holding.realizedGain?.base ?? 0)
+        : (holding.realizedGain?.local ?? 0);
+      const currency = showConvertedValues ? holding.baseCurrency : holding.localCurrency;
+
+      return (
+        <div className="flex min-h-[40px] flex-col items-end justify-center px-4">
+          <AmountDisplay value={value} currency={currency} colorFormat={true} isHidden={isHidden} />
+          {holding.realizedGainPct == null ? (
+            <span className="text-muted-foreground text-xs">-</span>
+          ) : (
+            <GainPercent className="text-xs" value={holding.realizedGainPct} />
+          )}
+        </div>
+      );
+    },
+    sortingFn: (rowA, rowB) => {
+      const valueA = rowA.original.realizedGain?.base ?? 0;
+      const valueB = rowB.original.realizedGain?.base ?? 0;
       return valueA - valueB;
     },
   },

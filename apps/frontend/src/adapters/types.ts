@@ -352,3 +352,92 @@ export interface EphemeralKeyPair {
   publicKey: string; // Base64
   secretKey: string; // Base64
 }
+
+// ============================================================================
+// Agent Access (MCP server + personal access tokens)
+// ============================================================================
+
+/** Embedded MCP server status (desktop only). */
+export interface McpServerStatus {
+  enabled: boolean;
+  autoStart: boolean;
+  auditEnabled: boolean;
+  running: boolean;
+  port: number | null;
+  startedAt: string | null;
+}
+
+/** Agent access status for the web server's `/mcp` endpoint. */
+export interface AgentAccessStatus {
+  mcpEnabled: boolean;
+  auditEnabled: boolean;
+  endpoint: string;
+}
+
+/** Personal access token metadata (web only; the secret is never returned). */
+export interface AgentAccessToken {
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  /** `sha256:<prefix>` matching audit `actorFingerprint`, for name attribution. */
+  fingerprint: string;
+  scopes: string[];
+  createdAt: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+}
+
+/** Input for creating a personal access token. */
+export interface CreateAgentAccessTokenInput {
+  name: string;
+  expiresAt?: string;
+  scopes: string[];
+}
+
+/** Created personal access token. `token` is shown exactly once. */
+export interface CreatedAgentAccessToken {
+  token: string;
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  scopes: string[];
+  createdAt: string;
+  expiresAt: string | null;
+}
+
+/** One MCP tool-call audit entry. */
+export interface AgentAuditEntry {
+  id: string;
+  sessionId: string;
+  actorKind: string;
+  actorFingerprint: string;
+  tool: string;
+  scopes: string[];
+  argsSummary: string | null;
+  outcome: string;
+  errorMessage: string | null;
+  createdAt: string;
+}
+
+/** One page of audit entries. */
+export interface AgentAuditPage {
+  items: AgentAuditEntry[];
+  totalCount: number;
+  /** Distinct tool names across the whole log (for the Tool filter). */
+  availableTools: string[];
+}
+
+/** Request to list a page of the agent audit log. All filters are server-side. */
+export interface AgentAuditQuery {
+  page: number;
+  pageSize: number;
+  /** Case-insensitive substring search on the tool name. */
+  q?: string;
+  /** Exact tool names to include. */
+  tools?: string[];
+  /** Outcomes to include (success | denied | error). */
+  outcomes?: string[];
+  /** Actor kinds to include (pat | local_token | desktop_bridge). */
+  actorKinds?: string[];
+}

@@ -22,6 +22,7 @@ use utoipa::OpenApi;
 mod accounts;
 mod activities;
 mod addons;
+mod agent_access;
 mod ai_chat;
 mod ai_providers;
 mod allocation_targets;
@@ -117,7 +118,8 @@ pub fn app_router(state: Arc<AppState>, config: &Config) -> Router {
         .merge(health::router())
         .merge(custom_providers::router())
         .merge(spending::router())
-        .merge(allocation_targets::router());
+        .merge(allocation_targets::router())
+        .merge(agent_access::router());
 
     #[cfg(feature = "device-sync")]
     {
@@ -189,13 +191,21 @@ pub fn app_router(state: Arc<AppState>, config: &Config) -> Router {
         .merge(protected_api)
         .with_state(state.clone());
 
-    Router::new()
+    // Timeout wraps only the /api/v1 subtree: /mcp serves long-lived SSE
+    // streams that a request timeout would sever.
+    let mut router = Router::new()
         .nest("/api/v1", api)
-        .with_state(state)
+        .with_state(state.clone())
+        .layer(TimeoutLayer::new(config.request_timeout));
+
+    if config.mcp_enabled {
+        router = router.merge(crate::mcp::router(state, config));
+    }
+
+    router
         .layer(cors)
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
         .layer(PropagateRequestIdLayer::x_request_id())
-        .layer(TimeoutLayer::new(config.request_timeout))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {

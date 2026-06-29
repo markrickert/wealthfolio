@@ -16,6 +16,11 @@ export type {
   AddonUpdateCheckResult,
   AddonUpdateInfo,
   AddonValidationResult,
+  AgentAccessStatus,
+  AgentAccessToken,
+  AgentAuditEntry,
+  AgentAuditPage,
+  AgentAuditQuery,
   AppInfo,
   BackendEnableSyncResult,
   BackendSyncBackgroundEngineResult,
@@ -26,6 +31,8 @@ export type {
   BackendSyncReconcileReadyResult,
   BackendSyncSnapshotUploadResult,
   BackendSyncStateResult,
+  CreateAgentAccessTokenInput,
+  CreatedAgentAccessToken,
   DataExportResult,
   EphemeralKeyPair,
   EventCallback,
@@ -35,6 +42,7 @@ export type {
   InstalledAddon,
   Logger,
   MarketDataProviderSetting,
+  McpServerStatus,
   Permission,
   PlatformCapabilities,
   PlatformInfo,
@@ -351,6 +359,22 @@ export { exportDataFile } from "./exports";
 // ============================================================================
 // Platform-specific modules (different implementations for web vs desktop)
 // ============================================================================
+
+// Agent Access Commands (PATs + audit log; MCP server controls are desktop-only stubs)
+export {
+  createAgentAccessToken,
+  getAgentAccessStatus,
+  getMcpStatus,
+  listAgentAccessTokens,
+  listAgentAuditLog,
+  purgeAgentAuditLog,
+  deleteAgentAccessToken,
+  setMcpAuditEnabled,
+  setMcpEnabled,
+  setMcpAutoStart,
+  startMcp,
+  stopMcp,
+} from "./agent-access";
 
 // AI Streaming (web-specific HTTP fetch implementation)
 export { streamAiChat } from "./ai-streaming";

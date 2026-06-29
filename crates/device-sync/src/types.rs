@@ -593,6 +593,7 @@ pub fn sync_entity_from_remote(entity: &str) -> Option<SyncEntity> {
         "allocation_target_weight" => Some(SyncEntity::AllocationTargetWeight),
         "spending_setting" => Some(SyncEntity::SpendingSetting),
         "activity_taxonomy_assignment" => Some(SyncEntity::ActivityTaxonomyAssignment),
+        "spending_activity_split" => Some(SyncEntity::SpendingActivitySplit),
         "spending_activity_event" => Some(SyncEntity::SpendingActivityEvent),
         "spending_categorization_rule" => Some(SyncEntity::SpendingCategorizationRule),
         "spending_preset_rule_deletion" => Some(SyncEntity::SpendingPresetRuleDeletion),

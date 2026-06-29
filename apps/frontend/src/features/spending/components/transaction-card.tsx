@@ -12,11 +12,15 @@ import {
   PrivacyAmount,
 } from "@wealthfolio/ui";
 import type { Account } from "@/lib/types";
-import { cn, formatDate } from "@/lib/utils";
+import { cn, formatDateTime } from "@/lib/utils";
 
 import { QuickCategorizePopover } from "./quick-categorize-popover";
 import { QuickEventPopover } from "./quick-event-popover";
-import { getCashActivityLabel, getEffectiveCashActivityType } from "../lib/constants";
+import {
+  getCashActivityLabel,
+  getEffectiveCashActivityType,
+  isCreditCardAccountType,
+} from "../lib/constants";
 import {
   getTransactionDisplay,
   getTransferLinkStatus,
@@ -29,11 +33,14 @@ interface TransactionCardProps {
   account: Account | undefined;
   event: { id: string; name: string; eventTypeId: string } | null;
   eventTypeColor: string | null;
+  appTimezone?: string;
   isSelected: boolean;
   onToggleSelect: (id: string) => void;
   onAssignCategory: (activityId: string, taxonomyId: string, categoryId: string) => void;
   onClearCategory: (activityId: string, taxonomyId: string) => void;
   onSetEvent: (activityId: string, eventId: string | null) => void;
+  onMarkReimbursement: (row: TransactionRowVM) => void;
+  onEditSplits: (row: TransactionRowVM) => void;
   onEdit: (row: TransactionRowVM) => void;
   onDuplicate: (row: TransactionRowVM) => void;
   onDelete: (row: TransactionRowVM) => void;
@@ -49,11 +56,14 @@ function TransactionCardImpl({
   account,
   event,
   eventTypeColor,
+  appTimezone,
   isSelected,
   onToggleSelect,
   onAssignCategory,
   onClearCategory,
   onSetEvent,
+  onMarkReimbursement,
+  onEditSplits,
   onEdit,
   onDuplicate,
   onDelete,
@@ -69,6 +79,9 @@ function TransactionCardImpl({
   const activityType = getEffectiveCashActivityType(a);
   const isTransfer = isTransferCashActivity(a);
   const transferLinkStatus = getTransferLinkStatus(a);
+  const canMarkReimbursement =
+    isIncome && !isCreditCardAccountType(account?.accountType) && activityType !== "CREDIT";
+  const formattedDate = formatDateTime(a.activityDate, appTimezone);
 
   return (
     <div
@@ -100,8 +113,8 @@ function TransactionCardImpl({
             )}
           </div>
           <div className="text-muted-foreground mt-0.5 truncate text-[11px]">
-            {formatDate(a.activityDate)} · {accountName} ·{" "}
-            {getCashActivityLabel(activityType, account?.accountType)}
+            {formattedDate.date} {formattedDate.time} · {accountName} ·{" "}
+            {getCashActivityLabel(activityType, account?.accountType, a.subtype)}
           </div>
         </div>
         <div
@@ -124,6 +137,11 @@ function TransactionCardImpl({
       <div className="mt-2.5 flex items-center gap-2 pl-7">
         {isNeutral ? (
           <span className="text-muted-foreground text-xs">Neutral</span>
+        ) : row.splitCount > 0 ? (
+          <button type="button" className={cn(CHIP, "min-w-0")} onClick={() => onEditSplits(row)}>
+            <Icons.SplitHorizontal className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">Split · {row.splitCount} lines</span>
+          </button>
         ) : (
           <QuickCategorizePopover
             scope={isIncome ? "income" : isSaving ? "saving" : "expense"}
@@ -208,6 +226,18 @@ function TransactionCardImpl({
               <Icons.Pencil className="mr-2 h-4 w-4" aria-hidden="true" />
               Edit
             </DropdownMenuItem>
+            {canMarkReimbursement && (
+              <DropdownMenuItem onClick={() => onMarkReimbursement(row)}>
+                <Icons.RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+                Mark as reimbursement
+              </DropdownMenuItem>
+            )}
+            {!isNeutral && (
+              <DropdownMenuItem onClick={() => onEditSplits(row)}>
+                <Icons.SplitHorizontal className="mr-2 h-4 w-4" aria-hidden="true" />
+                Split transaction
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => onDuplicate(row)}>
               <Icons.Copy className="mr-2 h-4 w-4" aria-hidden="true" />
               Duplicate

@@ -7,6 +7,7 @@ mod error;
 mod events;
 mod features;
 mod main_lib;
+mod mcp;
 mod models;
 mod oidc;
 mod scheduler;

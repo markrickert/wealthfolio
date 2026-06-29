@@ -204,6 +204,9 @@ export const COMMANDS: CommandMap = {
   get_activity_assignments: { method: "GET", path: "/spending/activities" },
   assign_activity_category: { method: "PUT", path: "/spending/activities" },
   unassign_activity_category: { method: "DELETE", path: "/spending/activities" },
+  get_activity_splits: { method: "GET", path: "/spending/activities" },
+  replace_activity_splits: { method: "PUT", path: "/spending/activities" },
+  clear_activity_splits: { method: "DELETE", path: "/spending/activities" },
   bulk_assign_categories: { method: "POST", path: "/spending/assignments/bulk" },
   // Spending categorization rules
   list_categorization_rules: { method: "GET", path: "/spending/rules" },
@@ -394,6 +397,13 @@ export const COMMANDS: CommandMap = {
   unlink_liability: { method: "DELETE", path: "/alternative-assets" },
   update_alternative_asset_metadata: { method: "PUT", path: "/alternative-assets" },
   get_alternative_holdings: { method: "GET", path: "/alternative-holdings" },
+  // Agent Access (PATs + audit log)
+  get_agent_access_status: { method: "GET", path: "/agent-access/status" },
+  list_agent_access_tokens: { method: "GET", path: "/agent-access/tokens" },
+  create_agent_access_token: { method: "POST", path: "/agent-access/tokens" },
+  delete_agent_access_token: { method: "DELETE", path: "/agent-access/tokens" },
+  list_agent_audit_log: { method: "GET", path: "/agent-access/audit" },
+  purge_agent_audit_log: { method: "POST", path: "/agent-access/audit/purge" },
 };
 
 /**
@@ -1346,6 +1356,25 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
       url += `/${encodeURIComponent(activityId)}/assignments/${encodeURIComponent(taxonomyId)}`;
       break;
     }
+    case "get_activity_splits": {
+      const { activityId } = payload as { activityId: string };
+      url += `/${encodeURIComponent(activityId)}/splits`;
+      break;
+    }
+    case "replace_activity_splits": {
+      const { activityId, splits } = payload as {
+        activityId: string;
+        splits: unknown[];
+      };
+      url += `/${encodeURIComponent(activityId)}/splits`;
+      body = JSON.stringify(splits);
+      break;
+    }
+    case "clear_activity_splits": {
+      const { activityId } = payload as { activityId: string };
+      url += `/${encodeURIComponent(activityId)}/splits`;
+      break;
+    }
     case "bulk_assign_categories": {
       const { items } = payload as { items: unknown[] };
       body = JSON.stringify(items);
@@ -1972,6 +2001,40 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
     case "get_ai_thread_tags": {
       const { threadId } = payload as { threadId: string };
       url += `/${encodeURIComponent(threadId)}/tags`;
+      break;
+    }
+    // Agent Access
+    case "create_agent_access_token": {
+      const { name, expiresAt, scopes } = payload as {
+        name: string;
+        expiresAt?: string;
+        scopes: string[];
+      };
+      body = JSON.stringify({ name, expiresAt, scopes });
+      break;
+    }
+    case "delete_agent_access_token": {
+      const { id } = payload as { id: string };
+      url += `/${encodeURIComponent(id)}`;
+      break;
+    }
+    case "list_agent_audit_log": {
+      const { page, pageSize, q, tools, outcomes, actorKinds } = payload as {
+        page: number;
+        pageSize: number;
+        q?: string;
+        tools?: string[];
+        outcomes?: string[];
+        actorKinds?: string[];
+      };
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("pageSize", String(pageSize));
+      if (q) params.set("q", q);
+      if (tools?.length) params.set("tools", tools.join(","));
+      if (outcomes?.length) params.set("outcomes", outcomes.join(","));
+      if (actorKinds?.length) params.set("actorKinds", actorKinds.join(","));
+      url += `?${params.toString()}`;
       break;
     }
   }

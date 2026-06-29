@@ -29,7 +29,10 @@ use crate::db::{get_connection, WriteHandle};
 use crate::errors::StorageError;
 use crate::schema::{
     accounts, activities, assets, import_account_templates, import_runs, import_templates,
+    spending_activity_splits,
 };
+use crate::spending::activity_splits::ActivitySplitDB;
+use crate::spending::activity_sync::should_sync_activity_local_id_outbox;
 use crate::sync::broker_activity_patch::{
     apply_pending_broker_activity_user_patches_tx, broker_activity_identity,
     broker_activity_user_overlay_changed, broker_activity_user_patch_request,
@@ -149,6 +152,45 @@ fn queue_activity_update_outbox(
         }
     } else {
         tx.update(after)?;
+    }
+
+    Ok(())
+}
+
+fn activity_update_invalidates_spending_splits(before: &ActivityDB, after: &ActivityDB) -> bool {
+    before.account_id != after.account_id
+        || before.activity_type != after.activity_type
+        || before.activity_type_override != after.activity_type_override
+        || before.subtype != after.subtype
+        || before.amount != after.amount
+        || before.source_group_id != after.source_group_id
+}
+
+fn clear_spending_splits_for_activity_tx(
+    tx: &mut crate::db::write_actor::DbWriteTx<'_>,
+    activity_id: &str,
+) -> Result<()> {
+    let existing_ids = spending_activity_splits::table
+        .filter(spending_activity_splits::activity_id.eq(activity_id))
+        .select(spending_activity_splits::id)
+        .load::<String>(tx.conn())
+        .map_err(StorageError::from)?;
+    if existing_ids.is_empty() {
+        return Ok(());
+    }
+
+    let should_sync = should_sync_activity_local_id_outbox(tx.conn(), activity_id)?;
+    diesel::delete(
+        spending_activity_splits::table
+            .filter(spending_activity_splits::activity_id.eq(activity_id)),
+    )
+    .execute(tx.conn())
+    .map_err(StorageError::from)?;
+
+    if should_sync {
+        for id in existing_ids {
+            tx.delete::<ActivitySplitDB>(id);
+        }
     }
 
     Ok(())
@@ -796,6 +838,12 @@ impl ActivityRepositoryTrait for ActivityRepository {
                         .set(&activity_to_update)
                         .get_result::<ActivityDB>(tx.conn())
                         .map_err(StorageError::from)?;
+                if activity_update_invalidates_spending_splits(
+                    &existing_before_update,
+                    &updated_activity,
+                ) {
+                    clear_spending_splits_for_activity_tx(tx, &updated_activity.id)?;
+                }
                 queue_activity_update_outbox(
                     tx,
                     &existing_before_update,
@@ -2653,7 +2701,7 @@ impl ActivityRepositoryTrait for ActivityRepository {
 mod tests {
     use super::*;
     use crate::db::{create_pool, get_connection, init, run_migrations, write_actor::spawn_writer};
-    use crate::schema::sync_outbox;
+    use crate::schema::{spending_activity_splits, sync_outbox};
     use rust_decimal::Decimal;
     use tempfile::tempdir;
     use wealthfolio_core::activities::{import_type, ActivityStatus, ActivityUpsert};
@@ -3315,6 +3363,18 @@ mod tests {
             .expect("insert activity with subtype");
     }
 
+    fn insert_spending_split(conn: &mut SqliteConnection, id: &str, activity_id: &str) {
+        diesel::sql_query(format!(
+            "INSERT INTO spending_activity_splits \
+             (id, activity_id, taxonomy_id, category_id, amount, note, sort_order, created_at, updated_at) \
+             VALUES ('{}', '{}', 'spending_categories', 'cat_food', '100', NULL, 0, \
+                     '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            id, activity_id
+        ))
+        .execute(conn)
+        .expect("insert spending split");
+    }
+
     fn activity_metadata(conn: &mut SqliteConnection, id: &str) -> serde_json::Value {
         let metadata: Option<String> = activities::table
             .filter(activities::id.eq(id))
@@ -3476,6 +3536,54 @@ mod tests {
             .expect("update activity");
 
         assert_eq!(updated.subtype, None);
+    }
+
+    #[tokio::test]
+    async fn update_activity_amount_clears_spending_splits() {
+        let (pool, writer) = setup_db();
+        let repo = ActivityRepository::new(pool.clone(), writer);
+        {
+            let mut conn = get_connection(&pool).expect("conn");
+            insert_account(&mut conn, "acc-splits");
+            insert_activity_with_subtype(
+                &mut conn,
+                "activity-with-splits",
+                "acc-splits",
+                "WITHDRAWAL",
+                None,
+                None,
+            );
+            insert_spending_split(&mut conn, "split-before-edit", "activity-with-splits");
+        }
+
+        repo.update_activity(ActivityUpdate {
+            id: "activity-with-splits".to_string(),
+            account_id: "acc-splits".to_string(),
+            asset: None,
+            activity_type: "WITHDRAWAL".to_string(),
+            subtype: None,
+            activity_date: "2024-01-15T00:00:00+00:00".to_string(),
+            quantity: None,
+            unit_price: None,
+            currency: "USD".to_string(),
+            fee: None,
+            amount: Some(Some(Decimal::new(125, 0))),
+            status: None,
+            notes: None,
+            fx_rate: None,
+            metadata: None,
+        })
+        .await
+        .expect("update activity");
+
+        let mut conn = get_connection(&pool).expect("conn");
+        assert_eq!(
+            spending_activity_splits::table
+                .count()
+                .get_result::<i64>(&mut conn)
+                .expect("count splits"),
+            0
+        );
     }
 
     #[tokio::test]

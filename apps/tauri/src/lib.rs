@@ -6,6 +6,7 @@ mod context;
 mod domain_events;
 mod events;
 mod listeners;
+mod mcp;
 mod scheduler;
 mod secret_store;
 mod services;
@@ -150,6 +151,17 @@ mod desktop {
 
         // Make context available to all commands
         handle.manage(Arc::clone(&context));
+
+        // Embedded MCP server: clear any stale lock file from an unclean
+        // shutdown, then auto-start when enabled + auto-start are both set.
+        mcp::remove_stale_lock(&handle);
+        {
+            let mcp_handle = handle.clone();
+            let mcp_context = Arc::clone(&context);
+            tauri::async_runtime::spawn(async move {
+                mcp::start_if_enabled(&mcp_handle, &mcp_context).await;
+            });
+        }
 
         #[cfg(feature = "device-sync")]
         start_sync_outbox_wake_worker(sync_outbox_wake_receiver, Arc::clone(&context));
@@ -365,6 +377,9 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
 
+            // Embedded MCP server state (commands need it managed up front)
+            handle.manage(mcp::McpServerState::default());
+
             // Platform-specific plugin initialization
             #[cfg(desktop)]
             desktop::init_plugins(&handle);
@@ -446,6 +461,9 @@ pub fn run() {
             commands::spending::get_activity_assignments,
             commands::spending::assign_activity_category,
             commands::spending::unassign_activity_category,
+            commands::spending::get_activity_splits,
+            commands::spending::replace_activity_splits,
+            commands::spending::clear_activity_splits,
             commands::spending::bulk_assign_categories,
             commands::spending::list_categorization_rules,
             commands::spending::create_categorization_rule,
@@ -620,6 +638,18 @@ pub fn run() {
             commands::ai_chat::remove_ai_thread_tag,
             commands::ai_chat::get_ai_thread_tags,
             commands::ai_chat::update_tool_result,
+            // MCP server (Agent Access) commands
+            commands::mcp::mcp_get_status,
+            commands::mcp::mcp_set_enabled,
+            commands::mcp::mcp_set_audit_enabled,
+            commands::mcp::mcp_set_auto_start,
+            commands::mcp::mcp_start,
+            commands::mcp::mcp_stop,
+            commands::mcp::mcp_list_audit_log,
+            commands::mcp::mcp_purge_audit_log,
+            commands::mcp::mcp_list_tokens,
+            commands::mcp::mcp_create_token,
+            commands::mcp::mcp_delete_token,
             // Addon commands
             commands::addon::extract_addon_zip,
             commands::addon::install_addon_zip,
@@ -828,6 +858,14 @@ pub fn run() {
                 event,
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
             ) {
+                // Stop the embedded MCP server and delete mcp.lock.
+                if _handle.try_state::<mcp::McpServerState>().is_some() {
+                    let mcp_handle = _handle.clone();
+                    tauri::async_runtime::block_on(async move {
+                        mcp::stop_server(&mcp_handle).await;
+                    });
+                }
+
                 #[cfg(feature = "device-sync")]
                 if let Some(context) = _handle.try_state::<Arc<context::ServiceContext>>() {
                     let context = Arc::clone(context.inner());

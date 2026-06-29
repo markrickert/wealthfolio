@@ -18,6 +18,19 @@ pub struct Config {
     pub auth: Option<AuthConfig>,
     /// OIDC SSO config. Present when `WF_OIDC_ISSUER_URL` + `WF_OIDC_CLIENT_ID` are set.
     pub oidc: Option<OidcConfig>,
+    /// Expose the `/mcp` endpoint (WF_MCP_ENABLED, default false).
+    pub mcp_enabled: bool,
+    /// Write agent tool calls to the audit log (WF_MCP_AUDIT_ENABLED,
+    /// default true).
+    pub mcp_audit_enabled: bool,
+    /// Allowed `Host` header values for `/mcp` (WF_MCP_ALLOWED_HOSTS,
+    /// comma-separated). `None` disables Host validation: rmcp's default
+    /// allowlist is loopback-only and would break any deployment behind a
+    /// reverse proxy / domain. Disabling is safe here because `/mcp` is
+    /// guarded by PAT bearer auth (browsers cannot attach Authorization
+    /// headers cross-site, so DNS rebinding gains nothing). Deployments
+    /// that want strict Host pinning set WF_MCP_ALLOWED_HOSTS explicitly.
+    pub mcp_allowed_hosts: Option<Vec<String>>,
 }
 
 impl Config {
@@ -92,6 +105,22 @@ impl Config {
         } else {
             None
         };
+        let mcp_enabled = std::env::var("WF_MCP_ENABLED")
+            .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "true" | "1" | "yes"))
+            .unwrap_or(false);
+        let mcp_audit_enabled = std::env::var("WF_MCP_AUDIT_ENABLED")
+            .map(|v| !matches!(v.trim().to_ascii_lowercase().as_str(), "false" | "0" | "no"))
+            .unwrap_or(true);
+        let mcp_allowed_hosts: Option<Vec<String>> = std::env::var("WF_MCP_ALLOWED_HOSTS")
+            .ok()
+            .map(|s| {
+                s.split(',')
+                    .map(|h| h.trim().to_string())
+                    .filter(|h| !h.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .filter(|hosts| !hosts.is_empty());
+
         // When auth is enabled, wildcard CORS is incompatible with credentials
         if auth.is_some() && cors_allow.iter().any(|o| o == "*") {
             panic!(
@@ -124,6 +153,22 @@ impl Config {
             }
         }
 
+        // Fail-closed for MCP: the agent-access API that mints Personal
+        // Access Tokens must never be reachable unauthenticated off-host.
+        // There is no WF_AUTH_REQUIRED escape hatch here — server MCP has
+        // no trusted reverse proxy bypass.
+        if mcp_enabled && auth.is_none() && !listen_addr.ip().is_loopback() {
+            panic!(
+                "Refusing to start: WF_MCP_ENABLED=true while listening on non-loopback \
+                 address {listen_addr} without authentication.\n\
+                 \n\
+                 Personal Access Tokens are created through the JWT-protected agent-access \
+                 API; without authentication anyone reaching this server could mint one.\n\
+                 Set WF_AUTH_PASSWORD_HASH, bind a loopback address, or set \
+                 WF_MCP_ENABLED=false."
+            );
+        }
+
         Self {
             listen_addr,
             db_path,
@@ -135,6 +180,9 @@ impl Config {
             secrets_encryption_key,
             auth,
             oidc,
+            mcp_enabled,
+            mcp_audit_enabled,
+            mcp_allowed_hosts,
         }
     }
 }

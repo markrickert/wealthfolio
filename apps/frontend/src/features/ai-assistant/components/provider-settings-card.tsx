@@ -65,14 +65,14 @@ interface ProviderSettingsCardProps {
 // Each card can represent multiple backend tools that belong to the same user capability.
 const DATA_ACCESS_OPTIONS = [
   {
-    toolIds: ["get_accounts", "get_cash_balances"],
+    toolIds: ["get_accounts", "get_cash_balances", "get_portfolios"],
     label: "Accounts",
-    description: "Account details and cash balances",
+    description: "Account details, portfolios, and cash balances",
   },
   {
-    toolIds: ["get_holdings"],
+    toolIds: ["get_holdings", "get_net_worth"],
     label: "Holdings",
-    description: "Current positions and their values",
+    description: "Positions, their values, and net worth",
   },
   {
     toolIds: [
@@ -93,7 +93,11 @@ const DATA_ACCESS_OPTIONS = [
     description: "Returns and performance metrics",
   },
   { toolIds: ["get_income"], label: "Income", description: "Income summary and breakdown" },
-  { toolIds: ["get_goals"], label: "Goals", description: "Investment goals and progress" },
+  {
+    toolIds: ["get_goals", "get_contribution_limits"],
+    label: "Goals",
+    description: "Investment goals, progress, and contribution limits",
+  },
   {
     toolIds: ["get_asset_allocation"],
     label: "Allocation",

@@ -84,6 +84,7 @@ fn sync_entity_name(entity: &SyncEntity) -> &'static str {
         SyncEntity::AllocationTargetWeight => "allocation_target_weight",
         SyncEntity::SpendingSetting => "spending_setting",
         SyncEntity::ActivityTaxonomyAssignment => "activity_taxonomy_assignment",
+        SyncEntity::SpendingActivitySplit => "spending_activity_split",
         SyncEntity::SpendingActivityEvent => "spending_activity_event",
         SyncEntity::SpendingCategorizationRule => "spending_categorization_rule",
         SyncEntity::SpendingPresetRuleDeletion => "spending_preset_rule_deletion",

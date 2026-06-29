@@ -426,6 +426,8 @@ export const ACTIVITY_SUBTYPES = {
   REBATE: "REBATE",
   // REFUND: internal flow (fee correction/reversal, no net_contribution change)
   REFUND: "REFUND",
+  // REIMBURSEMENT: spending flow that offsets an expense category
+  REIMBURSEMENT: "REIMBURSEMENT",
 
   // ADJUSTMENT subtypes
   // OPTION_EXPIRY: removes option lots with no cash effect
@@ -448,6 +450,7 @@ export const SUBTYPE_DISPLAY_NAMES: Record<string, string> = {
   [ACTIVITY_SUBTYPES.BONUS]: "Bonus",
   [ACTIVITY_SUBTYPES.REBATE]: "Trading Rebate",
   [ACTIVITY_SUBTYPES.REFUND]: "Fee Refund",
+  [ACTIVITY_SUBTYPES.REIMBURSEMENT]: "Reimbursement",
   [ACTIVITY_SUBTYPES.OPTION_EXPIRY]: "Option Expiry",
   [ACTIVITY_SUBTYPES.POSITION_OPEN]: "Open Position",
   [ACTIVITY_SUBTYPES.POSITION_CLOSE]: "Close Position",
@@ -463,6 +466,7 @@ export const SUBTYPES_BY_ACTIVITY_TYPE: Record<string, string[]> = {
     ACTIVITY_SUBTYPES.BONUS,
     ACTIVITY_SUBTYPES.REBATE,
     ACTIVITY_SUBTYPES.REFUND,
+    ACTIVITY_SUBTYPES.REIMBURSEMENT,
   ],
   [ActivityType.ADJUSTMENT]: [ACTIVITY_SUBTYPES.OPTION_EXPIRY],
 };

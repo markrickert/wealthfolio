@@ -116,6 +116,10 @@ pub fn default_adapter_descriptors() -> Vec<EntityAdapterDescriptor> {
             table_name: "activity_taxonomy_assignments",
         },
         EntityAdapterDescriptor {
+            entity: SyncEntity::SpendingActivitySplit,
+            table_name: "spending_activity_splits",
+        },
+        EntityAdapterDescriptor {
             entity: SyncEntity::SpendingActivityEvent,
             table_name: "spending_activity_events",
         },

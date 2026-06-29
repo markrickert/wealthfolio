@@ -198,18 +198,42 @@ export interface MetricLabelWithInfoProps {
   label: string;
   infoText: string;
   warningText?: string | string[];
+  /** Substrings (e.g. account names) to render in bold within each warning. */
+  boldTerms?: string[];
   className?: string;
+}
+
+/** Render a warning string, bolding any occurrences of the provided terms. */
+function renderWarningText(text: string, boldTerms: string[]): React.ReactNode {
+  const terms = boldTerms.filter(Boolean).sort((a, b) => b.length - a.length);
+  if (terms.length === 0) return text;
+  const escaped = terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const parts = text.split(new RegExp(`(${escaped.join("|")})`, "g"));
+  return parts.map((part, index) =>
+    terms.includes(part) ? (
+      <strong key={index} className="text-foreground font-semibold">
+        {part}
+      </strong>
+    ) : (
+      part
+    ),
+  );
 }
 
 export const MetricLabelWithInfo: React.FC<MetricLabelWithInfoProps> = ({
   label,
   infoText,
   warningText,
+  boldTerms = [],
   className,
 }) => {
-  const warningItems = (Array.isArray(warningText) ? warningText : warningText ? [warningText] : [])
-    .map((warning) => warning.trim())
-    .filter(Boolean);
+  const warningItems = Array.from(
+    new Set(
+      (Array.isArray(warningText) ? warningText : warningText ? [warningText] : [])
+        .map((warning) => warning.trim())
+        .filter(Boolean),
+    ),
+  );
   const hasWarnings = warningItems.length > 0;
 
   return (
@@ -235,14 +259,33 @@ export const MetricLabelWithInfo: React.FC<MetricLabelWithInfoProps> = ({
             </span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-72 text-xs" side="top" align="center">
-          <div className="space-y-2">
-            <p>{infoText}</p>
+        <PopoverContent
+          className="w-[40rem] max-w-[calc(100vw-2rem)] p-0 text-sm"
+          side="top"
+          align="center"
+        >
+          <div className="space-y-3 p-5">
+            <p className="text-muted-foreground leading-relaxed">{infoText}</p>
             {hasWarnings && (
-              <div className="border-warning/30 text-warning space-y-1 border-t pt-2">
-                {warningItems.map((warning, index) => (
-                  <p key={`${warning}-${index}`}>{warning}</p>
-                ))}
+              <div className="space-y-2 border-t pt-3">
+                <div className="text-warning flex items-center gap-1.5 font-medium">
+                  <Icons.AlertTriangle className="h-4 w-4 shrink-0" />
+                  <span>
+                    {warningItems.length === 1
+                      ? "Calculation note"
+                      : `Calculation notes (${warningItems.length})`}
+                  </span>
+                </div>
+                <ul className="text-muted-foreground max-h-[60vh] space-y-2 overflow-y-auto pr-1 leading-relaxed">
+                  {warningItems.map((warning, index) => (
+                    <li key={`${warning}-${index}`} className="flex gap-1.5">
+                      <span className="bg-warning/70 mt-1.5 h-1 w-1 shrink-0 rounded-full" />
+                      <span className="min-w-0 break-words">
+                        {renderWarningText(warning, boldTerms)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </div>

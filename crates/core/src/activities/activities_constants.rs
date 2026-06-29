@@ -249,6 +249,11 @@ pub const ACTIVITY_SUBTYPE_REBATE: &str = "REBATE";
 /// Examples: erroneous fee refund, service credit.
 pub const ACTIVITY_SUBTYPE_REFUND: &str = "REFUND";
 
+/// Reimbursement: External cash credit that offsets an expense category.
+/// Used by spending/budgeting to reduce actuals without treating the money as income.
+/// Examples: friend reimburses dinner, employer pays back a travel expense.
+pub const ACTIVITY_SUBTYPE_REIMBURSEMENT: &str = "REIMBURSEMENT";
+
 /// Option expiry: option contract expired worthless.
 /// Removes lots via FIFO with no cash effect.
 pub const ACTIVITY_SUBTYPE_OPTION_EXPIRY: &str = "OPTION_EXPIRY";

@@ -51,7 +51,7 @@ function CurrencyExposurePill({
   );
 }
 
-function CashCurrencyPill({
+function CurrencyValuePill({
   currency,
   value,
   color,
@@ -81,6 +81,7 @@ export function ValueStrip({ data, currency, isLoading, compact }: ValueStripPro
   const { isBalanceHidden } = useBalancePrivacy();
 
   const cashRatio = data.total > 0 ? data.cash / data.total : 0;
+  const bookCostRatio = data.total > 0 ? data.bookCost / data.total : 0;
   const pad = compact ? "px-3.5 py-2.5" : "p-5";
   const gap = compact ? "space-y-0.5" : "space-y-2";
   const totalSize = compact ? "text-[22px] leading-7" : "text-3xl";
@@ -96,8 +97,8 @@ export function ValueStrip({ data, currency, isLoading, compact }: ValueStripPro
             <Skeleton className="h-7 w-40" />
             <Skeleton className="h-3 w-36" />
           </div>
-          <div className="grid grid-cols-2 divide-x border-t">
-            {[0, 1].map((i) => (
+          <div className="grid grid-cols-3 divide-x border-t">
+            {[0, 1, 2].map((i) => (
               <div key={i} className="space-y-1.5 px-4 py-3.5">
                 <Skeleton className="h-2.5 w-20" />
                 <Skeleton className="h-4 w-24" />
@@ -106,8 +107,8 @@ export function ValueStrip({ data, currency, isLoading, compact }: ValueStripPro
             ))}
           </div>
         </Card>
-        <Card className="hidden grid-cols-1 divide-y overflow-hidden sm:grid sm:grid-cols-[2.25fr_1.35fr_1fr] sm:divide-x sm:divide-y-0">
-          {[0, 1, 2].map((i) => (
+        <Card className="hidden grid-cols-1 divide-y overflow-hidden sm:grid sm:grid-cols-[2.25fr_1.35fr_1fr_1fr] sm:divide-x sm:divide-y-0">
+          {[0, 1, 2, 3].map((i) => (
             <div key={i} className={cn(gap, pad)}>
               <Skeleton className="h-3 w-24" />
               <Skeleton className={compact ? "h-6 w-32" : "h-7 w-32"} />
@@ -132,7 +133,7 @@ export function ValueStrip({ data, currency, isLoading, compact }: ValueStripPro
           </div>
         </div>
 
-        <div className="grid grid-cols-2 divide-x border-t">
+        <div className="grid grid-cols-3 divide-x border-t">
           <div className="space-y-1.5 px-4 py-3.5">
             <MobileEyebrow>Cash balance</MobileEyebrow>
             <div className="text-foreground text-[15px] font-bold leading-5 tracking-tight">
@@ -156,10 +157,20 @@ export function ValueStrip({ data, currency, isLoading, compact }: ValueStripPro
               {formatPercent(data.investedPercent / 100)} of portfolio
             </div>
           </div>
+
+          <div className="space-y-1.5 px-4 py-3.5">
+            <MobileEyebrow>Book cost</MobileEyebrow>
+            <div className="text-foreground text-[15px] font-bold leading-5 tracking-tight">
+              <AmountDisplay value={data.bookCost} currency={currency} isHidden={isBalanceHidden} />
+            </div>
+            <div className="text-muted-foreground leading-3.5 text-[10px] tabular-nums">
+              {formatPercent(bookCostRatio)} of portfolio
+            </div>
+          </div>
         </div>
       </Card>
 
-      <Card className="hidden grid-cols-1 divide-y overflow-hidden sm:grid sm:grid-cols-[2.25fr_1.35fr_1fr] sm:divide-x sm:divide-y-0">
+      <Card className="hidden grid-cols-1 divide-y overflow-hidden sm:grid sm:grid-cols-[2.25fr_1.35fr_1fr_1fr] sm:divide-x sm:divide-y-0">
         {/* Portfolio value — hero cell with a slight top-to-center gradient wash */}
         <div className={cn(gap, pad, "from-muted/60 bg-gradient-to-b to-transparent to-[60%]")}>
           <Eyebrow>Portfolio value</Eyebrow>
@@ -193,7 +204,7 @@ export function ValueStrip({ data, currency, isLoading, compact }: ValueStripPro
           {data.cashCurrencySplit.length > 1 ? (
             <div className={cn("flex flex-wrap items-center gap-1.5", subSize)}>
               {data.cashCurrencySplit.slice(0, 4).map((c, index) => (
-                <CashCurrencyPill
+                <CurrencyValuePill
                   key={c.currency}
                   currency={c.currency}
                   value={c.value}
@@ -218,6 +229,31 @@ export function ValueStrip({ data, currency, isLoading, compact }: ValueStripPro
           <div className={cn("text-muted-foreground tabular-nums", subSize)}>
             {formatPercent(data.investedPercent / 100)} of portfolio
           </div>
+        </div>
+
+        {/* Book cost — total cost basis of invested (non-cash) holdings */}
+        <div className={cn(gap, pad)}>
+          <Eyebrow>Book cost</Eyebrow>
+          <div className={cn("text-foreground font-bold tabular-nums tracking-tight", secSize)}>
+            <AmountDisplay value={data.bookCost} currency={currency} isHidden={isBalanceHidden} />
+          </div>
+          {data.bookCostCurrencySplit.length > 1 ? (
+            <div className={cn("flex flex-wrap items-center gap-1.5", subSize)}>
+              {data.bookCostCurrencySplit.slice(0, 4).map((c, index) => (
+                <CurrencyValuePill
+                  key={c.currency}
+                  currency={c.currency}
+                  value={c.value}
+                  color={paletteColor(index)}
+                  isHidden={isBalanceHidden}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className={cn("text-muted-foreground tabular-nums", subSize)}>
+              {formatPercent(bookCostRatio)} of portfolio
+            </div>
+          )}
         </div>
       </Card>
     </>

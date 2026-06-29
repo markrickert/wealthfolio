@@ -350,6 +350,15 @@ const IconsInternal = {
   Presentation: Presentation,
   Scissors: Scissors,
   Split: Split,
+  SplitHorizontal: ({ style, ...props }: IconProps) => (
+    <Split
+      {...props}
+      style={{
+        ...style,
+        transform: style?.transform ? `${style.transform} rotate(90deg)` : "rotate(90deg)",
+      }}
+    />
+  ),
   Square: Square,
   Target: Target,
   SparklesOutline: Sparkles,
@@ -960,6 +969,7 @@ export type IconName =
   | "Presentation"
   | "Scissors"
   | "Split"
+  | "SplitHorizontal"
   | "Square"
   | "Target"
   | "SparklesOutline"

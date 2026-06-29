@@ -136,6 +136,13 @@ const SIGNED_CASH_MOVEMENT_LABELS = new Set(["TRANSFER", "TRANSFERTF", "MONEYMOV
 
 const SIGNED_SECURITY_TRANSFER_LABELS = new Set(["INTERNALSECURITYTRANSFER"]);
 
+const REIMBURSEMENT_LABELS = new Set([
+  "REIMBURSEMENT",
+  "REIMBURSED",
+  "REIMBURSE",
+  "EXPENSEREIMBURSEMENT",
+]);
+
 function normalizeSignAwareActivityLabel(value: string | undefined): string {
   return (
     value
@@ -641,10 +648,17 @@ export function createDraftActivities(
       : undefined;
     const rawTypePositionIntentSubtype = rawTypePositionIntentType ? rawType : undefined;
     const normalizedSubtype = rawSubtype?.trim() ?? rawTypePositionIntentSubtype ?? signedFxSubtype;
-    const subtype =
+    const inferredCreditSubtype =
+      activityType === ActivityType.CREDIT &&
+      (REIMBURSEMENT_LABELS.has(normalizeSignAwareActivityLabel(rawType)) ||
+        REIMBURSEMENT_LABELS.has(normalizeSignAwareActivityLabel(rawSubtype)))
+        ? ACTIVITY_SUBTYPES.REIMBURSEMENT
+        : undefined;
+    const canonicalSubtype =
       normalizedSubtype && normalizedSubtype.toUpperCase() !== activityType
         ? canonicalizeActivitySubtype(activityType ?? "", normalizedSubtype)
         : undefined;
+    const subtype = inferredCreditSubtype ?? canonicalSubtype;
 
     // Resolve account ID: use CSV account mapping, or fall back to default
     let accountId = accountMappings[""] || defaultAccountId;

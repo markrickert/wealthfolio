@@ -533,6 +533,13 @@ mod tests {
             }
             Ok(rows)
         }
+
+        async fn assign_many_single_select_clearing_splits(
+            &self,
+            items: Vec<NewActivityTaxonomyAssignment>,
+        ) -> Result<Vec<ActivityTaxonomyAssignment>> {
+            self.assign_many_single_select(items).await
+        }
         async fn assign_rule_many_single_select(
             &self,
             items: Vec<NewActivityTaxonomyAssignment>,

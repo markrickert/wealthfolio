@@ -20,6 +20,9 @@ fn test_config(db_path: String, addons_root: String) -> Config {
         secrets_encryption_key: [7; 32],
         auth: None,
         oidc: None,
+        mcp_enabled: false,
+        mcp_audit_enabled: true,
+        mcp_allowed_hosts: None,
     }
 }
 

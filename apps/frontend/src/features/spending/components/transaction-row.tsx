@@ -14,11 +14,15 @@ import {
   TableRow,
 } from "@wealthfolio/ui";
 import type { Account } from "@/lib/types";
-import { cn, formatDate } from "@/lib/utils";
+import { cn, formatDateTime } from "@/lib/utils";
 
 import { QuickCategorizePopover } from "./quick-categorize-popover";
 import { QuickEventPopover } from "./quick-event-popover";
-import { getCashActivityLabel, getEffectiveCashActivityType } from "../lib/constants";
+import {
+  getCashActivityLabel,
+  getEffectiveCashActivityType,
+  isCreditCardAccountType,
+} from "../lib/constants";
 import {
   getTransactionDisplay,
   getTransferLinkStatus,
@@ -31,11 +35,14 @@ interface TransactionRowProps {
   account: Account | undefined;
   event: { id: string; name: string; eventTypeId: string } | null;
   eventTypeColor: string | null;
+  appTimezone?: string;
   isSelected: boolean;
   onToggleSelect: (id: string) => void;
   onAssignCategory: (activityId: string, taxonomyId: string, categoryId: string) => void;
   onClearCategory: (activityId: string, taxonomyId: string) => void;
   onSetEvent: (activityId: string, eventId: string | null) => void;
+  onMarkReimbursement: (row: TransactionRowVM) => void;
+  onEditSplits: (row: TransactionRowVM) => void;
   onEdit: (row: TransactionRowVM) => void;
   onDuplicate: (row: TransactionRowVM) => void;
   onDelete: (row: TransactionRowVM) => void;
@@ -48,11 +55,14 @@ function TransactionRowImpl({
   account,
   event,
   eventTypeColor,
+  appTimezone,
   isSelected,
   onToggleSelect,
   onAssignCategory,
   onClearCategory,
   onSetEvent,
+  onMarkReimbursement,
+  onEditSplits,
   onEdit,
   onDuplicate,
   onDelete,
@@ -60,15 +70,18 @@ function TransactionRowImpl({
   onUnlinkTransfer,
 }: TransactionRowProps) {
   const a = row.activity;
-  const { isOutflow, isIncome, isSaving, isNeutral, sign, safeAmount } = getTransactionDisplay(
-    a,
-    account?.accountType,
-  );
+  const { isOutflow, isIncome, isSaving, isRefund, isNeutral, sign, safeAmount } =
+    getTransactionDisplay(a, account?.accountType);
   const accountName = account?.name ?? a.accountId;
   const rowAriaLabel = isSelected ? "Deselect transaction" : "Select transaction";
   const activityType = getEffectiveCashActivityType(a);
   const isTransfer = isTransferCashActivity(a);
   const transferLinkStatus = getTransferLinkStatus(a);
+  const canMarkReimbursement =
+    isIncome && !isCreditCardAccountType(account?.accountType) && activityType !== "CREDIT";
+  const formattedDate = formatDateTime(a.activityDate, appTimezone);
+  const typeBadgeVariant =
+    isIncome || isSaving || isRefund ? "success" : isOutflow ? "destructive" : "secondary";
 
   return (
     <TableRow
@@ -83,11 +96,14 @@ function TransactionRowImpl({
         />
       </TableCell>
       <TableCell className="hidden whitespace-nowrap text-sm sm:table-cell">
-        {formatDate(a.activityDate)}
+        <div className="ml-2 flex flex-col">
+          <span>{formattedDate.date}</span>
+          <span className="text-muted-foreground text-xs font-light">{formattedDate.time}</span>
+        </div>
       </TableCell>
       <TableCell className="hidden md:table-cell">
-        <Badge variant="outline" className="text-xs">
-          {getCashActivityLabel(activityType, account?.accountType)}
+        <Badge variant={typeBadgeVariant} className="rounded-sm text-xs font-normal">
+          {getCashActivityLabel(activityType, account?.accountType, a.subtype)}
         </Badge>
       </TableCell>
       <TableCell className="hidden text-sm lg:table-cell">
@@ -106,12 +122,21 @@ function TransactionRowImpl({
           )}
         </div>
         <div className="text-muted-foreground mt-0.5 truncate text-[11px] sm:hidden">
-          {formatDate(a.activityDate)} · {accountName}
+          {formattedDate.date} {formattedDate.time} · {accountName}
         </div>
       </TableCell>
       <TableCell className="hidden md:table-cell">
         {isNeutral ? (
           <span className="text-muted-foreground text-xs">Neutral</span>
+        ) : row.splitCount > 0 ? (
+          <button
+            type="button"
+            className="hover:bg-muted/60 -mx-1 inline-flex max-w-[180px] items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left transition-colors"
+            onClick={() => onEditSplits(row)}
+          >
+            <Icons.SplitHorizontal className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate text-sm">Split · {row.splitCount} lines</span>
+          </button>
         ) : (
           <QuickCategorizePopover
             scope={isIncome ? "income" : isSaving ? "saving" : "expense"}
@@ -207,6 +232,18 @@ function TransactionRowImpl({
               <Icons.Pencil className="mr-2 h-4 w-4" aria-hidden="true" />
               Edit
             </DropdownMenuItem>
+            {canMarkReimbursement && (
+              <DropdownMenuItem onClick={() => onMarkReimbursement(row)}>
+                <Icons.RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+                Mark as reimbursement
+              </DropdownMenuItem>
+            )}
+            {!isNeutral && (
+              <DropdownMenuItem onClick={() => onEditSplits(row)}>
+                <Icons.SplitHorizontal className="mr-2 h-4 w-4" aria-hidden="true" />
+                Split transaction
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => onDuplicate(row)}>
               <Icons.Copy className="mr-2 h-4 w-4" aria-hidden="true" />
               Duplicate

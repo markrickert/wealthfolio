@@ -312,6 +312,9 @@ export function getDefaultActivityMappingsForImportProfile(
       "CASHBACK",
       "CASH BACK",
       "REWARDS",
+      "REIMBURSEMENT",
+      "REIMBURSED",
+      "EXPENSE REIMBURSEMENT",
     ]);
     appendAliases(mappings, ActivityType.FEE, ["ANNUAL FEE", "LATE FEE", "SERVICE FEE"]);
     appendAliases(mappings, ActivityType.INTEREST, ["INTEREST CHARGE", "FINANCE CHARGE"]);
@@ -343,6 +346,9 @@ export function getDefaultActivityMappingsForImportProfile(
       "CASHBACK",
       "CASH BACK",
       "REWARDS",
+      "REIMBURSEMENT",
+      "REIMBURSED",
+      "EXPENSE REIMBURSEMENT",
     ]);
   }
 

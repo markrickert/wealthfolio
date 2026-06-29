@@ -29,7 +29,7 @@ import {
   isSplitActivity,
   formatSplitRatio,
 } from "@/lib/activity-utils";
-import { ActivityType, getExchangeDisplayName } from "@/lib/constants";
+import { ActivityType, SUBTYPE_DISPLAY_NAMES, getExchangeDisplayName } from "@/lib/constants";
 import { ActivityDetails } from "@/lib/types";
 import { formatDateTime } from "@/lib/utils";
 import { useSettingsContext } from "@/lib/settings-provider";
@@ -121,13 +121,24 @@ export const ActivityTable = ({
         header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
         cell: ({ row }) => {
           const activityType = row.getValue("activityType");
+          const normalizedActivityType = String(activityType).trim().toUpperCase();
+          const normalizedSubtype = row.original.subtype?.trim().toUpperCase();
+          const subtypeLabel =
+            normalizedSubtype && normalizedSubtype !== normalizedActivityType
+              ? (SUBTYPE_DISPLAY_NAMES[normalizedSubtype] ?? row.original.subtype)
+              : undefined;
+
           return (
-            <div className="flex items-center text-sm">
+            <div className="flex min-w-0 max-w-[160px] flex-col items-start gap-1 text-sm">
               <ActivityTypeBadge
                 type={activityType as ActivityType}
-                subtype={row.original.subtype}
                 className="whitespace-nowrap text-xs font-normal"
               />
+              {subtypeLabel && (
+                <span className="text-muted-foreground max-w-full truncate text-xs font-light">
+                  {subtypeLabel}
+                </span>
+              )}
             </div>
           );
         },
@@ -501,6 +512,7 @@ export const ActivityTable = ({
       },
     ],
     [
+      appTimezone,
       handleEdit,
       handleDelete,
       handleDuplicate,

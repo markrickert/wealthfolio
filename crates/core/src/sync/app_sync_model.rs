@@ -40,6 +40,8 @@ pub const APP_SYNC_TABLES: &[&str] = &[
     "asset_taxonomy_assignments",
     // Spending activity↔category join. Depends on: activities, taxonomies, taxonomy_categories
     "activity_taxonomy_assignments",
+    // Spending activity split lines. Depends on: activities, taxonomies, taxonomy_categories
+    "spending_activity_splits",
     // Spending categorization rules. Depends on: accounts (optional FK), taxonomies, taxonomy_categories
     "spending_categorization_rules",
     // Preset rule deletion memory. Depends logically on spending_categorization_rules payloads.
@@ -106,6 +108,7 @@ pub enum SyncEntity {
     // (DomainEvent, EventBus, sync_applied_events, etc.).
     SpendingSetting,
     ActivityTaxonomyAssignment,
+    SpendingActivitySplit,
     SpendingActivityEvent,
     SpendingCategorizationRule,
     SpendingPresetRuleDeletion,
@@ -344,6 +347,7 @@ mod tests {
             SyncEntity::AllocationTargetWeight,
             SyncEntity::SpendingSetting,
             SyncEntity::ActivityTaxonomyAssignment,
+            SyncEntity::SpendingActivitySplit,
             SyncEntity::SpendingActivityEvent,
             SyncEntity::SpendingCategorizationRule,
             SyncEntity::SpendingPresetRuleDeletion,
@@ -384,6 +388,7 @@ mod tests {
             "\"allocation_target_weight\"",
             "\"spending_setting\"",
             "\"activity_taxonomy_assignment\"",
+            "\"spending_activity_split\"",
             "\"spending_activity_event\"",
             "\"spending_categorization_rule\"",
             "\"spending_preset_rule_deletion\"",

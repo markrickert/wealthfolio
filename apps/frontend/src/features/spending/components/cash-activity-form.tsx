@@ -58,6 +58,7 @@ import { useSpendingSettings } from "../hooks/use-spending-settings";
 import { QuickCategorizePopover } from "./quick-categorize-popover";
 import { QuickEventPopover } from "./quick-event-popover";
 import type { CashFlowBucket } from "../types/cash-activity";
+import { resolveCashActivitySubtype } from "../lib/cash-activity-form-utils";
 
 const SPENDING_TAXONOMY = "spending_categories";
 const INCOME_TAXONOMY = "income_sources";
@@ -244,7 +245,13 @@ export function CashActivityForm({
     () =>
       activityTypeOptions.map((type) => ({
         type,
-        label: getCashActivityLabel(type, selectedAccount?.accountType),
+        label: getCashActivityLabel(
+          type,
+          selectedAccount?.accountType,
+          type === "CREDIT" && !isCreditCardAccountType(selectedAccount?.accountType)
+            ? "REIMBURSEMENT"
+            : undefined,
+        ),
         description: getMobileTypeDescription(type),
         Icon: getMobileTypeIcon(type),
       })),
@@ -278,6 +285,12 @@ export function CashActivityForm({
       const dateStr = values.activityDate.toISOString();
       const account = spendingAccounts.find((a) => a.id === values.accountId);
       const currency = account?.currency ?? "USD";
+      const subtype = resolveCashActivitySubtype({
+        activityType: values.activityType,
+        accountType: account?.accountType,
+        existingActivityType: activity?.activityType,
+        existingSubtype: activity?.subtype,
+      });
 
       let saved: Activity;
       if (isEditing && activity?.id) {
@@ -285,6 +298,7 @@ export function CashActivityForm({
           id: activity.id,
           accountId: values.accountId,
           activityType: values.activityType,
+          subtype,
           activityDate: dateStr,
           amount: values.amount,
           currency,
@@ -295,6 +309,7 @@ export function CashActivityForm({
         const create: ActivityCreate = {
           accountId: values.accountId,
           activityType: values.activityType,
+          subtype,
           activityDate: dateStr,
           amount: values.amount,
           currency,
@@ -500,7 +515,14 @@ export function CashActivityForm({
                                 <SelectContent>
                                   {activityTypeOptions.map((t) => (
                                     <SelectItem key={t} value={t}>
-                                      {getCashActivityLabel(t, selectedAccount?.accountType)}
+                                      {getCashActivityLabel(
+                                        t,
+                                        selectedAccount?.accountType,
+                                        t === "CREDIT" &&
+                                          !isCreditCardAccountType(selectedAccount?.accountType)
+                                          ? "REIMBURSEMENT"
+                                          : undefined,
+                                      )}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>

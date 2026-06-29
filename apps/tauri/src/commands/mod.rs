@@ -19,6 +19,7 @@ pub mod goal;
 pub mod health;
 pub mod limits;
 pub mod market_data;
+pub mod mcp;
 pub mod platform;
 pub mod portfolio;
 pub mod portfolios;

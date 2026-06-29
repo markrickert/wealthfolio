@@ -47,6 +47,14 @@ export type {
   BackendSyncSnapshotUploadResult,
   EphemeralKeyPair,
   DataExportResult,
+  McpServerStatus,
+  AgentAccessStatus,
+  AgentAccessToken,
+  CreateAgentAccessTokenInput,
+  CreatedAgentAccessToken,
+  AgentAuditEntry,
+  AgentAuditPage,
+  AgentAuditQuery,
 } from "../types";
 
 // Re-export AI types from features/ai-assistant
@@ -175,6 +183,22 @@ export {
   submitAddonRating,
   fetchAddonStoreListings,
 } from "./addons";
+
+// Agent Access Commands (embedded MCP server; PATs are web-only stubs)
+export {
+  getMcpStatus,
+  setMcpEnabled,
+  setMcpAutoStart,
+  startMcp,
+  stopMcp,
+  setMcpAuditEnabled,
+  listAgentAuditLog,
+  purgeAgentAuditLog,
+  getAgentAccessStatus,
+  listAgentAccessTokens,
+  createAgentAccessToken,
+  deleteAgentAccessToken,
+} from "./agent-access";
 
 // AI Streaming (Tauri Channel-based implementation)
 export { streamAiChat } from "./ai-streaming";

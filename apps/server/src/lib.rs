@@ -7,6 +7,7 @@ pub mod error;
 pub mod events;
 pub mod features;
 mod main_lib;
+pub mod mcp;
 pub mod models;
 pub mod oidc;
 pub mod secrets;

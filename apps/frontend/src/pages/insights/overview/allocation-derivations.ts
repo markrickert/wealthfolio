@@ -39,13 +39,50 @@ export interface ValueStripData {
   cash: number;
   invested: number;
   investedPercent: number;
+  bookCost: number;
   holdingsCount: number;
   accountsCount: number;
   currencySplit: { currency: string; value: number; percentage: number }[];
   cashCurrencySplit: { currency: string; value: number; percentage: number }[];
+  bookCostCurrencySplit: { currency: string; value: number; percentage: number }[];
 }
 
 const num = (v: number | null | undefined): number => Number(v) || 0;
+
+/**
+ * Total cost basis of invested (non-cash) holdings, plus a per-currency breakdown
+ * (local value + base-weighted percentage) — mirrors the cash-by-currency split.
+ */
+export function computeBookCost(holdings: Holding[]): {
+  total: number;
+  currencySplit: { currency: string; value: number; percentage: number }[];
+} {
+  let total = 0;
+  const byCurrency = new Map<string, { localValue: number; baseValue: number }>();
+
+  for (const holding of holdings) {
+    if (isCash(holding)) continue;
+    const base = num(holding.costBasis?.base);
+    const local = holding.costBasis?.local != null ? num(holding.costBasis.local) : base;
+    const currency = holding.localCurrency || holding.baseCurrency;
+    total += base;
+    const existing = byCurrency.get(currency) ?? { localValue: 0, baseValue: 0 };
+    byCurrency.set(currency, {
+      localValue: existing.localValue + local,
+      baseValue: existing.baseValue + base,
+    });
+  }
+
+  const currencySplit = [...byCurrency.entries()]
+    .map(([currency, value]) => ({
+      currency,
+      value: value.localValue,
+      percentage: total > 0 ? (value.baseValue / total) * 100 : 0,
+    }))
+    .sort((a, b) => b.percentage - a.percentage);
+
+  return { total, currencySplit };
+}
 
 function currencySymbol(currency: string): string {
   try {
@@ -129,28 +166,41 @@ export function computeValueStrip(holdings: Holding[], accounts: Account[]): Val
   // Prefer in-scope accounts derived from holdings; fall back to the account list.
   const accountsCount = accountIds.size || accounts.length;
 
+  const bookCost = computeBookCost(holdings);
+
   return {
     total,
     cash,
     invested,
     investedPercent: total > 0 ? (invested / total) * 100 : 0,
+    bookCost: bookCost.total,
     holdingsCount: holdings.length,
     accountsCount,
     currencySplit,
     cashCurrencySplit,
+    bookCostCurrencySplit: bookCost.currencySplit,
   };
 }
 
-export function valueStripFromCurrentSummary(summary: CurrentValuationSummary): ValueStripData {
+/**
+ * Map a scoped current-valuation summary into value-strip data. The summary has no cost basis,
+ * so pass `holdings` to populate book cost; otherwise it falls back to 0.
+ */
+export function valueStripFromCurrentSummary(
+  summary: CurrentValuationSummary,
+  holdings: Holding[] = [],
+): ValueStripData {
   const total = num(summary.totalValueBase);
   const cash = num(summary.cashBalanceBase);
   const invested = num(summary.investmentMarketValueBase);
+  const bookCost = computeBookCost(holdings);
 
   return {
     total,
     cash,
     invested,
     investedPercent: total > 0 ? (invested / total) * 100 : 0,
+    bookCost: bookCost.total,
     holdingsCount: summary.holdingsCount,
     accountsCount: summary.accountCount,
     currencySplit: summary.currencySplit.map((split) => ({
@@ -163,6 +213,7 @@ export function valueStripFromCurrentSummary(summary: CurrentValuationSummary): 
       value: num(split.valueLocal ?? split.valueBase),
       percentage: split.percentage,
     })),
+    bookCostCurrencySplit: bookCost.currencySplit,
   };
 }
 

@@ -145,7 +145,7 @@ export function OverviewPage({
   const valueStrip = useMemo(
     () =>
       currentValuation?.summary
-        ? valueStripFromCurrentSummary(currentValuation.summary)
+        ? valueStripFromCurrentSummary(currentValuation.summary, portfolioHoldings)
         : computeValueStrip(portfolioHoldings, accounts),
     [currentValuation?.summary, portfolioHoldings, accounts],
   );

@@ -586,6 +586,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    spending_activity_splits (id) {
+        id -> Text,
+        activity_id -> Text,
+        taxonomy_id -> Text,
+        category_id -> Text,
+        amount -> Text,
+        note -> Nullable<Text>,
+        sort_order -> Integer,
+        created_at -> Text,
+        updated_at -> Text,
+    }
+}
+
+diesel::table! {
     spending_event_types (id) {
         id -> Text,
         key -> Nullable<Text>,
@@ -753,6 +767,35 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    personal_access_tokens (id) {
+        id -> Text,
+        name -> Text,
+        token_prefix -> Text,
+        token_hash -> Text,
+        scopes_json -> Text,
+        expires_at -> Nullable<Text>,
+        last_used_at -> Nullable<Text>,
+        revoked_at -> Nullable<Text>,
+        created_at -> Text,
+    }
+}
+
+diesel::table! {
+    mcp_audit_log (id) {
+        id -> Text,
+        session_id -> Text,
+        actor_kind -> Text,
+        actor_fingerprint -> Text,
+        tool -> Text,
+        scopes_json -> Text,
+        args_summary -> Nullable<Text>,
+        outcome -> Text,
+        error_message -> Nullable<Text>,
+        created_at -> Text,
+    }
+}
+
 diesel::joinable!(allocation_target_weights -> allocation_targets (target_id));
 
 diesel::joinable!(accounts -> platforms (platform_id));
@@ -782,6 +825,8 @@ diesel::joinable!(activity_taxonomy_assignments -> activities (activity_id));
 diesel::joinable!(activity_taxonomy_assignments -> taxonomies (taxonomy_id));
 diesel::joinable!(spending_activity_events -> activities (activity_id));
 diesel::joinable!(spending_activity_events -> spending_events (event_id));
+diesel::joinable!(spending_activity_splits -> activities (activity_id));
+diesel::joinable!(spending_activity_splits -> taxonomies (taxonomy_id));
 diesel::joinable!(spending_events -> spending_event_types (event_type_id));
 diesel::joinable!(spending_categorization_rules -> accounts (account_id));
 diesel::joinable!(spending_categorization_rules -> taxonomies (taxonomy_id));
@@ -835,6 +880,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     taxonomy_categories,
     activity_taxonomy_assignments,
     spending_activity_events,
+    spending_activity_splits,
     spending_event_types,
     spending_events,
     spending_categorization_rules,
@@ -845,4 +891,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     budget_rollover_settings,
     allocation_targets,
     allocation_target_weights,
+    personal_access_tokens,
+    mcp_audit_log,
 );

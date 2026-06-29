@@ -937,6 +937,7 @@ fn entity_storage_mapping(entity: &SyncEntity) -> Option<(&'static str, &'static
         SyncEntity::CustomTaxonomy => None,
         // Spending module entities
         SyncEntity::ActivityTaxonomyAssignment => Some(("activity_taxonomy_assignments", "id")),
+        SyncEntity::SpendingActivitySplit => Some(("spending_activity_splits", "id")),
         SyncEntity::SpendingActivityEvent => Some(("spending_activity_events", "activity_id")),
         SyncEntity::SpendingCategorizationRule => Some(("spending_categorization_rules", "id")),
         // Composite primary key; handled by custom branch in apply_remote_event_lww_tx.
