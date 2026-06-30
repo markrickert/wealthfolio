@@ -1,5 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, type ReactNode } from "react";
 import { useFormContext, useWatch, type FieldPath, type FieldValues } from "react-hook-form";
+import { cn } from "@/lib/utils";
 import {
   Collapsible,
   CollapsibleContent,
@@ -54,6 +55,12 @@ interface AdvancedOptionsSectionProps<TFieldValues extends FieldValues = FieldVa
   defaultOpen?: boolean;
   /** Variant for different layouts */
   variant?: "desktop" | "mobile";
+  /** Trigger label (default: "Advanced Options") */
+  title?: string;
+  /** Render inside a dashed-border container with a leading "+" affordance */
+  dashed?: boolean;
+  /** Extra content rendered inside the collapsible below the advanced grid (e.g. Notes) */
+  children?: ReactNode;
 }
 
 /**
@@ -74,6 +81,9 @@ export function AdvancedOptionsSection<TFieldValues extends FieldValues = FieldV
   showSubtype = true,
   defaultOpen = false,
   variant = "desktop",
+  title = "Advanced Options",
+  dashed = false,
+  children,
 }: AdvancedOptionsSectionProps<TFieldValues>) {
   const isMobile = variant === "mobile";
   const [isOpen, setIsOpen] = useState(defaultOpen);
@@ -120,12 +130,12 @@ export function AdvancedOptionsSection<TFieldValues extends FieldValues = FieldV
     return currencies;
   }, [assetCurrency, accountCurrency, baseCurrency]);
 
-  // Don't render if nothing to show
-  const hasContent =
+  // Don't render if there are no advanced fields and no extra content
+  const hasAdvancedFields =
     (showCurrency && currencyName) ||
     (showFxRate && fxRateName) ||
     (showSubtype && subtypeName && availableSubtypes.length > 0);
-  if (!hasContent) {
+  if (!hasAdvancedFields && !children) {
     return null;
   }
 
@@ -133,7 +143,11 @@ export function AdvancedOptionsSection<TFieldValues extends FieldValues = FieldV
     <Collapsible
       open={isOpen}
       onOpenChange={setIsOpen}
-      className={isMobile ? "bg-muted/30 w-full rounded-md border px-3 py-2" : "w-full"}
+      className={cn(
+        "w-full",
+        dashed && "border-border rounded-lg border border-dashed px-4 py-1",
+        !dashed && isMobile && "bg-muted/30 rounded-md border px-3 py-2",
+      )}
     >
       <CollapsibleTrigger asChild>
         <Button
@@ -143,129 +157,139 @@ export function AdvancedOptionsSection<TFieldValues extends FieldValues = FieldV
           data-testid="advanced-options-button"
           className="text-muted-foreground hover:text-foreground flex w-full items-center justify-between px-0 py-1 hover:bg-transparent"
         >
-          <span className="text-sm font-medium">Advanced Options</span>
+          <span className="flex items-center gap-1.5 text-sm font-medium">
+            {dashed && <Icons.Plus className="h-3.5 w-3.5" />}
+            {title}
+          </span>
           <Icons.ChevronDown
             className={`h-4 w-4 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
           />
         </Button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="space-y-4 pt-2">
-        <div
-          className={isMobile ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 gap-4 sm:grid-cols-2"}
-        >
-          {/* Currency Field */}
-          {showCurrency && currencyName && (
-            <FormField
-              control={control}
-              name={currencyName}
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Currency</FormLabel>
-                  <FormControl>
-                    <CurrencyInput
-                      value={field.value ?? ""}
-                      onChange={field.onChange}
-                      placeholder="Select currency"
-                      className="w-full"
-                      data-testid="advanced-currency-input"
-                    />
-                  </FormControl>
-                  {prioritizedCurrencies.length > 1 && (
-                    <div className="flex flex-wrap gap-1 pt-1">
-                      {prioritizedCurrencies.map((currency, index) => (
-                        <button
-                          key={currency}
-                          type="button"
-                          onClick={() => field.onChange(currency)}
-                          className={`rounded px-2 py-0.5 text-xs transition-colors ${
-                            field.value === currency
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted hover:bg-muted/80 text-muted-foreground"
-                          }`}
-                          title={
-                            index === 0 && assetCurrency === currency
-                              ? "Asset currency"
-                              : index <= 1 && accountCurrency === currency
-                                ? "Account currency"
-                                : "Base currency"
-                          }
-                        >
-                          {currency}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          )}
-
-          {/* FX Rate Field */}
-          {showFxRate && fxRateName && (
-            <FormField
-              control={control}
-              name={fxRateName}
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>FX Rate</FormLabel>
-                  <FormControl>
-                    <MoneyInput
-                      ref={field.ref}
-                      name={field.name}
-                      value={field.value}
-                      onValueChange={field.onChange}
-                      placeholder="1.0000"
-                      maxDecimalPlaces={6}
-                      className="w-full"
-                      data-testid="fx-rate-input"
-                    />
-                  </FormControl>
-                  {fromCurrency && accountCurrency && fromCurrency !== accountCurrency && (
-                    <FormDescription className="text-xs">
-                      1 {fromCurrency} = {fxRateDisplay} {accountCurrency}
-                    </FormDescription>
-                  )}
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          )}
-
-          {/* Subtype Field */}
-          {showSubtype && subtypeName && availableSubtypes.length > 0 && (
-            <FormField
-              control={control}
-              name={subtypeName}
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Subtype</FormLabel>
-                  <FormControl>
-                    <Select
-                      onValueChange={(value) => field.onChange(value === "__none__" ? null : value)}
-                      value={field.value ?? "__none__"}
-                    >
-                      <SelectTrigger aria-label="Subtype" data-testid="subtype-select">
-                        <SelectValue placeholder="Select subtype" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">
-                          <span className="text-muted-foreground">None</span>
-                        </SelectItem>
-                        {availableSubtypes.map((subtype) => (
-                          <SelectItem key={subtype} value={subtype}>
-                            {SUBTYPE_DISPLAY_NAMES[subtype] || subtype}
-                          </SelectItem>
+      <CollapsibleContent className="space-y-4 pb-2 pt-2">
+        {hasAdvancedFields && (
+          <div
+            className={
+              isMobile ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 gap-4 sm:grid-cols-2"
+            }
+          >
+            {/* Currency Field */}
+            {showCurrency && currencyName && (
+              <FormField
+                control={control}
+                name={currencyName}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Currency</FormLabel>
+                    <FormControl>
+                      <CurrencyInput
+                        value={field.value ?? ""}
+                        onChange={field.onChange}
+                        placeholder="Select currency"
+                        className="w-full"
+                        data-testid="advanced-currency-input"
+                      />
+                    </FormControl>
+                    {prioritizedCurrencies.length > 1 && (
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {prioritizedCurrencies.map((currency, index) => (
+                          <button
+                            key={currency}
+                            type="button"
+                            onClick={() => field.onChange(currency)}
+                            className={`rounded px-2 py-0.5 text-xs transition-colors ${
+                              field.value === currency
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-muted hover:bg-muted/80 text-muted-foreground"
+                            }`}
+                            title={
+                              index === 0 && assetCurrency === currency
+                                ? "Asset currency"
+                                : index <= 1 && accountCurrency === currency
+                                  ? "Account currency"
+                                  : "Base currency"
+                            }
+                          >
+                            {currency}
+                          </button>
                         ))}
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          )}
-        </div>
+                      </div>
+                    )}
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
+            {/* FX Rate Field */}
+            {showFxRate && fxRateName && (
+              <FormField
+                control={control}
+                name={fxRateName}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>FX Rate</FormLabel>
+                    <FormControl>
+                      <MoneyInput
+                        ref={field.ref}
+                        name={field.name}
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        placeholder="1.0000"
+                        maxDecimalPlaces={6}
+                        className="w-full"
+                        data-testid="fx-rate-input"
+                      />
+                    </FormControl>
+                    {fromCurrency && accountCurrency && fromCurrency !== accountCurrency && (
+                      <FormDescription className="text-xs">
+                        1 {fromCurrency} = {fxRateDisplay} {accountCurrency}
+                      </FormDescription>
+                    )}
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
+            {/* Subtype Field */}
+            {showSubtype && subtypeName && availableSubtypes.length > 0 && (
+              <FormField
+                control={control}
+                name={subtypeName}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Subtype</FormLabel>
+                    <FormControl>
+                      <Select
+                        onValueChange={(value) =>
+                          field.onChange(value === "__none__" ? null : value)
+                        }
+                        value={field.value ?? "__none__"}
+                      >
+                        <SelectTrigger aria-label="Subtype" data-testid="subtype-select">
+                          <SelectValue placeholder="Select subtype" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">
+                            <span className="text-muted-foreground">None</span>
+                          </SelectItem>
+                          {availableSubtypes.map((subtype) => (
+                            <SelectItem key={subtype} value={subtype}>
+                              {SUBTYPE_DISPLAY_NAMES[subtype] || subtype}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+          </div>
+        )}
+        {children}
       </CollapsibleContent>
     </Collapsible>
   );

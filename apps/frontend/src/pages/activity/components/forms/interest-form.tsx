@@ -3,7 +3,6 @@ import { ACTIVITY_SUBTYPES, ActivityType } from "@/lib/constants";
 import { roundDecimal } from "@/lib/utils";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@wealthfolio/ui/components/ui/button";
-import { Card, CardContent } from "@wealthfolio/ui/components/ui/card";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { Label } from "@wealthfolio/ui/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@wealthfolio/ui/components/ui/radio-group";
@@ -16,6 +15,7 @@ import {
   AmountInput,
   createValidatedSubmit,
   DatePicker,
+  FormSection,
   NotesInput,
   QuantityInput,
   SymbolSearch,
@@ -201,95 +201,90 @@ export function InterestForm({
   return (
     <FormProvider {...form}>
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Card>
-          <CardContent className="space-y-6 pt-4">
-            {/* Account Selection */}
-            <AccountSelect name="accountId" accounts={accounts} currencyName="currency" />
+        <FormSection title="Asset & Account">
+          {/* Optional Symbol (e.g., for bond interest) */}
+          <SymbolSearch
+            name="symbol"
+            label={isStakingReward ? "Reward asset" : "Symbol (optional)"}
+            exchangeMicName="exchangeMic"
+            currencyName="currency"
+            quoteCcyName="symbolQuoteCcy"
+            instrumentTypeName="symbolInstrumentType"
+            existingAssetIdName="existingAssetId"
+          />
+          <input type="hidden" {...form.register("symbolQuoteCcy")} />
+          <input type="hidden" {...form.register("symbolInstrumentType")} />
+          <input type="hidden" {...form.register("existingAssetId")} />
 
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Interest type</div>
-              <RadioGroup
-                value={interestMode}
-                onValueChange={handleInterestModeChange}
-                className="flex flex-wrap gap-4"
-              >
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value={INCOME_MODE_CASH} id="interest-type-cash" />
-                  <Label
-                    htmlFor="interest-type-cash"
-                    className="cursor-pointer text-sm font-normal"
-                  >
-                    Cash
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem
-                    value={ACTIVITY_SUBTYPES.STAKING_REWARD}
-                    id="interest-type-staking-reward"
-                  />
-                  <Label
-                    htmlFor="interest-type-staking-reward"
-                    className="cursor-pointer text-sm font-normal"
-                  >
-                    Staking reward
-                  </Label>
-                </div>
-              </RadioGroup>
-            </div>
+          <AccountSelect name="accountId" accounts={accounts} currencyName="currency" />
+          <DatePicker name="activityDate" label="Date" />
+        </FormSection>
 
-            {/* Optional Symbol (e.g., for bond interest) */}
-            <SymbolSearch
-              name="symbol"
-              label={isStakingReward ? "Reward asset" : "Symbol (optional)"}
-              exchangeMicName="exchangeMic"
-              currencyName="currency"
-              quoteCcyName="symbolQuoteCcy"
-              instrumentTypeName="symbolInstrumentType"
-              existingAssetIdName="existingAssetId"
-            />
-            <input type="hidden" {...form.register("symbolQuoteCcy")} />
-            <input type="hidden" {...form.register("symbolInstrumentType")} />
-            <input type="hidden" {...form.register("existingAssetId")} />
-
-            {/* Date Picker */}
-            <DatePicker name="activityDate" label="Date" />
-
-            {isStakingReward && (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <QuantityInput name="quantity" label="Received quantity" />
-                <AmountInput
-                  name="unitPrice"
-                  label="FMV per unit"
-                  labelHelpText={FMV_PER_UNIT_HELP_TEXT}
-                  maxDecimalPlaces={4}
-                  currency={currency}
-                />
+        <FormSection title="Interest">
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Interest type</div>
+            <RadioGroup
+              value={interestMode}
+              onValueChange={handleInterestModeChange}
+              className="flex flex-wrap gap-4"
+            >
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value={INCOME_MODE_CASH} id="interest-type-cash" />
+                <Label htmlFor="interest-type-cash" className="cursor-pointer text-sm font-normal">
+                  Cash
+                </Label>
               </div>
-            )}
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem
+                  value={ACTIVITY_SUBTYPES.STAKING_REWARD}
+                  id="interest-type-staking-reward"
+                />
+                <Label
+                  htmlFor="interest-type-staking-reward"
+                  className="cursor-pointer text-sm font-normal"
+                >
+                  Staking reward
+                </Label>
+              </div>
+            </RadioGroup>
+          </div>
 
+          {isStakingReward && (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <QuantityInput name="quantity" label="Received quantity" />
               <AmountInput
-                name="amount"
-                label={isStakingReward ? "Interest amount" : "Amount"}
+                name="unitPrice"
+                label="FMV per unit"
+                labelHelpText={FMV_PER_UNIT_HELP_TEXT}
+                maxDecimalPlaces={4}
                 currency={currency}
               />
-              <AmountInput name="tax" label="Withholding tax" currency={currency} />
             </div>
+          )}
 
-            {/* Advanced Options */}
-            <AdvancedOptionsSection
-              currencyName="currency"
-              fxRateName="fxRate"
-              activityType={ActivityType.INTEREST}
-              accountCurrency={accountCurrency}
-              baseCurrency={baseCurrency}
-              showSubtype={false}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <AmountInput
+              name="amount"
+              label={isStakingReward ? "Interest amount" : "Amount"}
+              currency={currency}
             />
+            <AmountInput name="tax" label="Withholding tax" currency={currency} />
+          </div>
+        </FormSection>
 
-            {/* Notes */}
-            <NotesInput name="comment" label="Notes" placeholder="Add an optional note..." />
-          </CardContent>
-        </Card>
+        {/* Advanced options (currency, FX rate) and notes, collapsed by default */}
+        <AdvancedOptionsSection
+          title="Advanced & notes"
+          dashed
+          currencyName="currency"
+          fxRateName="fxRate"
+          activityType={ActivityType.INTEREST}
+          accountCurrency={accountCurrency}
+          baseCurrency={baseCurrency}
+          showSubtype={false}
+        >
+          <NotesInput name="comment" label="Notes" placeholder="Add an optional note..." />
+        </AdvancedOptionsSection>
 
         {/* Action Buttons */}
         <div className="flex justify-end gap-2">

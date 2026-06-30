@@ -13,6 +13,8 @@ interface StockTradeIntentSelectorProps<TFieldValues extends FieldValues = Field
   name?: FieldPath<TFieldValues>;
   side: StockTradeSide;
   className?: string;
+  /** Hide the "Trade Type" label and render a compact toggle (for card headers) */
+  hideLabel?: boolean;
 }
 
 export function StockTradeIntentSelector<TFieldValues extends FieldValues = FieldValues>({
@@ -20,6 +22,7 @@ export function StockTradeIntentSelector<TFieldValues extends FieldValues = Fiel
   name = "subtype" as FieldPath<TFieldValues>,
   side,
   className,
+  hideLabel = false,
 }: StockTradeIntentSelectorProps<TFieldValues>) {
   const { field } = useController({
     name,
@@ -43,8 +46,23 @@ export function StockTradeIntentSelector<TFieldValues extends FieldValues = Fiel
 
   const selectedValue = field.value === shortValue ? shortValue : NORMAL;
 
+  if (hideLabel) {
+    return (
+      <div role="group" aria-label="Trade Type" className={className}>
+        <AnimatedToggleGroup
+          value={selectedValue}
+          onValueChange={(value) => field.onChange(value === NORMAL ? null : value)}
+          items={items}
+          size="sm"
+          rounded="lg"
+          className="h-9"
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className={cn("space-y-2", className)}>
+    <div role="group" aria-label="Trade Type" className={cn("space-y-2", className)}>
       <span className="text-sm font-medium">Trade Type</span>
       <AnimatedToggleGroup
         value={selectedValue}

@@ -138,7 +138,12 @@ test.describe("Asset-backed income subtypes update holdings", () => {
   }
 
   async function fillNotes(notes: string) {
+    // Notes live inside the collapsible "Advanced & notes" section — expand it first.
     const input = page.getByTestId("notes-input");
+    if (!(await input.isVisible().catch(() => false))) {
+      await page.getByTestId("advanced-options-button").click();
+      await expect(input).toBeVisible({ timeout: 5000 });
+    }
     await input.fill(notes);
     await input.blur();
   }

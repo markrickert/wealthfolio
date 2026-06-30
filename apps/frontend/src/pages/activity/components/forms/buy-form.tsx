@@ -7,7 +7,6 @@ import { normalizeCurrency } from "@/lib/utils";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Alert, AlertDescription } from "@wealthfolio/ui/components/ui/alert";
 import { Button } from "@wealthfolio/ui/components/ui/button";
-import { Card, CardContent } from "@wealthfolio/ui/components/ui/card";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { FormProvider, useForm, type Resolver } from "react-hook-form";
 import { z } from "zod";
@@ -18,6 +17,7 @@ import {
   AssetTypeSelector,
   createValidatedSubmit,
   DatePicker,
+  FormSection,
   NotesInput,
   OptionContractFields,
   PositionIntentSelector,
@@ -379,189 +379,191 @@ export function BuyForm({
   return (
     <FormProvider {...form}>
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Card>
-          <CardContent className="space-y-6 pt-4">
-            {/* Asset Type Selector */}
-            {!isEditing && (
+        <FormSection
+          title="Asset & Account"
+          action={
+            !isEditing && (
               <AssetTypeSelector
                 control={form.control}
                 name="assetType"
                 onValueChange={handleAssetTypeChange}
               />
-            )}
-
-            {/* Account Selection */}
-            <AccountSelect name="accountId" accounts={accounts} currencyName="currency" />
-
-            {/* Date Picker */}
-            <DatePicker name="activityDate" label="Date" enableTime={true} />
-
-            {/* Symbol / Option Contract Fields */}
-            {isOption ? (
-              <OptionContractFields
-                underlyingName="underlyingSymbol"
-                strikePriceName="strikePrice"
-                expirationDateName="expirationDate"
-                optionTypeName="optionType"
-                currencyName="currency"
-                exchangeMicName="exchangeMic"
-                quoteCcyName="symbolQuoteCcy"
-                unitPriceName="unitPrice"
-              />
-            ) : (
-              <>
-                <SymbolSearch
-                  name="assetId"
-                  isManualAsset={isManualAsset}
-                  exchangeMicName="exchangeMic"
-                  quoteModeName="quoteMode"
-                  currencyName="currency"
-                  quoteCcyName="symbolQuoteCcy"
-                  instrumentTypeName="symbolInstrumentType"
-                  existingAssetIdName="existingAssetId"
-                  assetMetadataName="assetMetadata"
-                />
-                {/* Hidden fields to register assetMetadata for react-hook-form */}
-                <input type="hidden" {...form.register("assetMetadata.name")} />
-                <input type="hidden" {...form.register("assetMetadata.kind")} />
-                <input type="hidden" {...form.register("symbolQuoteCcy")} />
-                <input type="hidden" {...form.register("symbolInstrumentType")} />
-                <input type="hidden" {...form.register("existingAssetId")} />
-              </>
-            )}
-
-            {/* Quantity, Price, Fee Row */}
-            {isOption ? (
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <h4 className="text-muted-foreground text-sm font-medium">Trade Details</h4>
-                <PositionIntentSelector control={form.control} name="subtype" />
-              </div>
-            ) : showBuyToCover ? (
-              <div className="space-y-3">
-                <h4 className="text-muted-foreground text-sm font-medium">Trade Details</h4>
-                <StockTradeIntentSelector control={form.control} name="subtype" side="buy" />
-              </div>
-            ) : null}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div>
-                <QuantityInput name="quantity" label={quantityLabel} />
-                {/* Shares breakdown with click-to-edit multiplier */}
-                {isOption && optQuantity && (
-                  <div className="text-muted-foreground mt-1.5 flex items-center gap-1 text-xs">
-                    <span>{Number(optQuantity) * (Number(optMultiplier) || 100)} shares</span>
-                    <span>·</span>
-                    <input
-                      type="number"
-                      {...form.register("contractMultiplier", { valueAsNumber: true })}
-                      className="hover:border-input focus:border-input focus:bg-background focus:ring-ring h-5 w-14 rounded border border-transparent bg-transparent px-1 text-center text-xs tabular-nums focus:outline-none focus:ring-1"
-                      aria-label="Contract Multiplier"
-                    />
-                    <span>x</span>
-                  </div>
-                )}
-                {isStock && currentShortQuantity > 0 && (
-                  <p className="text-muted-foreground mt-1.5 text-xs">
-                    Short: {currentShortQuantity.toLocaleString()} shares
-                  </p>
-                )}
-              </div>
-              <AmountInput
-                name="unitPrice"
-                label={priceLabel}
-                maxDecimalPlaces={4}
-                currency={currency}
-              />
-              <AmountInput name="fee" label="Fee" currency={currency} />
-              <AmountInput name="tax" label="Tax" currency={currency} />
-            </div>
-
-            {/* Option Total Premium with formula breakdown */}
-            {isOption && optQuantity && optUnitPrice && (
-              <div className="bg-muted/50 border-border rounded-md border p-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-muted-foreground text-xs font-medium uppercase">
-                      Total Debit
-                    </span>
-                    <p className="text-muted-foreground mt-0.5 text-xs tabular-nums">
-                      {Number(optQuantity)} ×{" "}
-                      {currency
-                        ? new Intl.NumberFormat("en-US", { style: "currency", currency }).format(
-                            Number(optUnitPrice),
-                          )
-                        : Number(optUnitPrice)}{" "}
-                      × {Number(optMultiplier) || 100}
-                      {Number(optFee) > 0 && (
-                        <>
-                          {" "}
-                          +{" "}
-                          {currency
-                            ? new Intl.NumberFormat("en-US", {
-                                style: "currency",
-                                currency,
-                              }).format(Number(optFee))
-                            : Number(optFee)}
-                        </>
-                      )}
-                    </p>
-                  </div>
-                  <span className="text-lg font-semibold tabular-nums">
-                    {new Intl.NumberFormat("en-US", {
-                      style: currency ? "currency" : "decimal",
-                      currency: currency || undefined,
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    }).format(optionTotal)}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {isBuyWhileShortWithoutCover && (
-              <Alert variant="default" className="border-warning bg-warning/10">
-                <Icons.AlertTriangle className="text-warning h-4 w-4" />
-                <AlertDescription className="text-warning text-sm">
-                  You currently have a short position in this stock. Use Buy to Cover to reduce it;
-                  enter a normal Buy only after the short position is closed.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {isCoverWithoutShort && (
-              <Alert variant="default" className="border-warning bg-warning/10">
-                <Icons.AlertTriangle className="text-warning h-4 w-4" />
-                <AlertDescription className="text-warning text-sm">
-                  Buy to Cover requires an existing short position for this stock in the selected
-                  account.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {isCoverQuantityExcess && (
-              <Alert variant="default" className="border-warning bg-warning/10">
-                <Icons.AlertTriangle className="text-warning h-4 w-4" />
-                <AlertDescription className="text-warning text-sm">
-                  You are covering {Number(optQuantity).toLocaleString()} shares, but the current
-                  short position is {currentShortQuantity.toLocaleString()} shares. Enter any excess
-                  as a separate Buy activity.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {/* Advanced Options */}
-            <AdvancedOptionsSection
+            )
+          }
+        >
+          {/* Symbol / Option Contract Fields */}
+          {isOption ? (
+            <OptionContractFields
+              underlyingName="underlyingSymbol"
+              strikePriceName="strikePrice"
+              expirationDateName="expirationDate"
+              optionTypeName="optionType"
               currencyName="currency"
-              fxRateName="fxRate"
-              activityType={ActivityType.BUY}
-              assetCurrency={assetCurrencyFromSymbol ?? normalizeCurrency(assetCurrency)}
-              accountCurrency={accountCurrency}
-              baseCurrency={baseCurrency}
+              exchangeMicName="exchangeMic"
+              quoteCcyName="symbolQuoteCcy"
+              unitPriceName="unitPrice"
             />
+          ) : (
+            <>
+              <SymbolSearch
+                name="assetId"
+                isManualAsset={isManualAsset}
+                exchangeMicName="exchangeMic"
+                quoteModeName="quoteMode"
+                currencyName="currency"
+                quoteCcyName="symbolQuoteCcy"
+                instrumentTypeName="symbolInstrumentType"
+                existingAssetIdName="existingAssetId"
+                assetMetadataName="assetMetadata"
+              />
+              {/* Hidden fields to register assetMetadata for react-hook-form */}
+              <input type="hidden" {...form.register("assetMetadata.name")} />
+              <input type="hidden" {...form.register("assetMetadata.kind")} />
+              <input type="hidden" {...form.register("symbolQuoteCcy")} />
+              <input type="hidden" {...form.register("symbolInstrumentType")} />
+              <input type="hidden" {...form.register("existingAssetId")} />
+            </>
+          )}
 
-            {/* Notes */}
-            <NotesInput name="comment" label="Notes" placeholder="Add an optional note..." />
-          </CardContent>
-        </Card>
+          <AccountSelect name="accountId" accounts={accounts} currencyName="currency" />
+          <DatePicker name="activityDate" label="Date" enableTime={true} />
+        </FormSection>
+
+        <FormSection
+          title="Trade"
+          action={
+            isOption ? (
+              <PositionIntentSelector control={form.control} name="subtype" hideLabel />
+            ) : showBuyToCover ? (
+              <StockTradeIntentSelector
+                control={form.control}
+                name="subtype"
+                side="buy"
+                hideLabel
+              />
+            ) : null
+          }
+        >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <QuantityInput name="quantity" label={quantityLabel} />
+              {/* Shares breakdown with click-to-edit multiplier */}
+              {isOption && optQuantity && (
+                <div className="text-muted-foreground mt-1.5 flex items-center gap-1 text-xs">
+                  <span>{Number(optQuantity) * (Number(optMultiplier) || 100)} shares</span>
+                  <span>·</span>
+                  <input
+                    type="number"
+                    {...form.register("contractMultiplier", { valueAsNumber: true })}
+                    className="hover:border-input focus:border-input focus:bg-background focus:ring-ring h-5 w-14 rounded border border-transparent bg-transparent px-1 text-center text-xs tabular-nums focus:outline-none focus:ring-1"
+                    aria-label="Contract Multiplier"
+                  />
+                  <span>x</span>
+                </div>
+              )}
+              {isStock && currentShortQuantity > 0 && (
+                <p className="text-muted-foreground mt-1.5 text-xs">
+                  Short: {currentShortQuantity.toLocaleString()} shares
+                </p>
+              )}
+            </div>
+            <AmountInput
+              name="unitPrice"
+              label={priceLabel}
+              maxDecimalPlaces={4}
+              currency={currency}
+            />
+            <AmountInput name="fee" label="Fee" currency={currency} />
+            <AmountInput name="tax" label="Tax" currency={currency} />
+          </div>
+
+          {/* Option Total Premium with formula breakdown */}
+          {isOption && optQuantity && optUnitPrice && (
+            <div className="bg-muted/50 border-border rounded-md border p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-muted-foreground text-xs font-medium uppercase">
+                    Total Debit
+                  </span>
+                  <p className="text-muted-foreground mt-0.5 text-xs tabular-nums">
+                    {Number(optQuantity)} ×{" "}
+                    {currency
+                      ? new Intl.NumberFormat("en-US", { style: "currency", currency }).format(
+                          Number(optUnitPrice),
+                        )
+                      : Number(optUnitPrice)}{" "}
+                    × {Number(optMultiplier) || 100}
+                    {Number(optFee) > 0 && (
+                      <>
+                        {" "}
+                        +{" "}
+                        {currency
+                          ? new Intl.NumberFormat("en-US", {
+                              style: "currency",
+                              currency,
+                            }).format(Number(optFee))
+                          : Number(optFee)}
+                      </>
+                    )}
+                  </p>
+                </div>
+                <span className="text-lg font-semibold tabular-nums">
+                  {new Intl.NumberFormat("en-US", {
+                    style: currency ? "currency" : "decimal",
+                    currency: currency || undefined,
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  }).format(optionTotal)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {isBuyWhileShortWithoutCover && (
+            <Alert variant="default" className="border-warning bg-warning/10">
+              <Icons.AlertTriangle className="text-warning h-4 w-4" />
+              <AlertDescription className="text-warning text-sm">
+                You currently have a short position in this stock. Use Buy to Cover to reduce it;
+                enter a normal Buy only after the short position is closed.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {isCoverWithoutShort && (
+            <Alert variant="default" className="border-warning bg-warning/10">
+              <Icons.AlertTriangle className="text-warning h-4 w-4" />
+              <AlertDescription className="text-warning text-sm">
+                Buy to Cover requires an existing short position for this stock in the selected
+                account.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {isCoverQuantityExcess && (
+            <Alert variant="default" className="border-warning bg-warning/10">
+              <Icons.AlertTriangle className="text-warning h-4 w-4" />
+              <AlertDescription className="text-warning text-sm">
+                You are covering {Number(optQuantity).toLocaleString()} shares, but the current
+                short position is {currentShortQuantity.toLocaleString()} shares. Enter any excess
+                as a separate Buy activity.
+              </AlertDescription>
+            </Alert>
+          )}
+        </FormSection>
+
+        {/* Advanced options (currency, FX rate) and notes, collapsed by default */}
+        <AdvancedOptionsSection
+          title="Advanced & notes"
+          dashed
+          currencyName="currency"
+          fxRateName="fxRate"
+          activityType={ActivityType.BUY}
+          assetCurrency={assetCurrencyFromSymbol ?? normalizeCurrency(assetCurrency)}
+          accountCurrency={accountCurrency}
+          baseCurrency={baseCurrency}
+        >
+          <NotesInput name="comment" label="Notes" placeholder="Add an optional note..." />
+        </AdvancedOptionsSection>
 
         {/* Action Buttons */}
         <div className="flex justify-end gap-2">

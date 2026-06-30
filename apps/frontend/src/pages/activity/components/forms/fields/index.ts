@@ -6,6 +6,7 @@
 export { AccountSelect, type AccountSelectOption } from "./account-select";
 export { AdvancedOptionsSection } from "./advanced-options-section";
 export { AmountInput } from "./amount-input";
+export { FormSection } from "./form-section";
 export { DatePicker } from "./date-picker";
 export { NotesInput } from "./notes-input";
 export { QuantityInput } from "./quantity-input";

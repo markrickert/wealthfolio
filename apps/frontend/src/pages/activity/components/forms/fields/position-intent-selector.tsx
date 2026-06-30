@@ -18,12 +18,15 @@ interface PositionIntentSelectorProps<TFieldValues extends FieldValues = FieldVa
   control: Control<TFieldValues>;
   name?: FieldPath<TFieldValues>;
   className?: string;
+  /** Hide the "Position" label and render a compact toggle (for card headers) */
+  hideLabel?: boolean;
 }
 
 export function PositionIntentSelector<TFieldValues extends FieldValues = FieldValues>({
   control,
   name = "subtype" as FieldPath<TFieldValues>,
   className,
+  hideLabel = false,
 }: PositionIntentSelectorProps<TFieldValues>) {
   const { field, fieldState } = useController({ name, control });
   const selectedValue =
@@ -39,12 +42,17 @@ export function PositionIntentSelector<TFieldValues extends FieldValues = FieldV
         className,
       )}
     >
-      <span className="text-muted-foreground text-xs font-medium sm:text-sm">Position</span>
+      {!hideLabel && (
+        <span className="text-muted-foreground text-xs font-medium sm:text-sm">Position</span>
+      )}
       <div className="flex flex-col gap-1">
         <div
           role="group"
           aria-label="Position"
-          className="bg-muted grid h-10 w-full grid-cols-2 gap-1 rounded-lg p-1 sm:w-56"
+          className={cn(
+            "bg-muted grid h-10 w-full grid-cols-2 gap-1 rounded-lg p-1",
+            hideLabel ? "h-9 sm:w-44" : "sm:w-56",
+          )}
         >
           {positionIntents.map((intent) => {
             const isSelected = selectedValue === intent.value;

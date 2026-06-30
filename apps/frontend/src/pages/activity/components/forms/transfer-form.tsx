@@ -5,7 +5,6 @@ import { formatAmount } from "@/lib/utils";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AnimatedToggleGroup } from "@wealthfolio/ui/components/ui/animated-toggle-group";
 import { Button } from "@wealthfolio/ui/components/ui/button";
-import { Card, CardContent } from "@wealthfolio/ui/components/ui/card";
 import { Checkbox } from "@wealthfolio/ui/components/ui/checkbox";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { Label } from "@wealthfolio/ui/components/ui/label";
@@ -27,6 +26,7 @@ import {
   AmountInput,
   createValidatedSubmit,
   DatePicker,
+  FormSection,
   NotesInput,
   QuantityInput,
   SymbolSearch,
@@ -584,182 +584,139 @@ export function TransferForm({
   return (
     <FormProvider {...form}>
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Card>
-          <CardContent className="space-y-6 pt-4">
-            {/* Transfer Mode Toggle */}
-            <div className="flex justify-center">
-              <AnimatedToggleGroup
-                items={transferModeItems}
-                value={transferMode}
-                onValueChange={handleTransferModeChange}
-                size="sm"
-                rounded="lg"
+        <FormSection
+          title="Transfer"
+          action={
+            <AnimatedToggleGroup
+              items={transferModeItems}
+              value={transferMode}
+              onValueChange={handleTransferModeChange}
+              size="sm"
+              rounded="lg"
+            />
+          }
+        >
+          {/* External Transfer Option */}
+          <div className="flex items-center gap-4">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="isExternal"
+                checked={isExternal}
+                onCheckedChange={handleExternalChange}
               />
+              <Label htmlFor="isExternal" className="cursor-pointer text-sm font-normal">
+                External transfer
+              </Label>
             </div>
 
-            {/* External Transfer Option */}
-            <div className="flex items-center gap-4">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="isExternal"
-                  checked={isExternal}
-                  onCheckedChange={handleExternalChange}
-                />
-                <Label htmlFor="isExternal" className="cursor-pointer text-sm font-normal">
-                  External transfer
-                </Label>
-              </div>
+            {/* Direction selector (only for external) */}
+            {isExternal && (
+              <>
+                <span className="text-muted-foreground">|</span>
+                <RadioGroup
+                  value={direction}
+                  onValueChange={handleDirectionChange}
+                  className="flex gap-3"
+                >
+                  <div className="flex items-center space-x-1.5">
+                    <RadioGroupItem value="in" id="direction-in" />
+                    <Label htmlFor="direction-in" className="cursor-pointer text-sm font-normal">
+                      In
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-1.5">
+                    <RadioGroupItem value="out" id="direction-out" />
+                    <Label htmlFor="direction-out" className="cursor-pointer text-sm font-normal">
+                      Out
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </>
+            )}
+          </div>
 
-              {/* Direction selector (only for external) */}
-              {isExternal && (
-                <>
-                  <span className="text-muted-foreground">|</span>
-                  <RadioGroup
-                    value={direction}
-                    onValueChange={handleDirectionChange}
-                    className="flex gap-3"
-                  >
-                    <div className="flex items-center space-x-1.5">
-                      <RadioGroupItem value="in" id="direction-in" />
-                      <Label htmlFor="direction-in" className="cursor-pointer text-sm font-normal">
-                        In
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-1.5">
-                      <RadioGroupItem value="out" id="direction-out" />
-                      <Label htmlFor="direction-out" className="cursor-pointer text-sm font-normal">
-                        Out
-                      </Label>
-                    </div>
-                  </RadioGroup>
-                </>
-              )}
-            </div>
-
-            {/* Account Selection - conditional based on external flag */}
-            {isExternal ? (
+          {/* Account Selection - conditional based on external flag */}
+          {isExternal ? (
+            <AccountSelect
+              key={`external-${transferMode}-${direction}-${accountId || "none"}`}
+              name="accountId"
+              accounts={externalAccountOptions}
+              currencyName="currency"
+              label={direction === "in" ? "To Account" : "From Account"}
+              placeholder="Select account..."
+            />
+          ) : (
+            <>
+              {/* From Account Selection */}
               <AccountSelect
-                key={`external-${transferMode}-${direction}-${accountId || "none"}`}
-                name="accountId"
-                accounts={externalAccountOptions}
+                name="fromAccountId"
+                accounts={sourceAccountOptions}
                 currencyName="currency"
-                label={direction === "in" ? "To Account" : "From Account"}
-                placeholder="Select account..."
+                label="From Account"
+                placeholder="Select source account..."
               />
-            ) : (
-              <>
-                {/* From Account Selection */}
-                <AccountSelect
-                  name="fromAccountId"
-                  accounts={sourceAccountOptions}
-                  currencyName="currency"
-                  label="From Account"
-                  placeholder="Select source account..."
+
+              {/* To Account Selection */}
+              <AccountSelect
+                key={`to-${transferMode}-${fromAccountId || "none"}-${toAccountId || "none"}`}
+                name="toAccountId"
+                accounts={toAccountOptions}
+                label="To Account"
+                placeholder="Select destination account..."
+              />
+            </>
+          )}
+
+          {/* Date Picker */}
+          <DatePicker name="activityDate" label="Date" />
+        </FormSection>
+
+        <FormSection title={isCashMode ? "Amount" : "Securities"}>
+          {/* Securities mode: Symbol and Quantity at top */}
+          {!isCashMode && (
+            <>
+              <SymbolSearch
+                name="assetId"
+                isManualAsset={isManualAsset}
+                exchangeMicName="exchangeMic"
+                quoteModeName="quoteMode"
+                currencyName="currency"
+                quoteCcyName="symbolQuoteCcy"
+                instrumentTypeName="symbolInstrumentType"
+                existingAssetIdName="existingAssetId"
+                assetMetadataName="assetMetadata"
+              />
+              {/* Hidden fields to register assetMetadata for react-hook-form */}
+              <input type="hidden" {...form.register("assetMetadata.name")} />
+              <input type="hidden" {...form.register("assetMetadata.kind")} />
+              <input type="hidden" {...form.register("symbolQuoteCcy")} />
+              <input type="hidden" {...form.register("symbolInstrumentType")} />
+              <input type="hidden" {...form.register("existingAssetId")} />
+              <QuantityInput name="quantity" label="Quantity" />
+              {/* Cost basis only needed for external transfer in - backend calculates for transfer out */}
+              {isExternal && direction === "in" && (
+                <AmountInput
+                  name="unitPrice"
+                  label="Cost Basis"
+                  maxDecimalPlaces={4}
+                  currency={currency}
                 />
+              )}
+            </>
+          )}
 
-                {/* To Account Selection */}
-                <AccountSelect
-                  key={`to-${transferMode}-${fromAccountId || "none"}-${toAccountId || "none"}`}
-                  name="toAccountId"
-                  accounts={toAccountOptions}
-                  label="To Account"
-                  placeholder="Select destination account..."
-                />
-              </>
-            )}
-
-            {/* Date Picker */}
-            <DatePicker name="activityDate" label="Date" />
-
-            {/* Securities mode: Symbol and Quantity at top */}
-            {!isCashMode && (
-              <>
-                <SymbolSearch
-                  name="assetId"
-                  isManualAsset={isManualAsset}
-                  exchangeMicName="exchangeMic"
-                  quoteModeName="quoteMode"
-                  currencyName="currency"
-                  quoteCcyName="symbolQuoteCcy"
-                  instrumentTypeName="symbolInstrumentType"
-                  existingAssetIdName="existingAssetId"
-                  assetMetadataName="assetMetadata"
-                />
-                {/* Hidden fields to register assetMetadata for react-hook-form */}
-                <input type="hidden" {...form.register("assetMetadata.name")} />
-                <input type="hidden" {...form.register("assetMetadata.kind")} />
-                <input type="hidden" {...form.register("symbolQuoteCcy")} />
-                <input type="hidden" {...form.register("symbolInstrumentType")} />
-                <input type="hidden" {...form.register("existingAssetId")} />
-                <QuantityInput name="quantity" label="Quantity" />
-                {/* Cost basis only needed for external transfer in - backend calculates for transfer out */}
-                {isExternal && direction === "in" && (
-                  <AmountInput
-                    name="unitPrice"
-                    label="Cost Basis"
-                    maxDecimalPlaces={4}
-                    currency={currency}
-                  />
-                )}
-              </>
-            )}
-
-            {/* Cash mode: Amount */}
-            {isCashMode &&
-              (isInternalCashTransfer ? (
-                <div className="space-y-3">
-                  {isCrossCurrencyInternalCash ? (
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <FormField
-                        control={form.control}
-                        name="sourceAmount"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Sent ({effectiveSourceCurrency})</FormLabel>
-                            <FormControl>
-                              <MoneyInput
-                                ref={field.ref}
-                                name={field.name}
-                                value={field.value}
-                                onValueChange={handleSourceAmountChange}
-                                placeholder="0.00"
-                                aria-label="Sent amount"
-                                data-testid="sent-amount-input"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="destinationAmount"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Received ({effectiveDestinationCurrency})</FormLabel>
-                            <FormControl>
-                              <MoneyInput
-                                ref={field.ref}
-                                name={field.name}
-                                value={field.value}
-                                onValueChange={handleDestinationAmountChange}
-                                placeholder="0.00"
-                                aria-label="Received amount"
-                                data-testid="received-amount-input"
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                  ) : (
+          {/* Cash mode: Amount */}
+          {isCashMode &&
+            (isInternalCashTransfer ? (
+              <div className="space-y-3">
+                {isCrossCurrencyInternalCash ? (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <FormField
                       control={form.control}
                       name="sourceAmount"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Amount</FormLabel>
+                          <FormLabel>Sent ({effectiveSourceCurrency})</FormLabel>
                           <FormControl>
                             <MoneyInput
                               ref={field.ref}
@@ -767,69 +724,113 @@ export function TransferForm({
                               value={field.value}
                               onValueChange={handleSourceAmountChange}
                               placeholder="0.00"
-                              aria-label="Amount"
-                              data-testid="input-amount"
+                              aria-label="Sent amount"
+                              data-testid="sent-amount-input"
                             />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-                  )}
-
-                  {isCrossCurrencyInternalCash && (
                     <FormField
                       control={form.control}
-                      name="fxRate"
+                      name="destinationAmount"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>
-                            FX Rate
-                            <span className="text-muted-foreground ml-2 text-xs font-normal">
-                              1 {effectiveSourceCurrency} ={" "}
-                              {Number(field.value) > 0 ? field.value : "?"}{" "}
-                              {effectiveDestinationCurrency}
-                            </span>
-                          </FormLabel>
+                          <FormLabel>Received ({effectiveDestinationCurrency})</FormLabel>
                           <FormControl>
                             <MoneyInput
                               ref={field.ref}
                               name={field.name}
                               value={field.value}
-                              onValueChange={handleFxRateChange}
-                              placeholder="1.0000"
-                              maxDecimalPlaces={8}
-                              aria-label="FX Rate"
-                              data-testid="fx-rate-input"
+                              onValueChange={handleDestinationAmountChange}
+                              placeholder="0.00"
+                              aria-label="Received amount"
+                              data-testid="received-amount-input"
                             />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-                  )}
-                </div>
-              ) : (
-                <AmountInput name="amount" label="Amount" currency={currency} />
-              ))}
+                  </div>
+                ) : (
+                  <FormField
+                    control={form.control}
+                    name="sourceAmount"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Amount</FormLabel>
+                        <FormControl>
+                          <MoneyInput
+                            ref={field.ref}
+                            name={field.name}
+                            value={field.value}
+                            onValueChange={handleSourceAmountChange}
+                            placeholder="0.00"
+                            aria-label="Amount"
+                            data-testid="input-amount"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
 
-            {/* Advanced Options */}
-            <AdvancedOptionsSection
-              currencyName="currency"
-              fxRateName="fxRate"
-              subtypeName="subtype"
-              activityType={ActivityType.TRANSFER_IN}
-              assetCurrency={assetCurrency}
-              accountCurrency={accountCurrency}
-              baseCurrency={baseCurrency}
-              showCurrency={isExternal}
-              showFxRate={isExternal}
-            />
+                {isCrossCurrencyInternalCash && (
+                  <FormField
+                    control={form.control}
+                    name="fxRate"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          FX Rate
+                          <span className="text-muted-foreground ml-2 text-xs font-normal">
+                            1 {effectiveSourceCurrency} ={" "}
+                            {Number(field.value) > 0 ? field.value : "?"}{" "}
+                            {effectiveDestinationCurrency}
+                          </span>
+                        </FormLabel>
+                        <FormControl>
+                          <MoneyInput
+                            ref={field.ref}
+                            name={field.name}
+                            value={field.value}
+                            onValueChange={handleFxRateChange}
+                            placeholder="1.0000"
+                            maxDecimalPlaces={8}
+                            aria-label="FX Rate"
+                            data-testid="fx-rate-input"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+              </div>
+            ) : (
+              <AmountInput name="amount" label="Amount" currency={currency} />
+            ))}
+        </FormSection>
 
-            {/* Notes */}
-            <NotesInput name="comment" label="Notes" placeholder="Add an optional note..." />
-          </CardContent>
-        </Card>
+        {/* Advanced options (currency, FX rate, subtype) and notes, collapsed by default */}
+        <AdvancedOptionsSection
+          title="Advanced & notes"
+          dashed
+          currencyName="currency"
+          fxRateName="fxRate"
+          subtypeName="subtype"
+          activityType={ActivityType.TRANSFER_IN}
+          assetCurrency={assetCurrency}
+          accountCurrency={accountCurrency}
+          baseCurrency={baseCurrency}
+          showCurrency={isExternal}
+          showFxRate={isExternal}
+        >
+          <NotesInput name="comment" label="Notes" placeholder="Add an optional note..." />
+        </AdvancedOptionsSection>
 
         {/* Action Buttons */}
         <div className="flex justify-end gap-2">

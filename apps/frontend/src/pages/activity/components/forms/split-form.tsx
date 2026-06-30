@@ -2,7 +2,6 @@ import { useSettings } from "@/hooks/use-settings";
 import { ActivityType } from "@/lib/constants";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@wealthfolio/ui/components/ui/button";
-import { Card, CardContent } from "@wealthfolio/ui/components/ui/card";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { useMemo } from "react";
 import { FormProvider, useForm, type Resolver } from "react-hook-form";
@@ -12,6 +11,7 @@ import {
   AdvancedOptionsSection,
   createValidatedSubmit,
   DatePicker,
+  FormSection,
   NotesInput,
   QuantityInput,
   SymbolSearch,
@@ -106,50 +106,46 @@ export function SplitForm({
   return (
     <FormProvider {...form}>
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Card>
-          <CardContent className="space-y-6 pt-4">
-            {/* Account Selection */}
-            <AccountSelect name="accountId" accounts={accounts} currencyName="currency" />
+        <FormSection title="Asset & Account">
+          <SymbolSearch
+            name="symbol"
+            label="Symbol"
+            isManualAsset={isManualSymbol}
+            exchangeMicName="exchangeMic"
+            currencyName="currency"
+            quoteCcyName="symbolQuoteCcy"
+            instrumentTypeName="symbolInstrumentType"
+            existingAssetIdName="existingAssetId"
+          />
+          <input type="hidden" {...form.register("symbolQuoteCcy")} />
+          <input type="hidden" {...form.register("symbolInstrumentType")} />
+          <input type="hidden" {...form.register("existingAssetId")} />
 
-            {/* Symbol Search/Input */}
-            <SymbolSearch
-              name="symbol"
-              label="Symbol"
-              isManualAsset={isManualSymbol}
-              exchangeMicName="exchangeMic"
-              currencyName="currency"
-              quoteCcyName="symbolQuoteCcy"
-              instrumentTypeName="symbolInstrumentType"
-              existingAssetIdName="existingAssetId"
-            />
-            <input type="hidden" {...form.register("symbolQuoteCcy")} />
-            <input type="hidden" {...form.register("symbolInstrumentType")} />
-            <input type="hidden" {...form.register("existingAssetId")} />
+          <AccountSelect name="accountId" accounts={accounts} currencyName="currency" />
+          <DatePicker name="activityDate" label="Date" />
+        </FormSection>
 
-            {/* Date Picker */}
-            <DatePicker name="activityDate" label="Date" />
+        <FormSection title="Split">
+          <QuantityInput
+            name="splitRatio"
+            label="Split Ratio"
+            placeholder="e.g., 2 for 2:1 split"
+          />
+        </FormSection>
 
-            {/* Split Ratio */}
-            <QuantityInput
-              name="splitRatio"
-              label="Split Ratio"
-              placeholder="e.g., 2 for 2:1 split"
-            />
-
-            {/* Advanced Options */}
-            <AdvancedOptionsSection
-              currencyName="currency"
-              subtypeName="subtype"
-              activityType={ActivityType.SPLIT}
-              assetCurrency={assetCurrency}
-              accountCurrency={accountCurrency}
-              baseCurrency={baseCurrency}
-            />
-
-            {/* Notes */}
-            <NotesInput name="comment" label="Notes" placeholder="Add an optional note..." />
-          </CardContent>
-        </Card>
+        {/* Advanced options (currency, subtype) and notes, collapsed by default */}
+        <AdvancedOptionsSection
+          title="Advanced & notes"
+          dashed
+          currencyName="currency"
+          subtypeName="subtype"
+          activityType={ActivityType.SPLIT}
+          assetCurrency={assetCurrency}
+          accountCurrency={accountCurrency}
+          baseCurrency={baseCurrency}
+        >
+          <NotesInput name="comment" label="Notes" placeholder="Add an optional note..." />
+        </AdvancedOptionsSection>
 
         {/* Action Buttons */}
         <div className="flex justify-end gap-2">

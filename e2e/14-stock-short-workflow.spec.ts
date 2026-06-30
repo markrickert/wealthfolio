@@ -84,6 +84,9 @@ test.describe("Stock short workflow", () => {
   test("records sell short and buy to cover with holdings and lots after each action", async ({
     page,
   }) => {
+    // Multi-trade workflow with a market-sync wait after each submit — needs more
+    // than the default 30s test budget.
+    test.setTimeout(180000);
     await completeOnboardingIfNeeded(page);
     await loginIfNeeded(page);
     await createAccount(page, STOCK_SHORT_ACCOUNT, ACCOUNT_CURRENCY);
@@ -219,9 +222,13 @@ async function submitStockTrade(
   await dialog.getByTestId("quantity-input").fill(String(trade.quantity));
   await dialog.getByTestId("price-input").fill(String(trade.price));
   await dialog.getByTestId("fee-input").fill("0");
-  await dialog
-    .getByTestId("notes-input")
-    .fill(`${trade.intent} ${trade.quantity} ${STOCK_SHORT_SYMBOL}`);
+  // Notes live inside the collapsible "Advanced & notes" section — expand it first.
+  const notesInput = dialog.getByTestId("notes-input");
+  if (!(await notesInput.isVisible().catch(() => false))) {
+    await dialog.getByTestId("advanced-options-button").click();
+    await expect(notesInput).toBeVisible({ timeout: 5000 });
+  }
+  await notesInput.fill(`${trade.intent} ${trade.quantity} ${STOCK_SHORT_SYMBOL}`);
 
   const submitButton = dialog.locator('button[type="submit"]');
   await expect(submitButton).toContainText(trade.submitLabel);

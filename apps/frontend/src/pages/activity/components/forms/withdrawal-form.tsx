@@ -1,7 +1,6 @@
 import { useSettings } from "@/hooks/use-settings";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@wealthfolio/ui/components/ui/button";
-import { Card, CardContent } from "@wealthfolio/ui/components/ui/card";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { useMemo } from "react";
 import { FormProvider, useForm, type Resolver } from "react-hook-form";
@@ -12,6 +11,7 @@ import {
   AmountInput,
   createValidatedSubmit,
   DatePicker,
+  FormSection,
   NotesInput,
   type AccountSelectOption,
 } from "./fields";
@@ -97,30 +97,27 @@ export function WithdrawalForm({
   return (
     <FormProvider {...form}>
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Card>
-          <CardContent className="space-y-6 pt-4">
-            {/* Account Selection */}
-            <AccountSelect name="accountId" accounts={accounts} currencyName="currency" />
+        <FormSection title="Account">
+          <AccountSelect name="accountId" accounts={accounts} currencyName="currency" />
+          <DatePicker name="activityDate" label="Date" />
+        </FormSection>
 
-            {/* Date Picker */}
-            <DatePicker name="activityDate" label="Date" />
+        <FormSection title="Amount">
+          <AmountInput name="amount" label="Amount" currency={currency} />
+        </FormSection>
 
-            {/* Amount */}
-            <AmountInput name="amount" label="Amount" currency={currency} />
-
-            {/* Advanced Options - Currency and FX Rate (no subtypes for withdrawals) */}
-            <AdvancedOptionsSection
-              currencyName="currency"
-              fxRateName="fxRate"
-              accountCurrency={accountCurrency}
-              baseCurrency={baseCurrency}
-              showSubtype={false}
-            />
-
-            {/* Notes */}
-            <NotesInput name="comment" label="Notes" placeholder="Add an optional note..." />
-          </CardContent>
-        </Card>
+        {/* Advanced options (currency, FX rate) and notes, collapsed by default */}
+        <AdvancedOptionsSection
+          title="Advanced & notes"
+          dashed
+          currencyName="currency"
+          fxRateName="fxRate"
+          accountCurrency={accountCurrency}
+          baseCurrency={baseCurrency}
+          showSubtype={false}
+        >
+          <NotesInput name="comment" label="Notes" placeholder="Add an optional note..." />
+        </AdvancedOptionsSection>
 
         {/* Action Buttons */}
         <div className="flex justify-end gap-2">

@@ -6,7 +6,6 @@ import { normalizeCurrency } from "@/lib/utils";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Alert, AlertDescription } from "@wealthfolio/ui/components/ui/alert";
 import { Button } from "@wealthfolio/ui/components/ui/button";
-import { Card, CardContent } from "@wealthfolio/ui/components/ui/card";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { useEffect, useMemo, useRef } from "react";
 import { FormProvider, useForm, type Resolver } from "react-hook-form";
@@ -18,6 +17,7 @@ import {
   AssetTypeSelector,
   createValidatedSubmit,
   DatePicker,
+  FormSection,
   NotesInput,
   OptionContractFields,
   PositionIntentSelector,
@@ -447,196 +447,198 @@ export function SellForm({
   return (
     <FormProvider {...form}>
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Card>
-          <CardContent className="space-y-6 pt-4">
-            {/* Asset Type Selector */}
-            {!isEditing && (
+        <FormSection
+          title="Asset & Account"
+          action={
+            !isEditing && (
               <AssetTypeSelector
                 control={form.control}
                 name="assetType"
                 onValueChange={handleAssetTypeChange}
               />
-            )}
-
-            {/* Account Selection */}
-            <AccountSelect name="accountId" accounts={accounts} currencyName="currency" />
-
-            {/* Date Picker */}
-            <DatePicker name="activityDate" label="Date" enableTime={true} />
-
-            {/* Symbol / Option Contract Fields */}
-            {isOption ? (
-              <OptionContractFields
-                underlyingName="underlyingSymbol"
-                strikePriceName="strikePrice"
-                expirationDateName="expirationDate"
-                optionTypeName="optionType"
-                currencyName="currency"
-                exchangeMicName="exchangeMic"
-                quoteCcyName="symbolQuoteCcy"
-                unitPriceName="unitPrice"
-              />
-            ) : (
-              <>
-                <SymbolSearch
-                  name="assetId"
-                  isManualAsset={isManualAsset}
-                  exchangeMicName="exchangeMic"
-                  quoteModeName="quoteMode"
-                  currencyName="currency"
-                  quoteCcyName="symbolQuoteCcy"
-                  instrumentTypeName="symbolInstrumentType"
-                  existingAssetIdName="existingAssetId"
-                  assetMetadataName="assetMetadata"
-                />
-                {/* Hidden fields to register assetMetadata for react-hook-form */}
-                <input type="hidden" {...form.register("assetMetadata.name")} />
-                <input type="hidden" {...form.register("assetMetadata.kind")} />
-                <input type="hidden" {...form.register("symbolQuoteCcy")} />
-                <input type="hidden" {...form.register("symbolInstrumentType")} />
-                <input type="hidden" {...form.register("existingAssetId")} />
-              </>
-            )}
-
-            {/* Quantity, Price, Fee Row */}
-            {isOption ? (
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <h4 className="text-muted-foreground text-sm font-medium">Trade Details</h4>
-                <PositionIntentSelector control={form.control} name="subtype" />
-              </div>
-            ) : isStock ? (
-              <div className="space-y-3">
-                <h4 className="text-muted-foreground text-sm font-medium">Trade Details</h4>
-                <StockTradeIntentSelector control={form.control} name="subtype" side="sell" />
-              </div>
-            ) : null}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div>
-                <QuantityInput name="quantity" label={quantityLabel} />
-                {/* Shares breakdown with click-to-edit multiplier */}
-                {isOption && optQuantity && (
-                  <div className="text-muted-foreground mt-1.5 flex items-center gap-1 text-xs">
-                    <span>{Number(optQuantity) * (Number(optMultiplier) || 100)} shares</span>
-                    <span>·</span>
-                    <input
-                      type="number"
-                      {...form.register("contractMultiplier", { valueAsNumber: true })}
-                      className="hover:border-input focus:border-input focus:bg-background focus:ring-ring h-5 w-14 rounded border border-transparent bg-transparent px-1 text-center text-xs tabular-nums focus:outline-none focus:ring-1"
-                      aria-label="Contract Multiplier"
-                    />
-                    <span>x</span>
-                  </div>
-                )}
-                {!isOption && availableHoldingQuantity > 0 && (
-                  <p className="text-muted-foreground mt-1.5 text-xs">
-                    Available: {availableHoldingQuantity.toLocaleString()}
-                  </p>
-                )}
-                {isOption && availableHoldingQuantity > 0 && (
-                  <p className="text-muted-foreground mt-1.5 text-xs">
-                    Holding: {availableHoldingQuantity.toLocaleString()} contracts
-                  </p>
-                )}
-              </div>
-              <AmountInput
-                name="unitPrice"
-                label={priceLabel}
-                maxDecimalPlaces={4}
-                currency={currency}
-              />
-              <AmountInput name="fee" label="Fee" currency={currency} />
-              <AmountInput name="tax" label="Tax" currency={currency} />
-            </div>
-
-            {/* Option Total Credit with formula breakdown */}
-            {isOption && optQuantity && optUnitPrice && (
-              <div className="bg-muted/50 border-border rounded-md border p-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-muted-foreground text-xs font-medium uppercase">
-                      Total Credit
-                    </span>
-                    <p className="text-muted-foreground mt-0.5 text-xs tabular-nums">
-                      {Number(optQuantity)} ×{" "}
-                      {currency
-                        ? new Intl.NumberFormat("en-US", { style: "currency", currency }).format(
-                            Number(optUnitPrice),
-                          )
-                        : Number(optUnitPrice)}{" "}
-                      × {Number(optMultiplier) || 100}
-                      {Number(optFee) > 0 && (
-                        <>
-                          {" "}
-                          −{" "}
-                          {currency
-                            ? new Intl.NumberFormat("en-US", {
-                                style: "currency",
-                                currency,
-                              }).format(Number(optFee))
-                            : Number(optFee)}
-                        </>
-                      )}
-                    </p>
-                  </div>
-                  <span className="text-lg font-semibold tabular-nums">
-                    {new Intl.NumberFormat("en-US", {
-                      style: currency ? "currency" : "decimal",
-                      currency: currency || undefined,
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    }).format(optionTotal)}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* Warning for selling more than holdings */}
-            {isSellingMoreThanHoldings && (
-              <Alert variant="default" className="border-warning bg-warning/10">
-                <Icons.AlertTriangle className="text-warning h-4 w-4" />
-                <AlertDescription className="text-warning text-sm">
-                  {isOption
-                    ? `You are selling more contracts (${optQuantity?.toLocaleString()}) than your available holdings (${availableHoldingQuantity.toLocaleString()}). This may create or extend a short option position.`
-                    : `You are selling more shares (${optQuantity?.toLocaleString()}) than your available holdings (${availableHoldingQuantity.toLocaleString()}). Split the excess into a separate Sell Short activity.`}
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {isSellShortWhileLong && (
-              <Alert variant="default" className="border-warning bg-warning/10">
-                <Icons.AlertTriangle className="text-warning h-4 w-4" />
-                <AlertDescription className="text-warning text-sm">
-                  You currently hold {availableHoldingQuantity.toLocaleString()} shares. Sell Short
-                  is for opening a short position; split this into a normal Sell first, then Sell
-                  Short for any remaining short quantity.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {isSellWhileShortWithoutShortIntent && (
-              <Alert variant="default" className="border-warning bg-warning/10">
-                <Icons.AlertTriangle className="text-warning h-4 w-4" />
-                <AlertDescription className="text-warning text-sm">
-                  You already have a short position in this stock. Use Sell Short to increase it;
-                  enter a normal Sell only when you have a long position to close.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {/* Advanced Options */}
-            <AdvancedOptionsSection
+            )
+          }
+        >
+          {/* Symbol / Option Contract Fields */}
+          {isOption ? (
+            <OptionContractFields
+              underlyingName="underlyingSymbol"
+              strikePriceName="strikePrice"
+              expirationDateName="expirationDate"
+              optionTypeName="optionType"
               currencyName="currency"
-              fxRateName="fxRate"
-              activityType={ActivityType.SELL}
-              assetCurrency={assetCurrencyFromSymbol ?? normalizeCurrency(assetCurrency)}
-              accountCurrency={accountCurrency}
-              baseCurrency={baseCurrency}
+              exchangeMicName="exchangeMic"
+              quoteCcyName="symbolQuoteCcy"
+              unitPriceName="unitPrice"
             />
+          ) : (
+            <>
+              <SymbolSearch
+                name="assetId"
+                isManualAsset={isManualAsset}
+                exchangeMicName="exchangeMic"
+                quoteModeName="quoteMode"
+                currencyName="currency"
+                quoteCcyName="symbolQuoteCcy"
+                instrumentTypeName="symbolInstrumentType"
+                existingAssetIdName="existingAssetId"
+                assetMetadataName="assetMetadata"
+              />
+              {/* Hidden fields to register assetMetadata for react-hook-form */}
+              <input type="hidden" {...form.register("assetMetadata.name")} />
+              <input type="hidden" {...form.register("assetMetadata.kind")} />
+              <input type="hidden" {...form.register("symbolQuoteCcy")} />
+              <input type="hidden" {...form.register("symbolInstrumentType")} />
+              <input type="hidden" {...form.register("existingAssetId")} />
+            </>
+          )}
 
-            {/* Notes */}
-            <NotesInput name="comment" label="Notes" placeholder="Add an optional note..." />
-          </CardContent>
-        </Card>
+          <AccountSelect name="accountId" accounts={accounts} currencyName="currency" />
+          <DatePicker name="activityDate" label="Date" enableTime={true} />
+        </FormSection>
+
+        <FormSection
+          title="Trade"
+          action={
+            isOption ? (
+              <PositionIntentSelector control={form.control} name="subtype" hideLabel />
+            ) : isStock ? (
+              <StockTradeIntentSelector
+                control={form.control}
+                name="subtype"
+                side="sell"
+                hideLabel
+              />
+            ) : null
+          }
+        >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <QuantityInput name="quantity" label={quantityLabel} />
+              {/* Shares breakdown with click-to-edit multiplier */}
+              {isOption && optQuantity && (
+                <div className="text-muted-foreground mt-1.5 flex items-center gap-1 text-xs">
+                  <span>{Number(optQuantity) * (Number(optMultiplier) || 100)} shares</span>
+                  <span>·</span>
+                  <input
+                    type="number"
+                    {...form.register("contractMultiplier", { valueAsNumber: true })}
+                    className="hover:border-input focus:border-input focus:bg-background focus:ring-ring h-5 w-14 rounded border border-transparent bg-transparent px-1 text-center text-xs tabular-nums focus:outline-none focus:ring-1"
+                    aria-label="Contract Multiplier"
+                  />
+                  <span>x</span>
+                </div>
+              )}
+              {!isOption && availableHoldingQuantity > 0 && (
+                <p className="text-muted-foreground mt-1.5 text-xs">
+                  Available: {availableHoldingQuantity.toLocaleString()}
+                </p>
+              )}
+              {isOption && availableHoldingQuantity > 0 && (
+                <p className="text-muted-foreground mt-1.5 text-xs">
+                  Holding: {availableHoldingQuantity.toLocaleString()} contracts
+                </p>
+              )}
+            </div>
+            <AmountInput
+              name="unitPrice"
+              label={priceLabel}
+              maxDecimalPlaces={4}
+              currency={currency}
+            />
+            <AmountInput name="fee" label="Fee" currency={currency} />
+            <AmountInput name="tax" label="Tax" currency={currency} />
+          </div>
+
+          {/* Option Total Credit with formula breakdown */}
+          {isOption && optQuantity && optUnitPrice && (
+            <div className="bg-muted/50 border-border rounded-md border p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-muted-foreground text-xs font-medium uppercase">
+                    Total Credit
+                  </span>
+                  <p className="text-muted-foreground mt-0.5 text-xs tabular-nums">
+                    {Number(optQuantity)} ×{" "}
+                    {currency
+                      ? new Intl.NumberFormat("en-US", { style: "currency", currency }).format(
+                          Number(optUnitPrice),
+                        )
+                      : Number(optUnitPrice)}{" "}
+                    × {Number(optMultiplier) || 100}
+                    {Number(optFee) > 0 && (
+                      <>
+                        {" "}
+                        −{" "}
+                        {currency
+                          ? new Intl.NumberFormat("en-US", {
+                              style: "currency",
+                              currency,
+                            }).format(Number(optFee))
+                          : Number(optFee)}
+                      </>
+                    )}
+                  </p>
+                </div>
+                <span className="text-lg font-semibold tabular-nums">
+                  {new Intl.NumberFormat("en-US", {
+                    style: currency ? "currency" : "decimal",
+                    currency: currency || undefined,
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  }).format(optionTotal)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Warning for selling more than holdings */}
+          {isSellingMoreThanHoldings && (
+            <Alert variant="default" className="border-warning bg-warning/10">
+              <Icons.AlertTriangle className="text-warning h-4 w-4" />
+              <AlertDescription className="text-warning text-sm">
+                {isOption
+                  ? `You are selling more contracts (${optQuantity?.toLocaleString()}) than your available holdings (${availableHoldingQuantity.toLocaleString()}). This may create or extend a short option position.`
+                  : `You are selling more shares (${optQuantity?.toLocaleString()}) than your available holdings (${availableHoldingQuantity.toLocaleString()}). Split the excess into a separate Sell Short activity.`}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {isSellShortWhileLong && (
+            <Alert variant="default" className="border-warning bg-warning/10">
+              <Icons.AlertTriangle className="text-warning h-4 w-4" />
+              <AlertDescription className="text-warning text-sm">
+                You currently hold {availableHoldingQuantity.toLocaleString()} shares. Sell Short is
+                for opening a short position; split this into a normal Sell first, then Sell Short
+                for any remaining short quantity.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {isSellWhileShortWithoutShortIntent && (
+            <Alert variant="default" className="border-warning bg-warning/10">
+              <Icons.AlertTriangle className="text-warning h-4 w-4" />
+              <AlertDescription className="text-warning text-sm">
+                You already have a short position in this stock. Use Sell Short to increase it;
+                enter a normal Sell only when you have a long position to close.
+              </AlertDescription>
+            </Alert>
+          )}
+        </FormSection>
+
+        {/* Advanced options (currency, FX rate) and notes, collapsed by default */}
+        <AdvancedOptionsSection
+          title="Advanced & notes"
+          dashed
+          currencyName="currency"
+          fxRateName="fxRate"
+          activityType={ActivityType.SELL}
+          assetCurrency={assetCurrencyFromSymbol ?? normalizeCurrency(assetCurrency)}
+          accountCurrency={accountCurrency}
+          baseCurrency={baseCurrency}
+        >
+          <NotesInput name="comment" label="Notes" placeholder="Add an optional note..." />
+        </AdvancedOptionsSection>
 
         {/* Action Buttons */}
         <div className="flex justify-end gap-2">

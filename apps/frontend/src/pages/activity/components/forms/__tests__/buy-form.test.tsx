@@ -94,7 +94,21 @@ vi.mock("../fields", async () => {
         </div>
       );
     },
-    AdvancedOptionsSection: () => <div data-testid="advanced-options-section" />,
+    AdvancedOptionsSection: ({ children }: { children?: React.ReactNode }) => (
+      <div data-testid="advanced-options-section">{children}</div>
+    ),
+    FormSection: ({
+      action,
+      children,
+    }: {
+      action?: React.ReactNode;
+      children?: React.ReactNode;
+    }) => (
+      <div data-testid="form-section">
+        {action}
+        {children}
+      </div>
+    ),
     AssetTypeSelector: ({ name }: { name: string }) => (
       <div data-testid={`asset-type-selector-${name}`} />
     ),
@@ -292,8 +306,7 @@ describe("BuyForm", () => {
     it("wraps content in a Card component", () => {
       render(<BuyForm accounts={mockAccounts} onSubmit={mockOnSubmit} />);
 
-      expect(screen.getByTestId("card")).toBeInTheDocument();
-      expect(screen.getByTestId("card-content")).toBeInTheDocument();
+      expect(screen.getAllByTestId("form-section").length).toBeGreaterThan(0);
     });
 
     it("renders form with proper structure", () => {
