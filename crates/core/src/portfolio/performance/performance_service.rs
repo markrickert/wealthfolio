@@ -2166,7 +2166,7 @@ impl PerformanceService {
             }
             ActivityType::Fee => (
                 Decimal::ZERO,
-                Self::activity_charge_amount(activity, activity_type),
+                activity.charge_amt_for(activity_type),
                 Decimal::ZERO,
             ),
             ActivityType::Buy | ActivityType::Sell => {
@@ -2175,22 +2175,10 @@ impl PerformanceService {
             ActivityType::Tax => (
                 Decimal::ZERO,
                 Decimal::ZERO,
-                Self::activity_charge_amount(activity, activity_type),
+                activity.charge_amt_for(activity_type),
             ),
             _ => (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO),
         }
-    }
-
-    fn activity_charge_amount(activity: &Activity, activity_type: &ActivityType) -> Decimal {
-        if matches!(activity_type, ActivityType::Tax) && !activity.tax_amt().is_zero() {
-            return activity.tax_amt();
-        }
-
-        if !activity.fee_amt().is_zero() {
-            return activity.fee_amt();
-        }
-
-        activity.amt()
     }
 
     fn attribution_unit_multiplier(activity: &Activity) -> Decimal {

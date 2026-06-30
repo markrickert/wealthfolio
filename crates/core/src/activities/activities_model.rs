@@ -222,6 +222,19 @@ impl Activity {
         self.tax.unwrap_or(Decimal::ZERO).abs()
     }
 
+    /// Get the charge amount for standalone charge handling.
+    pub(crate) fn charge_amt_for(&self, activity_type: &ActivityType) -> Decimal {
+        if matches!(activity_type, ActivityType::Tax) && !self.tax_amt().is_zero() {
+            return self.tax_amt();
+        }
+
+        if !self.fee_amt().is_zero() {
+            return self.fee_amt();
+        }
+
+        self.amt()
+    }
+
     /// Get typed metadata value
     pub fn get_meta<T: serde::de::DeserializeOwned>(&self, key: &str) -> Option<T> {
         self.metadata
