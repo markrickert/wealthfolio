@@ -10,9 +10,9 @@ use crate::utils::isin::looks_like_isin;
 use futures::stream::{self, StreamExt};
 
 use super::assets_model::{
-    canonicalize_market_identity, normalize_quote_ccy_code, resolve_quote_ccy_precedence, Asset,
-    AssetKind, AssetSpec, EnsureAssetsResult, InstrumentType, NewAsset, QuoteCcyResolutionSource,
-    QuoteMode, UpdateAssetProfile,
+    canonicalize_market_identity, normalize_quote_ccy_code, resolve_import_quote_ccy_precedence,
+    resolve_quote_ccy_precedence, Asset, AssetKind, AssetSpec, EnsureAssetsResult, InstrumentType,
+    NewAsset, QuoteCcyResolutionSource, QuoteMode, UpdateAssetProfile,
 };
 use super::assets_traits::{AssetRepositoryTrait, AssetServiceTrait};
 use super::auto_classification::{AutoClassificationService, ClassificationInput};
@@ -1187,6 +1187,12 @@ impl AssetServiceTrait for AssetService {
             }
 
             let (base_symbol, suffix_mic) = parse_symbol_with_exchange_suffix(&resolution_symbol);
+            let has_import_market_hint = input
+                .exchange_mic
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|mic| !mic.is_empty())
+                || suffix_mic.is_some();
             let mut exchange_mic = input
                 .exchange_mic
                 .clone()
@@ -1394,12 +1400,22 @@ impl AssetServiceTrait for AssetService {
                 .map(|asset| asset.quote_ccy.as_str());
 
             let explicit_quote_ccy = input.quote_ccy.as_deref().or(pair_quote_ccy.as_deref());
+            let activity_quote_ccy = if has_import_market_hint {
+                input
+                    .activity_currency
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|currency| !currency.is_empty())
+            } else {
+                None
+            };
             let provider_quote_ccy = provider_result
                 .as_ref()
                 .and_then(|result| result.currency.as_deref());
-            let (quote_ccy, quote_ccy_source) = resolve_quote_ccy_precedence(
+            let (quote_ccy, quote_ccy_source) = resolve_import_quote_ccy_precedence(
                 explicit_quote_ccy,
                 existing_quote_ccy,
+                activity_quote_ccy,
                 provider_quote_ccy,
                 exchange_mic.as_deref().and_then(mic_to_currency),
                 Some(&terminal_currency),
@@ -2612,7 +2628,8 @@ impl AssetServiceTrait for AssetService {
 #[cfg(test)]
 mod tests {
     use super::super::assets_model::{
-        Asset, AssetKind, InstrumentType, NewAsset, ProviderProfile, UpdateAssetProfile,
+        Asset, AssetKind, InstrumentType, NewAsset, ProviderProfile, QuoteCcyResolutionSource,
+        UpdateAssetProfile,
     };
     use super::{AssetRepositoryTrait, AssetService, AssetServiceTrait, QuoteMode};
     use crate::assets::AssetResolutionInput;
@@ -3142,6 +3159,113 @@ mod tests {
         assert_eq!(draft.provider_config, None);
         assert_eq!(draft.provider_id.as_deref(), Some("YAHOO"));
         assert_eq!(draft.provider_symbol.as_deref(), Some("VOD.L"));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_import_asset_inputs_uses_activity_currency_before_provider_quote() {
+        let service = test_asset_service(
+            Vec::new(),
+            TestQuoteService::default().with_result(
+                "VOD.L",
+                vec![yahoo_search_result(
+                    "VOD.L",
+                    "VOD",
+                    "XLON",
+                    "Vodafone Group Public Limited Company",
+                    "GBp",
+                    "VOD.L",
+                )],
+            ),
+        );
+
+        let output = service
+            .resolve_import_asset_inputs(vec![import_input("VOD.L", "USD")])
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+
+        assert_eq!(output.canonical_symbol.as_deref(), Some("VOD"));
+        assert_eq!(output.exchange_mic.as_deref(), Some("XLON"));
+        assert_eq!(output.quote_ccy.as_deref(), Some("USD"));
+        assert_eq!(
+            output.quote_ccy_source,
+            Some(QuoteCcyResolutionSource::ExplicitInput)
+        );
+
+        let draft = output.draft.expect("new LSE asset draft");
+        assert_eq!(draft.quote_ccy, "USD");
+        assert_eq!(draft.provider_symbol.as_deref(), Some("VOD.L"));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_import_asset_inputs_keeps_provider_quote_unit_for_activity_major() {
+        let service = test_asset_service(
+            Vec::new(),
+            TestQuoteService::default().with_result(
+                "VOD.L",
+                vec![yahoo_search_result(
+                    "VOD.L",
+                    "VOD",
+                    "XLON",
+                    "Vodafone Group Public Limited Company",
+                    "GBp",
+                    "VOD.L",
+                )],
+            ),
+        );
+
+        let output = service
+            .resolve_import_asset_inputs(vec![import_input("VOD.L", "GBP")])
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+
+        assert_eq!(output.canonical_symbol.as_deref(), Some("VOD"));
+        assert_eq!(output.exchange_mic.as_deref(), Some("XLON"));
+        assert_eq!(output.quote_ccy.as_deref(), Some("GBp"));
+        assert_eq!(
+            output.quote_ccy_source,
+            Some(QuoteCcyResolutionSource::ProviderQuote)
+        );
+
+        let draft = output.draft.expect("new LSE asset draft");
+        assert_eq!(draft.quote_ccy, "GBp");
+        assert_eq!(draft.provider_symbol.as_deref(), Some("VOD.L"));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_import_asset_inputs_uses_provider_when_activity_currency_is_missing() {
+        let service = test_asset_service(
+            Vec::new(),
+            TestQuoteService::default().with_result(
+                "VOD.L",
+                vec![yahoo_search_result(
+                    "VOD.L",
+                    "VOD",
+                    "XLON",
+                    "Vodafone Group Public Limited Company",
+                    "GBp",
+                    "VOD.L",
+                )],
+            ),
+        );
+        let mut input = import_input("VOD.L", "USD");
+        input.activity_currency = None;
+
+        let output = service
+            .resolve_import_asset_inputs(vec![input])
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+
+        assert_eq!(output.quote_ccy.as_deref(), Some("GBp"));
+        assert_eq!(
+            output.quote_ccy_source,
+            Some(QuoteCcyResolutionSource::ProviderQuote)
+        );
     }
 
     #[tokio::test]

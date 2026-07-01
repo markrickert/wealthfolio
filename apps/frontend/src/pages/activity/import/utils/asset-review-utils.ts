@@ -108,17 +108,26 @@ function hasProviderIdentity(input: { providerId?: string; providerSymbol?: stri
   return Boolean(input.providerId?.trim() || input.providerSymbol?.trim());
 }
 
+function draftAssetResolutionCurrency(draft: DraftActivity): string | undefined {
+  const currency = draft.currency?.trim();
+  if (!currency || draft.currencySource === "default") {
+    return undefined;
+  }
+  return currency;
+}
+
 function buildImportAssetCandidateKeyFromDraft(draft: DraftActivity): string | undefined {
   if (!draft.symbol || !draft.accountId) {
     return undefined;
   }
 
+  const currency = draftAssetResolutionCurrency(draft);
   return buildImportAssetCandidateKey({
     accountId: draft.accountId,
     symbol: draft.symbol,
     instrumentType: draft.instrumentType,
     quoteMode: draft.quoteMode,
-    quoteCcy: draft.quoteCcy || draft.currency,
+    quoteCcy: draft.quoteCcy || currency,
     exchangeMic: draft.exchangeMic,
     isin: draft.isin,
     providerId: draft.providerId,
@@ -155,7 +164,7 @@ export function buildImportAssetCandidateFromDraft(
     key: shouldUseStoredKey && storedKey ? storedKey : computedKey,
     accountId: draft.accountId,
     symbol: draft.symbol,
-    currency: draft.currency,
+    currency: draftAssetResolutionCurrency(draft),
     instrumentType: draft.instrumentType,
     quoteCcy: draft.quoteCcy,
     quoteMode: draft.quoteMode,

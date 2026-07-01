@@ -638,6 +638,7 @@ export function createDraftActivities(
     const rawCurrencyValue = rawCurrency?.trim();
     const currency = rawCurrencyValue || defaultCurrency;
     const currencySource = rawCurrencyValue ? "csv" : "default";
+    const assetResolutionCurrency = rawCurrencyValue || undefined;
     const fee = parseNumericValue(rawFee, decimalSeparator, thousandsSeparator);
     let tax = parseNumericValue(rawTax, decimalSeparator, thousandsSeparator);
     const comment = rawComment?.trim();
@@ -717,7 +718,7 @@ export function createDraftActivities(
               symbol,
               instrumentType: resolvedInstrumentType,
               quoteMode: mappedQuoteMode,
-              quoteCcy: mappedQuoteCcy || currency,
+              quoteCcy: mappedQuoteCcy || assetResolutionCurrency,
               exchangeMic: mappedExchangeMic,
               isin: rawIsin?.trim() || undefined,
             })

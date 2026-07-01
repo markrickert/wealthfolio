@@ -12,6 +12,7 @@ use serde_json::Value;
 use super::asset_id::{parse_crypto_pair_symbol, parse_symbol_with_exchange_suffix};
 use crate::errors::Result;
 use crate::errors::ValidationError;
+use crate::fx::currency::normalize_currency_code;
 use crate::Error;
 use wealthfolio_market_data::mic_to_currency;
 
@@ -910,6 +911,55 @@ pub fn resolve_quote_ccy_precedence(
     }
     normalize_quote_ccy(terminal_fallback_quote_ccy)
         .map(|ccy| (ccy, QuoteCcyResolutionSource::TerminalFallback))
+}
+
+pub fn resolve_import_quote_ccy_precedence(
+    explicit_quote_ccy: Option<&str>,
+    existing_asset_quote_ccy: Option<&str>,
+    activity_quote_ccy: Option<&str>,
+    provider_quote_ccy: Option<&str>,
+    mic_fallback_quote_ccy: Option<&str>,
+    terminal_fallback_quote_ccy: Option<&str>,
+) -> Option<(String, QuoteCcyResolutionSource)> {
+    if let Some(ccy) = normalize_quote_ccy(explicit_quote_ccy) {
+        return Some((ccy, QuoteCcyResolutionSource::ExplicitInput));
+    }
+    if let Some(ccy) = normalize_quote_ccy(existing_asset_quote_ccy) {
+        return Some((ccy, QuoteCcyResolutionSource::ExistingAsset));
+    }
+    let activity_ccy = normalize_quote_ccy(activity_quote_ccy);
+    let provider_ccy = normalize_quote_ccy(provider_quote_ccy);
+    if let Some(provider) = provider_ccy.as_deref() {
+        if activity_ccy
+            .as_deref()
+            .is_some_and(|activity| provider_quote_unit_matches_activity_major(provider, activity))
+        {
+            return Some((
+                provider.to_string(),
+                QuoteCcyResolutionSource::ProviderQuote,
+            ));
+        }
+        if let Some(activity) = activity_ccy {
+            return Some((activity, QuoteCcyResolutionSource::ExplicitInput));
+        }
+        return Some((
+            provider.to_string(),
+            QuoteCcyResolutionSource::ProviderQuote,
+        ));
+    }
+    if let Some(ccy) = normalize_quote_ccy(mic_fallback_quote_ccy) {
+        return Some((ccy, QuoteCcyResolutionSource::MicFallback));
+    }
+    if let Some(ccy) = activity_ccy {
+        return Some((ccy, QuoteCcyResolutionSource::ExplicitInput));
+    }
+    normalize_quote_ccy(terminal_fallback_quote_ccy)
+        .map(|ccy| (ccy, QuoteCcyResolutionSource::TerminalFallback))
+}
+
+fn provider_quote_unit_matches_activity_major(provider_quote: &str, activity_quote: &str) -> bool {
+    let provider_major = normalize_currency_code(provider_quote);
+    provider_major != provider_quote && provider_major.eq_ignore_ascii_case(activity_quote)
 }
 
 fn parse_fx_symbol_parts(symbol: &str) -> Option<(String, String)> {
