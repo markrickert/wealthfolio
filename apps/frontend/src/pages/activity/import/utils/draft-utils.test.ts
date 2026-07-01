@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ACTIVITY_SUBTYPES, AccountType, ActivityType, ImportFormat } from "@/lib/constants";
 import { createDraftActivities, draftToActivityImport } from "./draft-utils";
 import { getActivityImportProfileForAccountType } from "./activity-import-profile";
+import { applyAssetResolution } from "./asset-review-utils";
 
 const headers = [
   ImportFormat.DATE,
@@ -48,6 +49,121 @@ function createSingleDraftWithMapping(row: string[], activityMappings: Record<st
 }
 
 describe("createDraftActivities explicit activity mapping", () => {
+  it("uses the resolved asset currency for security rows when the CSV has no currency column", () => {
+    const [draft] = createDraftActivities(
+      [["2026-06-30", "BUY", "KWEB", "10", "28.50", "285.00", "0"]],
+      [
+        ImportFormat.DATE,
+        ImportFormat.ACTIVITY_TYPE,
+        ImportFormat.SYMBOL,
+        ImportFormat.QUANTITY,
+        ImportFormat.UNIT_PRICE,
+        ImportFormat.AMOUNT,
+        ImportFormat.FEE,
+      ],
+      {
+        ...baseMapping,
+        fieldMappings: {
+          [ImportFormat.DATE]: ImportFormat.DATE,
+          [ImportFormat.ACTIVITY_TYPE]: ImportFormat.ACTIVITY_TYPE,
+          [ImportFormat.SYMBOL]: ImportFormat.SYMBOL,
+          [ImportFormat.QUANTITY]: ImportFormat.QUANTITY,
+          [ImportFormat.UNIT_PRICE]: ImportFormat.UNIT_PRICE,
+          [ImportFormat.AMOUNT]: ImportFormat.AMOUNT,
+          [ImportFormat.FEE]: ImportFormat.FEE,
+        },
+        activityMappings: {
+          [ActivityType.BUY]: ["BUY"],
+        },
+      },
+      { ...parseConfig, defaultCurrency: "CAD" },
+      "account-1",
+    );
+
+    expect(draft.currency).toBe("CAD");
+    expect(draft.currencySource).toBe("default");
+
+    const [resolved] = applyAssetResolution(
+      [draft],
+      draft.assetCandidateKey ?? "",
+      {
+        kind: "INVESTMENT",
+        name: "KraneShares CSI China Internet ETF",
+        displayCode: "KWEB",
+        isActive: true,
+        quoteMode: "MARKET",
+        quoteCcy: "USD",
+        instrumentType: "EQUITY",
+        instrumentSymbol: "KWEB",
+        instrumentExchangeMic: "ARCX",
+      },
+      { importAssetKey: draft.assetCandidateKey },
+    );
+
+    expect(resolved.currency).toBe("USD");
+    expect(resolved.currencySource).toBe("resolved");
+    expect(draftToActivityImport(resolved).currency).toBe("USD");
+  });
+
+  it("preserves an explicit CSV currency even when the resolved asset quote currency differs", () => {
+    const [draft] = createDraftActivities(
+      [["2026-06-30", "BUY", "KWEB", "10", "28.50", "285.00", "0", "CAD"]],
+      [
+        ImportFormat.DATE,
+        ImportFormat.ACTIVITY_TYPE,
+        ImportFormat.SYMBOL,
+        ImportFormat.QUANTITY,
+        ImportFormat.UNIT_PRICE,
+        ImportFormat.AMOUNT,
+        ImportFormat.FEE,
+        ImportFormat.CURRENCY,
+      ],
+      {
+        ...baseMapping,
+        fieldMappings: {
+          [ImportFormat.DATE]: ImportFormat.DATE,
+          [ImportFormat.ACTIVITY_TYPE]: ImportFormat.ACTIVITY_TYPE,
+          [ImportFormat.SYMBOL]: ImportFormat.SYMBOL,
+          [ImportFormat.QUANTITY]: ImportFormat.QUANTITY,
+          [ImportFormat.UNIT_PRICE]: ImportFormat.UNIT_PRICE,
+          [ImportFormat.AMOUNT]: ImportFormat.AMOUNT,
+          [ImportFormat.FEE]: ImportFormat.FEE,
+          [ImportFormat.CURRENCY]: ImportFormat.CURRENCY,
+        },
+        activityMappings: {
+          [ActivityType.BUY]: ["BUY"],
+        },
+      },
+      { ...parseConfig, defaultCurrency: "CAD" },
+      "account-1",
+    );
+
+    expect(draft.currency).toBe("CAD");
+    expect(draft.currencySource).toBe("csv");
+
+    const [resolved] = applyAssetResolution(
+      [draft],
+      draft.assetCandidateKey ?? "",
+      {
+        kind: "INVESTMENT",
+        name: "KraneShares CSI China Internet ETF",
+        displayCode: "KWEB",
+        isActive: true,
+        quoteMode: "MARKET",
+        quoteCcy: "USD",
+        instrumentType: "EQUITY",
+        instrumentSymbol: "KWEB",
+        instrumentExchangeMic: "ARCX",
+      },
+      { importAssetKey: draft.assetCandidateKey },
+    );
+
+    expect(resolved.currency).toBe("CAD");
+    expect(resolved.currencySource).toBe("csv");
+    expect(resolved.quoteCcy).toBe("USD");
+    expect(draftToActivityImport(resolved).currency).toBe("CAD");
+  });
+
   it("carries provider config from symbol mapping into the final import payload", () => {
     const [draft] = createDraftActivities(
       [["2024-03-15", "BUY", "SHOP.TO", "1", "100", "CAD"]],

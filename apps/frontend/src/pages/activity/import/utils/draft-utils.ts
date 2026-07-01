@@ -635,7 +635,9 @@ export function createDraftActivities(
     const quantity = parseNumericValue(rawQuantity, decimalSeparator, thousandsSeparator);
     const unitPrice = parseNumericValue(rawUnitPrice, decimalSeparator, thousandsSeparator);
     let amount = parseNumericValue(rawAmount, decimalSeparator, thousandsSeparator);
-    const currency = rawCurrency?.trim() || defaultCurrency;
+    const rawCurrencyValue = rawCurrency?.trim();
+    const currency = rawCurrencyValue || defaultCurrency;
+    const currencySource = rawCurrencyValue ? "csv" : "default";
     const fee = parseNumericValue(rawFee, decimalSeparator, thousandsSeparator);
     let tax = parseNumericValue(rawTax, decimalSeparator, thousandsSeparator);
     const comment = rawComment?.trim();
@@ -724,6 +726,7 @@ export function createDraftActivities(
       unitPrice,
       amount: resolved.amount,
       currency,
+      currencySource,
       fee,
       tax,
       fxRate,

@@ -21,12 +21,17 @@ export function applyAssetResolution(
     if (row.assetCandidateKey !== key && buildImportAssetCandidateKeyFromDraft(row) !== key) {
       return row;
     }
+    const resolvedCurrency =
+      row.currencySource === "default" && draft.quoteCcy ? draft.quoteCcy : row.currency;
     return {
       ...row,
       symbol: draft.instrumentSymbol || draft.displayCode || row.symbol,
       symbolName: draft.name || row.symbolName,
       exchangeMic: draft.instrumentExchangeMic || undefined,
       quoteCcy: draft.quoteCcy || row.quoteCcy,
+      currency: resolvedCurrency,
+      currencySource:
+        row.currencySource === "default" && draft.quoteCcy ? "resolved" : row.currencySource,
       instrumentType: draft.instrumentType || row.instrumentType,
       quoteMode: draft.quoteMode || row.quoteMode,
       providerId: draft.providerId,

@@ -5282,6 +5282,156 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_check_import_uses_existing_asset_currency_when_import_currency_is_missing() {
+        let account_service = Arc::new(MockAccountService::new());
+        let asset_service = Arc::new(MockAssetService::new());
+        let fx_service = Arc::new(MockFxService::new());
+        let activity_repository = Arc::new(MockActivityRepository::new());
+
+        let account = create_test_account("acc-1", "CAD");
+        account_service.add_account(account);
+
+        let asset = create_test_asset_with_instrument(
+            "kweb-uuid",
+            "KWEB",
+            Some("ARCX"),
+            Some(InstrumentType::Equity),
+            "USD",
+        );
+        asset_service.add_asset(asset);
+
+        let quote_service = Arc::new(MockQuoteService);
+        let activity_service = ActivityService::new(
+            activity_repository,
+            account_service,
+            asset_service,
+            fx_service,
+            quote_service,
+        );
+
+        let import = ActivityImport {
+            id: None,
+            date: "2026-06-30".to_string(),
+            symbol: "KWEB".to_string(),
+            activity_type: "BUY".to_string(),
+            quantity: Some(dec!(10)),
+            unit_price: Some(dec!(28.50)),
+            currency: String::new(),
+            fee: Some(dec!(0)),
+            tax: None,
+            amount: Some(dec!(285)),
+            comment: None,
+            account_id: Some("acc-1".to_string()),
+            account_name: None,
+            symbol_name: None,
+            exchange_mic: Some("ARCX".to_string()),
+            quote_ccy: None,
+            instrument_type: None,
+            quote_mode: None,
+            provider_id: None,
+            provider_symbol: None,
+            errors: None,
+            warnings: None,
+            duplicate_of_id: None,
+            duplicate_of_line_number: None,
+            is_draft: false,
+            is_valid: true,
+            line_number: Some(1),
+            fx_rate: None,
+            subtype: None,
+            asset_id: None,
+            isin: None,
+            force_import: false,
+            is_external: None,
+        };
+
+        let result = activity_service
+            .check_activities_import(vec![import])
+            .await
+            .expect("import check should succeed");
+
+        let checked = &result[0];
+        assert_eq!(checked.asset_id.as_deref(), Some("kweb-uuid"));
+        assert_eq!(checked.currency, "USD");
+        assert_eq!(checked.quote_ccy.as_deref(), Some("USD"));
+    }
+
+    #[tokio::test]
+    async fn test_check_import_preserves_explicit_import_currency_for_existing_asset() {
+        let account_service = Arc::new(MockAccountService::new());
+        let asset_service = Arc::new(MockAssetService::new());
+        let fx_service = Arc::new(MockFxService::new());
+        let activity_repository = Arc::new(MockActivityRepository::new());
+
+        let account = create_test_account("acc-1", "CAD");
+        account_service.add_account(account);
+
+        let asset = create_test_asset_with_instrument(
+            "kweb-uuid",
+            "KWEB",
+            Some("ARCX"),
+            Some(InstrumentType::Equity),
+            "USD",
+        );
+        asset_service.add_asset(asset);
+
+        let quote_service = Arc::new(MockQuoteService);
+        let activity_service = ActivityService::new(
+            activity_repository,
+            account_service,
+            asset_service,
+            fx_service,
+            quote_service,
+        );
+
+        let import = ActivityImport {
+            id: None,
+            date: "2026-06-30".to_string(),
+            symbol: "KWEB".to_string(),
+            activity_type: "BUY".to_string(),
+            quantity: Some(dec!(10)),
+            unit_price: Some(dec!(28.50)),
+            currency: "CAD".to_string(),
+            fee: Some(dec!(0)),
+            tax: None,
+            amount: Some(dec!(285)),
+            comment: None,
+            account_id: Some("acc-1".to_string()),
+            account_name: None,
+            symbol_name: None,
+            exchange_mic: Some("ARCX".to_string()),
+            quote_ccy: None,
+            instrument_type: None,
+            quote_mode: None,
+            provider_id: None,
+            provider_symbol: None,
+            errors: None,
+            warnings: None,
+            duplicate_of_id: None,
+            duplicate_of_line_number: None,
+            is_draft: false,
+            is_valid: true,
+            line_number: Some(1),
+            fx_rate: None,
+            subtype: None,
+            asset_id: None,
+            isin: None,
+            force_import: false,
+            is_external: None,
+        };
+
+        let result = activity_service
+            .check_activities_import(vec![import])
+            .await
+            .expect("import check should succeed");
+
+        let checked = &result[0];
+        assert_eq!(checked.asset_id.as_deref(), Some("kweb-uuid"));
+        assert_eq!(checked.currency, "CAD");
+        assert_eq!(checked.quote_ccy.as_deref(), Some("USD"));
+    }
+
+    #[tokio::test]
     async fn test_check_import_does_not_resolve_reviewed_assets_again() {
         let account_service = Arc::new(MockAccountService::new());
         let asset_service = Arc::new(MockAssetService::new());

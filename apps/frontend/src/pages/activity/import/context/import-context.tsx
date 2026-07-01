@@ -40,6 +40,7 @@ export interface ParseConfig {
 }
 
 export type DraftActivityStatus = "valid" | "warning" | "error" | "skipped" | "duplicate";
+export type DraftCurrencySource = "csv" | "default" | "manual" | "resolved";
 
 export interface DraftActivity {
   rowIndex: number;
@@ -54,6 +55,7 @@ export interface DraftActivity {
   unitPrice?: string | null;
   amount?: string | null;
   currency: string;
+  currencySource?: DraftCurrencySource;
   fee?: string | null;
   tax?: string | null;
   accountId: string;
@@ -262,6 +264,17 @@ function coerceStepForOrder(current: ImportStep, nextOrder: ImportStep[]): Impor
 // ─────────────────────────────────────────────────────────────────────────────
 
 function importReducer(state: ImportState, action: ImportAction): ImportState {
+  const applyUserDraftUpdates = (
+    draft: DraftActivity,
+    updates: Partial<DraftActivity>,
+  ): DraftActivity => {
+    const normalizedUpdates =
+      "currency" in updates && !("currencySource" in updates)
+        ? { ...updates, currencySource: "manual" as const }
+        : updates;
+    return { ...draft, ...normalizedUpdates, isEdited: true };
+  };
+
   const updatesAffectAssetPreview = (updates: Partial<DraftActivity>) =>
     [
       "activityType",
@@ -320,7 +333,7 @@ function importReducer(state: ImportState, action: ImportAction): ImportState {
       return {
         ...state,
         draftActivities: state.draftActivities.map((draft) =>
-          draft.rowIndex === rowIndex ? { ...draft, ...updates, isEdited: true } : draft,
+          draft.rowIndex === rowIndex ? applyUserDraftUpdates(draft, updates) : draft,
         ),
         ...(shouldClearAssetPreview
           ? {
@@ -341,7 +354,7 @@ function importReducer(state: ImportState, action: ImportAction): ImportState {
       return {
         ...state,
         draftActivities: state.draftActivities.map((draft) =>
-          indexSet.has(draft.rowIndex) ? { ...draft, ...updates, isEdited: true } : draft,
+          indexSet.has(draft.rowIndex) ? applyUserDraftUpdates(draft, updates) : draft,
         ),
         ...(shouldClearAssetPreview
           ? {
@@ -537,8 +550,6 @@ export function ImportProvider({ children, initialAccountId }: ImportProviderPro
   // "Latest ref" pattern — keeps validateDrafts stable while reading current values
   const accountIdRef = useRef(state.accountId);
   accountIdRef.current = state.accountId;
-  const defaultCurrencyRef = useRef(state.parseConfig.defaultCurrency);
-  defaultCurrencyRef.current = state.parseConfig.defaultCurrency;
   const draftRevisionRef = useRef(state.draftRevision);
   draftRevisionRef.current = state.draftRevision;
 
@@ -569,7 +580,7 @@ export function ImportProvider({ children, initialAccountId }: ImportProviderPro
                 quantity: draft.quantity,
                 unitPrice: draft.unitPrice,
                 amount: draft.amount,
-                currency: draft.currency || defaultCurrencyRef.current || "",
+                currency: draft.currencySource === "default" ? "" : draft.currency || "",
                 fee: draft.fee,
                 tax: draft.tax,
                 isDraft: true,
@@ -644,6 +655,12 @@ export function ImportProvider({ children, initialAccountId }: ImportProviderPro
               symbolName: backendResult.symbolName,
               exchangeMic: backendResult.exchangeMic,
               quoteCcy: backendResult.quoteCcy,
+              currency: backendResult.currency || draft.currency,
+              currencySource: backendResult.currency
+                ? draft.currencySource === "csv" || draft.currencySource === "manual"
+                  ? draft.currencySource
+                  : "resolved"
+                : draft.currencySource,
               instrumentType: backendResult.instrumentType,
               providerId: backendResult.providerId,
               providerSymbol: backendResult.providerSymbol,
