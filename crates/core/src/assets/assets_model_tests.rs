@@ -450,7 +450,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_import_quote_ccy_precedence_uses_mic_before_activity_without_provider() {
+    fn test_resolve_import_quote_ccy_precedence_uses_activity_before_mic_without_provider() {
         let resolved = resolve_import_quote_ccy_precedence(
             None,
             None,
@@ -462,7 +462,7 @@ mod tests {
 
         assert_eq!(
             resolved,
-            Some(("GBp".to_string(), QuoteCcyResolutionSource::MicFallback))
+            Some(("CAD".to_string(), QuoteCcyResolutionSource::ExplicitInput))
         );
     }
 

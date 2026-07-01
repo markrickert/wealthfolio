@@ -6203,7 +6203,7 @@ mod tests {
             activity_type: "BUY".to_string(),
             quantity: Some(dec!(10)),
             unit_price: Some(dec!(120)),
-            currency: "CAD".to_string(),
+            currency: String::new(),
             fee: Some(dec!(0)),
             tax: None,
             amount: Some(dec!(1200)),

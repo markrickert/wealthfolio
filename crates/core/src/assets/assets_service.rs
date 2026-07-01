@@ -1234,7 +1234,11 @@ impl AssetServiceTrait for AssetService {
                     .activity_currency
                     .as_deref()
                     .map(str::trim)
-                    .filter(|ccy| !ccy.is_empty()));
+                    .filter(|ccy| !ccy.is_empty()))
+                .or_else(|| {
+                    let account_currency = input.account_currency.trim();
+                    (!account_currency.is_empty()).then_some(account_currency)
+                });
 
             let local_existing_asset = local_index.find_for_import_input(
                 input.asset_id.as_deref(),
@@ -3199,6 +3203,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_resolve_import_asset_inputs_uses_activity_currency_before_mic_without_provider_quote(
+    ) {
+        let mut vod = yahoo_search_result(
+            "VOD.L",
+            "VOD",
+            "XLON",
+            "Vodafone Group Public Limited Company",
+            "GBp",
+            "VOD.L",
+        );
+        vod.currency = None;
+        let service = test_asset_service(
+            Vec::new(),
+            TestQuoteService::default().with_result("VOD.L", vec![vod]),
+        );
+
+        let output = service
+            .resolve_import_asset_inputs(vec![import_input("VOD.L", "USD")])
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+
+        assert_eq!(output.canonical_symbol.as_deref(), Some("VOD"));
+        assert_eq!(output.exchange_mic.as_deref(), Some("XLON"));
+        assert_eq!(output.quote_ccy.as_deref(), Some("USD"));
+        assert_eq!(
+            output.quote_ccy_source,
+            Some(QuoteCcyResolutionSource::ExplicitInput)
+        );
+
+        let draft = output.draft.expect("new LSE asset draft");
+        assert_eq!(draft.quote_ccy, "USD");
+        assert_eq!(draft.provider_symbol.as_deref(), Some("VOD.L"));
+    }
+
+    #[tokio::test]
     async fn test_resolve_import_asset_inputs_keeps_provider_quote_unit_for_activity_major() {
         let service = test_asset_service(
             Vec::new(),
@@ -3857,6 +3898,52 @@ mod tests {
         assert_eq!(output.exchange_mic.as_deref(), Some("XNYS"));
         assert_eq!(output.quote_ccy.as_deref(), Some("USD"));
         assert_eq!(output.review_symbol.as_deref(), Some("SHOP"));
+        assert!(output.draft.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_resolve_import_asset_inputs_missing_activity_currency_uses_account_currency_to_avoid_cross_listing_match(
+    ) {
+        let shop_tsx = Asset {
+            id: "shop-tsx".to_string(),
+            name: Some("Shopify Inc.".to_string()),
+            display_code: Some("SHOP".to_string()),
+            instrument_symbol: Some("SHOP".to_string()),
+            instrument_exchange_mic: Some("XTSE".to_string()),
+            instrument_type: Some(InstrumentType::Equity),
+            quote_ccy: "CAD".to_string(),
+            kind: AssetKind::Investment,
+            ..Default::default()
+        };
+        let quote_service = TestQuoteService::default().with_result(
+            "SHOP",
+            vec![yahoo_search_result(
+                "SHOP",
+                "SHOP",
+                "XNYS",
+                "Shopify Inc.",
+                "USD",
+                "SHOP",
+            )],
+        );
+        let search_calls = Arc::clone(&quote_service.search_calls);
+        let service = test_asset_service(vec![shop_tsx], quote_service);
+        let mut input = import_input("SHOP", "USD");
+        input.activity_currency = None;
+
+        let output = service
+            .resolve_import_asset_inputs(vec![input])
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+
+        assert_eq!(search_calls.lock().unwrap().as_slice(), ["SHOP"]);
+        assert_eq!(output.existing_asset_id, None);
+        assert_eq!(output.canonical_symbol.as_deref(), Some("SHOP"));
+        assert_eq!(output.exchange_mic.as_deref(), Some("XNYS"));
+        assert_eq!(output.quote_ccy.as_deref(), Some("USD"));
+        assert_eq!(output.provider_symbol.as_deref(), Some("SHOP"));
         assert!(output.draft.is_some());
     }
 

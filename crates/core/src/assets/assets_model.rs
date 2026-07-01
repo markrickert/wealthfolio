@@ -947,11 +947,11 @@ pub fn resolve_import_quote_ccy_precedence(
             QuoteCcyResolutionSource::ProviderQuote,
         ));
     }
-    if let Some(ccy) = normalize_quote_ccy(mic_fallback_quote_ccy) {
-        return Some((ccy, QuoteCcyResolutionSource::MicFallback));
-    }
     if let Some(ccy) = activity_ccy {
         return Some((ccy, QuoteCcyResolutionSource::ExplicitInput));
+    }
+    if let Some(ccy) = normalize_quote_ccy(mic_fallback_quote_ccy) {
+        return Some((ccy, QuoteCcyResolutionSource::MicFallback));
     }
     normalize_quote_ccy(terminal_fallback_quote_ccy)
         .map(|ccy| (ccy, QuoteCcyResolutionSource::TerminalFallback))
