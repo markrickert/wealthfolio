@@ -105,6 +105,60 @@ describe("createDraftActivities explicit activity mapping", () => {
     expect(draftToActivityImport(resolved).currency).toBe("USD");
   });
 
+  it("does not serialize quote-unit asset currency when the CSV has no currency column", () => {
+    const [draft] = createDraftActivities(
+      [["2026-06-30", "BUY", "VOD.L", "10", "75.00", "750.00", "0"]],
+      [
+        ImportFormat.DATE,
+        ImportFormat.ACTIVITY_TYPE,
+        ImportFormat.SYMBOL,
+        ImportFormat.QUANTITY,
+        ImportFormat.UNIT_PRICE,
+        ImportFormat.AMOUNT,
+        ImportFormat.FEE,
+      ],
+      {
+        ...baseMapping,
+        fieldMappings: {
+          [ImportFormat.DATE]: ImportFormat.DATE,
+          [ImportFormat.ACTIVITY_TYPE]: ImportFormat.ACTIVITY_TYPE,
+          [ImportFormat.SYMBOL]: ImportFormat.SYMBOL,
+          [ImportFormat.QUANTITY]: ImportFormat.QUANTITY,
+          [ImportFormat.UNIT_PRICE]: ImportFormat.UNIT_PRICE,
+          [ImportFormat.AMOUNT]: ImportFormat.AMOUNT,
+          [ImportFormat.FEE]: ImportFormat.FEE,
+        },
+        activityMappings: {
+          [ActivityType.BUY]: ["BUY"],
+        },
+      },
+      { ...parseConfig, defaultCurrency: "USD" },
+      "account-1",
+    );
+
+    const [resolved] = applyAssetResolution(
+      [draft],
+      draft.assetCandidateKey ?? "",
+      {
+        kind: "INVESTMENT",
+        name: "Vodafone Group Public Limited Company",
+        displayCode: "VOD.L",
+        isActive: true,
+        quoteMode: "MARKET",
+        quoteCcy: "GBp",
+        instrumentType: "EQUITY",
+        instrumentSymbol: "VOD",
+        instrumentExchangeMic: "XLON",
+      },
+      { importAssetKey: draft.assetCandidateKey },
+    );
+
+    expect(resolved.currency).toBe("USD");
+    expect(resolved.currencySource).toBe("default");
+    expect(resolved.quoteCcy).toBe("GBp");
+    expect(draftToActivityImport(resolved).currency).toBe("");
+  });
+
   it("preserves an explicit CSV currency even when the resolved asset quote currency differs", () => {
     const [draft] = createDraftActivities(
       [["2026-06-30", "BUY", "KWEB", "10", "28.50", "285.00", "0", "CAD"]],

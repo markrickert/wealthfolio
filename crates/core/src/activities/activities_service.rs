@@ -23,9 +23,9 @@ use crate::activities::{
 };
 use crate::assets::{
     canonicalize_market_identity, normalize_quote_ccy_code, parse_crypto_pair_symbol,
-    parse_symbol_with_exchange_suffix, resolve_quote_ccy_precedence, AssetKind,
-    AssetResolutionInput as ImportAssetResolutionInput, AssetServiceTrait, InstrumentType,
-    QuoteCcyResolutionSource, QuoteMode,
+    parse_symbol_with_exchange_suffix, resolve_import_quote_ccy_precedence,
+    resolve_quote_ccy_precedence, AssetKind, AssetResolutionInput as ImportAssetResolutionInput,
+    AssetServiceTrait, InstrumentType, QuoteCcyResolutionSource, QuoteMode,
 };
 use crate::errors::{DatabaseError, Error};
 use crate::events::{DomainEvent, DomainEventSink, NoOpDomainEventSink};
@@ -3133,17 +3133,14 @@ impl ActivityService {
                     return None;
                 }
 
-                let ccy = if a.currency.is_empty() {
-                    account_currency.clone()
-                } else {
-                    a.currency.clone()
-                };
-                let input_key = import_asset_resolution_key(a, &ccy);
+                let activity_currency = a.currency.trim();
+                let input_key = import_asset_resolution_key(a, activity_currency);
                 Some(ImportAssetResolutionInput {
                     key: input_key,
                     source_symbol: a.symbol.clone(),
                     account_currency: account_currency.clone(),
-                    activity_currency: Some(ccy),
+                    activity_currency: (!activity_currency.is_empty())
+                        .then(|| activity_currency.to_string()),
                     exchange_mic: a.exchange_mic.clone(),
                     quote_ccy: a.quote_ccy.clone(),
                     instrument_type: Self::parse_instrument_type(a.instrument_type.as_deref()),
@@ -3261,12 +3258,7 @@ impl ActivityService {
                 }
             }
 
-            let resolve_ccy = if activity.currency.is_empty() {
-                account_currency.clone()
-            } else {
-                activity.currency.clone()
-            };
-            let resolution_key = import_asset_resolution_key(&activity, &resolve_ccy);
+            let resolution_key = import_asset_resolution_key(&activity, activity.currency.trim());
             let asset_resolution = asset_resolution_cache.get(&resolution_key);
             let resolution_quote_ccy = asset_resolution
                 .and_then(|output| output.quote_ccy.clone())
@@ -3279,6 +3271,12 @@ impl ActivityService {
                 .or_else(|| asset_resolution.and_then(|output| output.exchange_mic.clone()));
 
             let (base_symbol, suffix_mic) = parse_symbol_with_exchange_suffix(&symbol);
+            let has_import_market_hint = activity
+                .exchange_mic
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|mic| !mic.is_empty())
+                || suffix_mic.is_some();
             let resolved_mic = activity
                 .exchange_mic
                 .clone()
@@ -3429,7 +3427,15 @@ impl ActivityService {
                 } else {
                     activity.currency.as_str()
                 };
-                let explicit_quote_ccy = Self::normalize_quote_ccy(activity.quote_ccy.as_deref());
+                let resolution_explicit_quote_ccy = if resolution_quote_ccy_source
+                    == Some(QuoteCcyResolutionSource::ExplicitInput)
+                {
+                    resolution_quote_ccy.as_deref()
+                } else {
+                    None
+                };
+                let explicit_quote_ccy = Self::normalize_quote_ccy(activity.quote_ccy.as_deref())
+                    .or_else(|| Self::normalize_quote_ccy(resolution_explicit_quote_ccy));
 
                 let (resolved_quote_ccy, resolution_source) = if matches!(
                     effective_instrument_type,
@@ -3450,6 +3456,9 @@ impl ActivityService {
                     )
                     .await
                 } else {
+                    let activity_quote_ccy = (has_import_market_hint
+                        && !activity.currency.trim().is_empty())
+                    .then_some(activity.currency.as_str());
                     let has_deterministic = normalize_quote_ccy_code(explicit_quote_ccy.as_deref())
                         .is_some()
                         || normalize_quote_ccy_code(asset_currency.as_deref()).is_some();
@@ -3475,9 +3484,10 @@ impl ActivityService {
                     } else {
                         resolved_mic.as_deref().and_then(mic_to_currency)
                     };
-                    resolve_quote_ccy_precedence(
+                    resolve_import_quote_ccy_precedence(
                         explicit_quote_ccy.as_deref(),
                         asset_currency.as_deref(),
+                        activity_quote_ccy,
                         provider_ccy.as_deref(),
                         mic_fallback_ccy,
                         Some(terminal_fallback),

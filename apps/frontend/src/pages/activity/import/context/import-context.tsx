@@ -645,6 +645,11 @@ export function ImportProvider({ children, initialAccountId }: ImportProviderPro
                       ? "warning"
                       : "valid";
 
+            const backendCurrency = backendResult.currency || undefined;
+            const shouldMarkCurrencyResolved =
+              Boolean(backendCurrency) &&
+              (draft.currencySource !== "default" || backendCurrency !== draft.currency);
+
             return {
               ...draft,
               assetId: backendResult.assetId,
@@ -655,11 +660,13 @@ export function ImportProvider({ children, initialAccountId }: ImportProviderPro
               symbolName: backendResult.symbolName,
               exchangeMic: backendResult.exchangeMic,
               quoteCcy: backendResult.quoteCcy,
-              currency: backendResult.currency || draft.currency,
-              currencySource: backendResult.currency
+              currency: backendCurrency || draft.currency,
+              currencySource: backendCurrency
                 ? draft.currencySource === "csv" || draft.currencySource === "manual"
                   ? draft.currencySource
-                  : "resolved"
+                  : shouldMarkCurrencyResolved
+                    ? "resolved"
+                    : draft.currencySource
                 : draft.currencySource,
               instrumentType: backendResult.instrumentType,
               providerId: backendResult.providerId,
