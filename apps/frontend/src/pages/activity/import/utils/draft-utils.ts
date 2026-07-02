@@ -635,7 +635,10 @@ export function createDraftActivities(
     const quantity = parseNumericValue(rawQuantity, decimalSeparator, thousandsSeparator);
     const unitPrice = parseNumericValue(rawUnitPrice, decimalSeparator, thousandsSeparator);
     let amount = parseNumericValue(rawAmount, decimalSeparator, thousandsSeparator);
-    const currency = rawCurrency?.trim() || defaultCurrency;
+    const rawCurrencyValue = rawCurrency?.trim();
+    const currency = rawCurrencyValue || defaultCurrency;
+    const currencySource = rawCurrencyValue ? "csv" : "default";
+    const assetResolutionCurrency = rawCurrencyValue || undefined;
     const fee = parseNumericValue(rawFee, decimalSeparator, thousandsSeparator);
     let tax = parseNumericValue(rawTax, decimalSeparator, thousandsSeparator);
     const comment = rawComment?.trim();
@@ -715,7 +718,7 @@ export function createDraftActivities(
               symbol,
               instrumentType: resolvedInstrumentType,
               quoteMode: mappedQuoteMode,
-              quoteCcy: mappedQuoteCcy || currency,
+              quoteCcy: mappedQuoteCcy || assetResolutionCurrency,
               exchangeMic: mappedExchangeMic,
               isin: rawIsin?.trim() || undefined,
             })
@@ -724,6 +727,7 @@ export function createDraftActivities(
       unitPrice,
       amount: resolved.amount,
       currency,
+      currencySource,
       fee,
       tax,
       fxRate,
@@ -758,7 +762,7 @@ export function draftToActivityImport(draft: DraftActivity): ActivityImport {
     id: undefined,
     accountId: draft.accountId,
     assetId: draft.assetId,
-    currency: draft.currency ?? "",
+    currency: draft.currencySource === "default" ? "" : (draft.currency ?? ""),
     activityType: draft.activityType as ActivityImport["activityType"],
     date: draft.activityDate,
     symbol: draft.symbol ?? "",

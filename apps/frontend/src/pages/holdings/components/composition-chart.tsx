@@ -73,7 +73,7 @@ const NEG_HI = [209, 78, 66]; // #d14e42
 const lerp = (a: number, b: number, t: number) => Math.round(a + (b - a) * t);
 
 // Label colors picked from tile luminance (not the theme) so text stays legible
-// on every shade in both light and dark mode.
+// on every shade. Dark mode uses translucent tiles, so it always needs light text.
 const TILE_TEXT_DARK = "#1c2a24";
 const TILE_TEXT_LIGHT = "#f5f3ec";
 
@@ -153,7 +153,7 @@ const CustomizedContent: FC<CustomizedContentProps> = ({
   const fontSize = Math.min(width, height) < 80 ? Math.min(width, height) * 0.16 : 13;
   const fontSize2 = Math.min(width, height) < 80 ? Math.min(width, height) * 0.14 : 12;
   const { fill: fillColor, isLightTile } = getTreemapColor(gain, returnType);
-  const textColor = isLightTile ? TILE_TEXT_DARK : TILE_TEXT_LIGHT;
+  const textColor = isDark || !isLightTile ? TILE_TEXT_LIGHT : TILE_TEXT_DARK;
 
   // Determine what text to display based on mode
   const displayText = displayMode === "name" && name ? name : symbol;

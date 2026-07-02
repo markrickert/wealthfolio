@@ -1,6 +1,7 @@
 import { isCashSymbol, needsImportAssetResolution } from "@/lib/activity-utils";
 import { quoteModeFromSearchResult } from "@/lib/asset-utils";
 import { ActivityType } from "@/lib/constants";
+import { getQuoteUnitCurrency } from "@wealthfolio/ui/lib/currencies";
 import type {
   ImportAssetCandidate,
   ImportAssetPreviewItem,
@@ -21,12 +22,16 @@ export function applyAssetResolution(
     if (row.assetCandidateKey !== key && buildImportAssetCandidateKeyFromDraft(row) !== key) {
       return row;
     }
+    const resolvedDefaultCurrency = resolvedActivityCurrencyFromAssetQuote(row, draft.quoteCcy);
+    const resolvedCurrency = resolvedDefaultCurrency ?? row.currency;
     return {
       ...row,
       symbol: draft.instrumentSymbol || draft.displayCode || row.symbol,
       symbolName: draft.name || row.symbolName,
       exchangeMic: draft.instrumentExchangeMic || undefined,
       quoteCcy: draft.quoteCcy || row.quoteCcy,
+      currency: resolvedCurrency,
+      currencySource: resolvedDefaultCurrency ? "resolved" : row.currencySource,
       instrumentType: draft.instrumentType || row.instrumentType,
       quoteMode: draft.quoteMode || row.quoteMode,
       providerId: draft.providerId,
@@ -36,6 +41,23 @@ export function applyAssetResolution(
       importAssetKey: options.importAssetKey,
     };
   });
+}
+
+function resolvedActivityCurrencyFromAssetQuote(
+  row: DraftActivity,
+  quoteCcy: string | undefined,
+): string | undefined {
+  if (row.currencySource !== "default") {
+    return undefined;
+  }
+  const currency = quoteCcy?.trim();
+  if (!currency || getQuoteUnitCurrency(currency)) {
+    return undefined;
+  }
+  if (currency.toUpperCase() === row.currency?.trim().toUpperCase()) {
+    return undefined;
+  }
+  return currency.toUpperCase();
 }
 
 export function mapQuoteTypeToInstrumentType(quoteType?: string): string | undefined {
@@ -103,17 +125,26 @@ function hasProviderIdentity(input: { providerId?: string; providerSymbol?: stri
   return Boolean(input.providerId?.trim() || input.providerSymbol?.trim());
 }
 
+function draftAssetResolutionCurrency(draft: DraftActivity): string | undefined {
+  const currency = draft.currency?.trim();
+  if (!currency || draft.currencySource === "default") {
+    return undefined;
+  }
+  return currency;
+}
+
 function buildImportAssetCandidateKeyFromDraft(draft: DraftActivity): string | undefined {
   if (!draft.symbol || !draft.accountId) {
     return undefined;
   }
 
+  const currency = draftAssetResolutionCurrency(draft);
   return buildImportAssetCandidateKey({
     accountId: draft.accountId,
     symbol: draft.symbol,
     instrumentType: draft.instrumentType,
     quoteMode: draft.quoteMode,
-    quoteCcy: draft.quoteCcy || draft.currency,
+    quoteCcy: draft.quoteCcy || currency,
     exchangeMic: draft.exchangeMic,
     isin: draft.isin,
     providerId: draft.providerId,
@@ -150,7 +181,7 @@ export function buildImportAssetCandidateFromDraft(
     key: shouldUseStoredKey && storedKey ? storedKey : computedKey,
     accountId: draft.accountId,
     symbol: draft.symbol,
-    currency: draft.currency,
+    currency: draftAssetResolutionCurrency(draft),
     instrumentType: draft.instrumentType,
     quoteCcy: draft.quoteCcy,
     quoteMode: draft.quoteMode,

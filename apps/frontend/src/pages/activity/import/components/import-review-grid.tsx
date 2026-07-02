@@ -628,6 +628,7 @@ export function ImportReviewGrid({
       onDraftUpdate(rowIndex, {
         symbol: canonicalSymbol,
         currency,
+        currencySource: result.currency ? "resolved" : draft.currencySource,
         exchangeMic: canonicalExchangeMic,
         quoteCcy: result.currency ?? draft.quoteCcy,
         instrumentType: result.quoteType,
@@ -664,6 +665,7 @@ export function ImportReviewGrid({
       onDraftUpdate(rowIndex, {
         symbol: canonicalSymbol,
         currency,
+        currencySource: result.currency ? "resolved" : draft.currencySource,
         exchangeMic: canonicalExchangeMic,
         quoteCcy: result.currency ?? draft.quoteCcy,
         instrumentType: result.quoteType,
