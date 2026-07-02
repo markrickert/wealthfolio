@@ -13,8 +13,7 @@ export function resolveBackendMarketQuoteFallback({
 }) {
   return {
     marketPrice: asset?.displayMarketPrice != null ? Number(asset.displayMarketPrice) : 0,
-    currency:
-      asset?.displayMarketCurrency ?? instrumentCurrency ?? asset?.quoteCcy ?? baseCurrency,
+    currency: asset?.displayMarketCurrency ?? instrumentCurrency ?? asset?.quoteCcy ?? baseCurrency,
   };
 }
 
