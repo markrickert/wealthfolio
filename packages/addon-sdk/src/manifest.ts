@@ -9,6 +9,8 @@ export interface AddonNetworkAccess {
   approvedHosts?: string[];
 }
 
+export type AddonHostDependencies = Record<string, string>;
+
 /**
  * Unified addon manifest structure that handles both development and runtime scenarios
  * This represents both what developers write in their manifest.json and installed addon metadata
@@ -47,6 +49,8 @@ export interface AddonManifest {
   icon?: string;
   /** Network hosts this addon may reach through the host broker */
   network?: AddonNetworkAccess;
+  /** Host-provided packages this addon imports instead of bundling */
+  hostDependencies?: AddonHostDependencies;
 
   // Runtime fields (only present after installation)
   /** Installation timestamp in ISO format */

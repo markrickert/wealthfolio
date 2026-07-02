@@ -2,7 +2,7 @@ import { logger, getInstalledAddons, loadAddon as loadAddonRuntime } from "@/ada
 import { getDynamicNavItems, getDynamicRoutes } from "@/addons/addons-runtime-context";
 import { addonIframeManager, type AddonRuntimeHandle } from "@/addons/iframe/addon-iframe-manager";
 import type { AddonManifest } from "@wealthfolio/addon-sdk";
-import { SDK_VERSION } from "@wealthfolio/addon-sdk";
+import { HOST_DEPENDENCIES, SDK_VERSION } from "@wealthfolio/addon-sdk";
 
 interface AddonFile {
   path: string;
@@ -49,6 +49,13 @@ function validateAddonCompatibility(manifest: AddonManifest): boolean {
     logger.warn(
       `Addon ${manifest.id} declares SDK ${manifest.sdkVersion}; host is ${SDK_VERSION}. Proceeding with caution.`,
     );
+  }
+  for (const dependencyName of Object.keys(manifest.hostDependencies ?? {})) {
+    if (!Object.prototype.hasOwnProperty.call(HOST_DEPENDENCIES, dependencyName)) {
+      logger.warn(
+        `Addon ${manifest.id} declares unsupported host dependency '${dependencyName}'. It may need to bundle that package.`,
+      );
+    }
   }
   return true;
 }

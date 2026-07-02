@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -61,6 +62,8 @@ pub struct AddonManifest {
     pub keywords: Option<Vec<String>>,
     pub icon: Option<String>,
     pub network: Option<AddonNetworkAccess>,
+    #[serde(rename = "hostDependencies")]
+    pub host_dependencies: Option<BTreeMap<String, String>>,
 
     // Runtime fields (only present after installation)
     #[serde(skip_serializing_if = "Option::is_none")]

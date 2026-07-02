@@ -867,6 +867,15 @@ pub fn parse_manifest_json_metadata(manifest_content: &str) -> Result<AddonManif
             .collect()
     });
     let icon = raw_manifest["icon"].as_str().map(|s| s.to_string());
+    let host_dependencies = raw_manifest["hostDependencies"].as_object().map(|deps| {
+        deps.iter()
+            .filter_map(|(name, version)| {
+                version
+                    .as_str()
+                    .map(|version| (name.clone(), version.to_string()))
+            })
+            .collect()
+    });
     let network = if let Some(network_value) = raw_manifest.get("network") {
         if network_value.is_null() {
             None
@@ -998,6 +1007,7 @@ pub fn parse_manifest_json_metadata(manifest_content: &str) -> Result<AddonManif
         keywords,
         icon,
         network,
+        host_dependencies,
         installed_at: None,
         updated_at: None,
         source: None,

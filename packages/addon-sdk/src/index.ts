@@ -50,6 +50,7 @@ export type * from './data-types';
 // Manifest and metadata types
 export type {
   AddonFile,
+  AddonHostDependencies,
   AddonInstallResult,
   AddonManifest,
   AddonStoreListing,
@@ -93,11 +94,12 @@ export {
 export { calculateGoalProgress } from './goal-progress';
 
 /**
- * React version used by the Wealthfolio add-on template. Add-ons run in a
- * sandboxed iframe and must bundle their own React runtime instead of reading
- * React from the host window.
+ * React version provided by the Wealthfolio add-on sandbox for host-externalized
+ * add-ons.
  */
-export const ReactVersion = '19.1.1';
+export const ReactVersion = '19.2.4';
+
+export { HOST_DEPENDENCIES } from './host-dependencies';
 
 /**
  * Addons receive their context as a parameter to the enable() function.

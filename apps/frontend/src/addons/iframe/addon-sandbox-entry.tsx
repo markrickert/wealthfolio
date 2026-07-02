@@ -1,9 +1,12 @@
 import "@/globals.css";
 
 import * as React from "react";
-import * as ReactDOM from "react-dom";
 import * as ReactDOMClient from "react-dom/client";
 import { QueryClient } from "@tanstack/react-query";
+import {
+  createHostDependencyModuleUrl,
+  isHostDependencySpecifier,
+} from "./host-dependencies";
 
 const CHANNEL = "wealthfolio:addon-sandbox:v1";
 
@@ -56,6 +59,7 @@ interface SandboxMessage {
 }
 
 type RouteRenderer = (context: RouteRenderContext) => Promise<void> | void;
+type ModuleSpecifierResolver = (importerPath: string, specifier: string) => string;
 
 const init = new URLSearchParams(window.location.hash.slice(1));
 const ADDON_ID = init.get("addonId") ?? "";
@@ -70,12 +74,6 @@ let addonCodeUrl: string | undefined;
 let addonQueryClient: QueryClient | undefined;
 let addonModuleUrls = new Map<string, string>();
 let reactRouteRoot: ReactDOMClient.Root | undefined;
-
-Object.assign(globalThis, {
-  React,
-  ReactDOM,
-  ReactDOMClient,
-});
 
 if (!ADDON_ID || !NONCE || !rootElement) {
   throw new Error("Invalid addon sandbox bootstrap parameters");
@@ -131,13 +129,6 @@ function stripSourceMapReferences(code: string) {
   return code.replace(/\/\/# sourceMappingURL=.*/g, "");
 }
 
-function rewriteDynamicImports(importerPath: string, code: string) {
-  return stripSourceMapReferences(code).replace(
-    /\bimport\s*\(/g,
-    `globalThis.__wealthfolioImport(${JSON.stringify(importerPath)}, `,
-  );
-}
-
 function getModuleBasename(path: string) {
   const normalizedPath = normalizeModulePath(path);
   const index = normalizedPath.lastIndexOf("/");
@@ -145,7 +136,7 @@ function getModuleBasename(path: string) {
 }
 
 function createAddonModuleRegistry(code: string, files: SandboxAddonFile[] = []) {
-  const sources = new Map<string, string>();
+  const sources = new Map<string, { path: string; source: string }>();
   const mainFile = files.find((file) => file.isMain) ?? files.find((file) => file.content === code);
   const mainPath = normalizeModulePath(mainFile?.name ?? "addon.js");
 
@@ -154,28 +145,44 @@ function createAddonModuleRegistry(code: string, files: SandboxAddonFile[] = [])
       continue;
     }
     const path = normalizeModulePath(file.name);
-    const source = rewriteDynamicImports(path, file.content);
-    sources.set(path, source);
-    sources.set(getModuleBasename(path), source);
+    const source = stripSourceMapReferences(file.content);
+    sources.set(path, { path, source });
+    sources.set(getModuleBasename(path), { path, source });
   }
 
-  sources.set(mainPath, rewriteDynamicImports(mainPath, code));
+  sources.set(mainPath, { path: mainPath, source: stripSourceMapReferences(code) });
 
   const objectUrls = new Map<string, string>();
-  const importModule = (importerPath: string, specifier: string) => {
+  const resolveModuleSpecifier = (importerPath: string, specifier: string) => {
+    const hostModuleUrl = createHostDependencyModuleUrl(specifier, objectUrls);
+    if (hostModuleUrl) {
+      return hostModuleUrl;
+    }
+
     const resolvedPath = resolveModulePath(importerPath, specifier);
-    const source = sources.get(resolvedPath) ?? sources.get(getModuleBasename(resolvedPath));
-    if (!source) {
-      return import(/* @vite-ignore */ specifier);
+    const moduleEntry = sources.get(resolvedPath) ?? sources.get(getModuleBasename(resolvedPath));
+    if (!moduleEntry) {
+      return specifier;
     }
 
     const urlKey = sources.has(resolvedPath) ? resolvedPath : getModuleBasename(resolvedPath);
     let moduleUrl = objectUrls.get(urlKey);
     if (!moduleUrl) {
-      moduleUrl = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+      moduleUrl = URL.createObjectURL(
+        new Blob(
+          [rewriteModuleSpecifiers(moduleEntry.path, moduleEntry.source, resolveModuleSpecifier)],
+          {
+            type: "text/javascript",
+          },
+        ),
+      );
       objectUrls.set(urlKey, moduleUrl);
     }
-    return import(/* @vite-ignore */ moduleUrl);
+    return moduleUrl;
+  };
+
+  const importModule = (importerPath: string, specifier: string) => {
+    return import(/* @vite-ignore */ resolveModuleSpecifier(importerPath, specifier));
   };
 
   Object.assign(globalThis, {
@@ -184,9 +191,38 @@ function createAddonModuleRegistry(code: string, files: SandboxAddonFile[] = [])
 
   return {
     mainPath,
+    mainUrl: resolveModuleSpecifier(mainPath, mainPath),
     objectUrls,
-    source: sources.get(mainPath) ?? rewriteDynamicImports(mainPath, code),
   };
+}
+
+function rewriteStaticImportSpecifiers(
+  importerPath: string,
+  code: string,
+  resolveSpecifier: ModuleSpecifierResolver,
+) {
+  return code.replace(
+    /(\b(?:import|export)\s+(?:[^'"]*?\s+from\s*)?)(["'])([^"']+)\2/g,
+    (match, prefix: string, quote: string, specifier: string) => {
+      if (!isHostDependencySpecifier(specifier) && !specifier.startsWith(".")) {
+        return match;
+      }
+      return `${prefix}${quote}${resolveSpecifier(importerPath, specifier)}${quote}`;
+    },
+  );
+}
+
+function rewriteModuleSpecifiers(
+  importerPath: string,
+  code: string,
+  resolveSpecifier: ModuleSpecifierResolver,
+) {
+  const withStaticImports = rewriteStaticImportSpecifiers(importerPath, code, resolveSpecifier);
+
+  return withStaticImports.replace(
+    /\bimport\s*\(/g,
+    `globalThis.__wealthfolioImport(${JSON.stringify(importerPath)}, `,
+  );
 }
 
 function findAnchor(target: EventTarget | null) {
@@ -435,7 +471,7 @@ function resolveEnable(mod: Record<string, unknown>) {
 async function loadAddon(code: string, files: SandboxAddonFile[] = []) {
   const moduleRegistry = createAddonModuleRegistry(code, files);
   addonModuleUrls = moduleRegistry.objectUrls;
-  addonCodeUrl = URL.createObjectURL(new Blob([moduleRegistry.source], { type: "text/javascript" }));
+  addonCodeUrl = moduleRegistry.mainUrl;
   const mod = (await import(/* @vite-ignore */ addonCodeUrl)) as Record<string, unknown>;
   const enable = resolveEnable(mod);
   if (!enable) {
@@ -474,12 +510,15 @@ async function disableAddon() {
   eventCallbacks.clear();
   addonQueryClient?.clear();
   addonQueryClient = undefined;
+  const mainModuleUrl = addonCodeUrl;
   if (addonCodeUrl) {
     URL.revokeObjectURL(addonCodeUrl);
     addonCodeUrl = undefined;
   }
   for (const moduleUrl of addonModuleUrls.values()) {
-    URL.revokeObjectURL(moduleUrl);
+    if (moduleUrl !== mainModuleUrl) {
+      URL.revokeObjectURL(moduleUrl);
+    }
   }
   addonModuleUrls.clear();
   root.replaceChildren();

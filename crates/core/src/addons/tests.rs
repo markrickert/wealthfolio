@@ -285,6 +285,7 @@ fn test_addon_manifest_to_installed() {
         keywords: None,
         icon: None,
         network: None,
+        host_dependencies: None,
         installed_at: None,
         updated_at: None,
         source: None,
@@ -316,6 +317,7 @@ fn test_addon_manifest_get_main() {
         keywords: None,
         icon: None,
         network: None,
+        host_dependencies: None,
         installed_at: None,
         updated_at: None,
         source: None,
@@ -341,6 +343,7 @@ fn test_addon_manifest_get_main() {
         keywords: None,
         icon: None,
         network: None,
+        host_dependencies: None,
         installed_at: None,
         updated_at: None,
         source: None,
@@ -663,6 +666,39 @@ fn test_parse_manifest_json_metadata_service() {
     assert_eq!(permissions[0].functions[0].name, "showNotification");
     assert!(permissions[0].functions[0].is_declared);
     assert!(!permissions[0].functions[0].is_detected);
+}
+
+#[test]
+fn test_parse_manifest_json_metadata_service_preserves_host_dependencies() {
+    let manifest_json = r#"
+    {
+        "id": "host-deps-addon",
+        "name": "Host Deps Addon",
+        "version": "1.0.0",
+        "main": "dist/addon.js",
+        "hostDependencies": {
+            "react": "^19.2.0",
+            "react-dom": "^19.2.0",
+            "@wealthfolio/ui": "^3.6.0"
+        }
+    }
+    "#;
+
+    let manifest = parse_manifest_json_metadata(manifest_json).unwrap();
+    let host_dependencies = manifest.host_dependencies.unwrap();
+
+    assert_eq!(
+        host_dependencies.get("react").map(String::as_str),
+        Some("^19.2.0")
+    );
+    assert_eq!(
+        host_dependencies.get("react-dom").map(String::as_str),
+        Some("^19.2.0")
+    );
+    assert_eq!(
+        host_dependencies.get("@wealthfolio/ui").map(String::as_str),
+        Some("^3.6.0")
+    );
 }
 
 #[test]
