@@ -245,25 +245,8 @@ impl HoldingsCalculator {
         base_currency: &str,
         date: NaiveDate,
     ) -> Decimal {
-        if from_currency == base_currency {
-            return Decimal::ONE;
-        }
-
-        match self.fx_service.convert_currency_for_date(
-            Decimal::ONE,
-            from_currency,
-            base_currency,
-            date,
-        ) {
-            Ok(rate) => rate,
-            Err(err) => {
-                warn!(
-                    "Failed to convert lot basis {}->{} on {}: {}. Base values use 0.",
-                    from_currency, base_currency, date, err
-                );
-                Decimal::ZERO
-            }
-        }
+        self.fx_rate_for_basis(from_currency, base_currency, date, "extract-lot-records")
+            .unwrap_or(Decimal::ZERO)
     }
 
     fn fx_rate_to_base_for_lot(

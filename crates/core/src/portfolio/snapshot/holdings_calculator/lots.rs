@@ -141,25 +141,14 @@ impl HoldingsCalculator {
 
         let disposal_date = self.activity_local_date(activity);
         let base_currency = self.base_currency.read().unwrap().clone();
-        let disposal_fx_rate_to_base = if position_currency == base_currency {
-            Decimal::ONE
-        } else {
-            match self.fx_service.convert_currency_for_date(
-                Decimal::ONE,
+        let disposal_fx_rate_to_base = self
+            .fx_rate_for_basis(
                 position_currency,
                 &base_currency,
                 disposal_date,
-            ) {
-                Ok(rate) => rate,
-                Err(err) => {
-                    warn!(
-                        "Failed to convert lot disposal {} {}->{} on {}: {}. Base values use 0.",
-                        activity.id, position_currency, base_currency, disposal_date, err
-                    );
-                    Decimal::ZERO
-                }
-            }
-        };
+                &activity.id,
+            )
+            .unwrap_or(Decimal::ZERO);
         let disposal_base_available = !disposal_fx_rate_to_base.is_zero();
         if !disposal_base_available {
             warn!(

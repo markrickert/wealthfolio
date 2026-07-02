@@ -473,10 +473,6 @@ impl HoldingsCalculator {
         date: NaiveDate,
         activity_id: &str,
     ) -> Option<Decimal> {
-        if from_currency == to_currency {
-            return Some(Decimal::ONE);
-        }
-
         match self.fx_service.convert_currency_for_date(
             Decimal::ONE,
             from_currency,

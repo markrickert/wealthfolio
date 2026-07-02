@@ -15,6 +15,7 @@ import { generateId } from "@/lib/id";
 import { QueryKeys } from "@/lib/query-keys";
 import { useSettingsContext } from "@/lib/settings-provider";
 import type { ActivityDetails, AssetKind, AssetLotView, Holding, Quote } from "@/lib/types";
+import { normalizeCurrency } from "@/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatedToggleGroup, Page, PageContent, PageHeader, SwipableView } from "@wealthfolio/ui";
 import { Badge } from "@wealthfolio/ui/components/ui/badge";
@@ -531,6 +532,10 @@ export const AssetProfilePage = () => {
     const totalGainAmount = holding?.totalGain?.local ?? 0;
     const totalGainPercent = holding?.totalGainPct ?? 0;
     const calculatedAt = holding?.asOfDate;
+    const valuationMarketPrice =
+      asset?.valuationMarketPrice != null ? Number(asset.valuationMarketPrice) : 0;
+    const valuationMarketCurrency =
+      asset?.valuationMarketCurrency ?? instrument?.currency ?? asset?.quoteCcy ?? baseCurrency;
 
     // Legacy data is in asset.metadata.legacy (for migration purposes)
     // New data should come from taxonomies
@@ -555,15 +560,15 @@ export const AssetProfilePage = () => {
       attributes: null,
       createdAt: holding?.openDate ? new Date(holding.openDate) : new Date(),
       updatedAt: new Date(),
-      currency: instrument?.currency ?? asset?.quoteCcy ?? baseCurrency,
+      currency: holding?.localCurrency ?? valuationMarketCurrency,
       sectors: JSON.stringify(parseJsonField(legacy?.sectors) ?? []),
       url: null,
-      marketPrice: holding?.price ?? quote?.close ?? 0,
+      marketPrice: holding?.price ?? valuationMarketPrice,
       totalGainAmount,
       totalGainPercent,
       calculatedAt,
     };
-  }, [holding, assetProfile, quote, assetId, baseCurrency]);
+  }, [holding, assetProfile, assetId, baseCurrency]);
 
   const symbolHolding = useMemo((): AssetDetailData | null => {
     const instrument = holding?.instrument;
@@ -572,11 +577,14 @@ export const AssetProfilePage = () => {
     if (!holding && !hasAssetHistory) return null;
 
     const displayCurrency =
-      holding?.localCurrency ??
-      quote?.currency ??
-      instrument?.currency ??
-      asset?.quoteCcy ??
-      baseCurrency;
+      normalizeCurrency(
+        holding?.localCurrency ??
+          asset?.valuationMarketCurrency ??
+          quote?.currency ??
+          instrument?.currency ??
+          asset?.quoteCcy ??
+          baseCurrency,
+      ) ?? baseCurrency;
     const quantity = Number(holding?.quantity ?? 0);
 
     const contractMultiplier = Number(holding?.contractMultiplier ?? 1);
@@ -621,28 +629,24 @@ export const AssetProfilePage = () => {
         (activity.activityType === ActivityType.DIVIDEND ||
           activity.activityType === ActivityType.INTEREST),
     );
-    const fallbackIncome = incomeActivities.some(
-      (activity) => activity.currency.toUpperCase() !== displayCurrency.toUpperCase(),
-    )
-      ? null
-      : incomeActivities.reduce((sum, activity) => {
-          const amount = Number(activity.amount ?? 0);
-          return Number.isFinite(amount) ? sum + amount : sum;
-        }, 0);
+    const fallbackIncome = incomeActivities.reduce<number | null>((sum, activity) => {
+      if (sum == null) return null;
+      if (activity.currency.trim().toUpperCase() !== displayCurrency.trim().toUpperCase()) {
+        return null;
+      }
+      const amount = Number(activity.amount ?? 0);
+      return Number.isFinite(amount) ? sum + amount : sum;
+    }, 0);
     const income = holding?.income?.local != null ? Number(holding.income.local) : fallbackIncome;
     const realizedLots = assetLots.filter(
-      (lot) => lot.source === "TRANSACTION_LOT" && lot.realizedPnl != null,
+      (lot) => lot.source === "TRANSACTION_LOT" && lot.valuationRealizedPnl != null,
     );
     const realizedPnlFromLots = realizedLots.reduce(
-      (sum, lot) => sum + Number(lot.realizedPnl ?? 0),
+      (sum, lot) => sum + Number(lot.valuationRealizedPnl ?? 0),
       0,
     );
-    const realizedPnlBaseFromLots = realizedLots.reduce(
-      (sum, lot) => sum + Number(lot.realizedPnlBase ?? 0),
-      0,
-    );
-    const realizedCostBasisBaseFromLots = realizedLots.reduce(
-      (sum, lot) => sum + Number(lot.disposalCostBasisBase ?? 0),
+    const realizedCostBasisFromLots = realizedLots.reduce(
+      (sum, lot) => sum + Number(lot.valuationDisposalCostBasis ?? 0),
       0,
     );
     const realizedPnl =
@@ -654,8 +658,8 @@ export const AssetProfilePage = () => {
     const realizedPnlPercent =
       holding?.realizedGainPct != null
         ? Number(holding.realizedGainPct)
-        : realizedLots.length > 0 && realizedCostBasisBaseFromLots > 0
-          ? realizedPnlBaseFromLots / realizedCostBasisBaseFromLots
+        : realizedLots.length > 0 && realizedCostBasisFromLots > 0
+          ? realizedPnlFromLots / realizedCostBasisFromLots
           : null;
     const hasOpenTransactionLotWithBase = assetLots.some(
       (lot) => lot.source === "TRANSACTION_LOT" && !lot.isClosed && lot.costBasisBase != null,
@@ -678,17 +682,17 @@ export const AssetProfilePage = () => {
         : totalPnl != null && income != null
           ? totalPnl + income
           : null;
-    const fallbackReturnBasisBase =
+    const fallbackReturnBasis =
       holding?.returnBasis?.base != null
         ? Number(holding.returnBasis.base)
-        : realizedCostBasisBaseFromLots;
+        : realizedCostBasisFromLots;
     const canUseFallbackTotalReturnPercent =
       holding == null && displayCurrency.toUpperCase() === baseCurrency.toUpperCase();
     const totalReturnPercent =
       holding?.totalReturnPct != null
         ? Number(holding.totalReturnPct)
-        : totalReturn != null && fallbackReturnBasisBase > 0 && canUseFallbackTotalReturnPercent
-          ? totalReturn / fallbackReturnBasisBase
+        : totalReturn != null && fallbackReturnBasis > 0 && canUseFallbackTotalReturnPercent
+          ? totalReturn / fallbackReturnBasis
           : null;
 
     return {
@@ -817,7 +821,9 @@ export const AssetProfilePage = () => {
       profile && assetLots.length > 0 ? (
         <AssetLotsTable
           lots={assetLots}
-          currency={symbolHolding?.currency ?? profile.currency ?? baseCurrency}
+          currency={
+            holding?.localCurrency ?? symbolHolding?.currency ?? profile.currency ?? baseCurrency
+          }
           marketPrice={Number(holding?.price ?? profile.marketPrice)}
           contractMultiplier={Number(holding?.contractMultiplier ?? 1)}
           dayChangeAmount={
@@ -1347,8 +1353,8 @@ export const AssetProfilePage = () => {
               <div className="grid grid-cols-1 gap-4 pt-0 md:grid-cols-3">
                 <AssetHistoryCard
                   assetId={profile.id ?? ""}
-                  currency={quote?.currency ?? profile.currency ?? baseCurrency}
-                  marketPrice={quote?.close ?? profile.marketPrice}
+                  currency={profile.currency ?? baseCurrency}
+                  marketPrice={profile.marketPrice}
                   totalGainAmount={profile.totalGainAmount}
                   totalGainPercent={profile.totalGainPercent}
                   quoteHistory={quoteHistory ?? []}
@@ -1375,8 +1381,8 @@ export const AssetProfilePage = () => {
               <div className="grid grid-cols-1 gap-4 pt-0 md:grid-cols-3">
                 <AssetHistoryCard
                   assetId={profile.id ?? ""}
-                  currency={quote?.currency ?? profile.currency ?? baseCurrency}
-                  marketPrice={quote?.close ?? profile.marketPrice}
+                  currency={profile.currency ?? baseCurrency}
+                  marketPrice={profile.marketPrice}
                   totalGainAmount={profile.totalGainAmount}
                   totalGainPercent={profile.totalGainPercent}
                   quoteHistory={quoteHistory ?? []}

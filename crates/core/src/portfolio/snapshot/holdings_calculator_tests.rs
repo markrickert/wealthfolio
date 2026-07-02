@@ -10,7 +10,10 @@ mod tests {
         UpdateAssetProfile,
     };
     use crate::errors::Result;
-    use crate::fx::{ExchangeRate, FxError, FxServiceTrait, NewExchangeRate};
+    use crate::fx::{
+        denormalization_multiplier, normalize_currency_code, ExchangeRate, FxError, FxServiceTrait,
+        NewExchangeRate,
+    };
     use crate::lots::{LotClosure, LotDisposal, LotRecord};
     use crate::portfolio::snapshot::holdings_calculator::{HoldingsCalculator, ProjectionRun};
     use crate::portfolio::snapshot::{
@@ -46,6 +49,13 @@ mod tests {
             mock.add_asset("TSLA", "USD"); // Tesla listed in USD
             mock.add_asset("XYZ", "USD"); // Test stock in USD
             mock.add_asset("ADS.DE", "EUR"); // Adidas listed in EUR
+            mock.add_asset("CTY", "GBp"); // UK investment quoted in pence
+            mock.add_asset("TEST_GBp", "GBp");
+            mock.add_asset("TEST_GBX", "GBX");
+            mock.add_asset("TEST_ZAc", "ZAc");
+            mock.add_asset("TEST_USX", "USX");
+            mock.add_asset("TEST_ILA", "ILA");
+            mock.add_asset("TEST_KWF", "KWF");
 
             mock
         }
@@ -278,8 +288,6 @@ mod tests {
             to_currency: &str,
             date: NaiveDate,
         ) -> Result<Decimal> {
-            let lookup_key = (from_currency.to_string(), to_currency.to_string(), date);
-
             if self.fail_on_purpose {
                 return Err(crate::errors::Error::Fx(FxError::RateNotFound(format!(
                     "Intentional failure for {}->{} on {}",
@@ -290,9 +298,23 @@ mod tests {
                 return Ok(amount);
             }
 
+            let normalized_from = normalize_currency_code(from_currency);
+            let normalized_to = normalize_currency_code(to_currency);
+            let source_multiplier = if normalized_from == from_currency {
+                Decimal::ONE
+            } else {
+                Decimal::ONE / denormalization_multiplier(from_currency)
+            };
+            let target_multiplier = denormalization_multiplier(to_currency);
+
+            if normalized_from == normalized_to {
+                return Ok(amount * source_multiplier * target_multiplier);
+            }
+
+            let lookup_key = (normalized_from.to_string(), normalized_to.to_string(), date);
             match self.conversion_rates.get(&lookup_key) {
                 Some(rate) => {
-                    let result = amount * rate;
+                    let result = amount * source_multiplier * rate * target_multiplier;
                     Ok(result)
                 }
                 None => Err(crate::errors::Error::Fx(FxError::RateNotFound(format!(
@@ -4842,6 +4864,210 @@ mod tests {
     }
 
     #[test]
+    fn test_buy_minor_unit_lot_stores_base_rate_with_normalization() {
+        let mock_fx_service = MockFxService::new();
+        let account_currency = "GBP";
+        let activity_currency = "GBp";
+        let base_currency = Arc::new(RwLock::new(account_currency.to_string()));
+        let buy_date_str = "2026-03-03";
+        let buy_date = NaiveDate::from_str(buy_date_str).unwrap();
+
+        let mut calculator = create_calculator(Arc::new(mock_fx_service), base_currency);
+        let previous_snapshot = create_initial_snapshot("acc_1", account_currency, "2026-03-02");
+        let buy_activity = create_default_activity(
+            "act_cty_buy",
+            ActivityType::Buy,
+            "CTY",
+            dec!(51),
+            dec!(556.765),
+            dec!(0),
+            activity_currency,
+            buy_date_str,
+        );
+
+        let next_state = calculator
+            .calculate_next_holdings(&previous_snapshot, &[buy_activity], buy_date)
+            .unwrap()
+            .snapshot;
+        let position = next_state
+            .positions
+            .get("CTY")
+            .expect("CTY position should exist");
+        assert_eq!(position.currency, "GBp");
+
+        let lot = position.lots.front().expect("buy should create one lot");
+        assert_eq!(lot.cost_basis, dec!(28395.015));
+        assert_eq!(lot.fx_rate_to_account, Some(dec!(0.01)));
+        assert_eq!(lot.fx_rate_to_base, Some(dec!(0.01)));
+
+        let lot_records = calculator.extract_lot_records_with_base(&next_state, "FIFO");
+        assert_eq!(lot_records.len(), 1);
+        assert_eq!(lot_records[0].currency, "GBp");
+        assert_eq!(lot_records[0].base_currency, "GBP");
+        assert_eq!(lot_records[0].fx_rate_to_base, dec!(0.01).to_string());
+        assert_eq!(
+            Decimal::from_str(&lot_records[0].remaining_cost_basis_base).unwrap(),
+            dec!(283.95015)
+        );
+    }
+
+    #[test]
+    fn test_buy_major_currency_activity_for_minor_unit_asset_stores_minor_lot_and_normalized_base()
+    {
+        let mock_fx_service = MockFxService::new();
+        let account_currency = "GBP";
+        let activity_currency = "GBP";
+        let base_currency = Arc::new(RwLock::new(account_currency.to_string()));
+        let buy_date_str = "2026-03-03";
+        let buy_date = NaiveDate::from_str(buy_date_str).unwrap();
+
+        let mut calculator = create_calculator(Arc::new(mock_fx_service), base_currency);
+        let previous_snapshot = create_initial_snapshot("acc_1", account_currency, "2026-03-02");
+        let buy_activity = create_default_activity(
+            "act_cty_buy_gbp",
+            ActivityType::Buy,
+            "CTY",
+            dec!(51),
+            dec!(5.56765),
+            dec!(0),
+            activity_currency,
+            buy_date_str,
+        );
+
+        let next_state = calculator
+            .calculate_next_holdings(&previous_snapshot, &[buy_activity], buy_date)
+            .unwrap()
+            .snapshot;
+        let position = next_state
+            .positions
+            .get("CTY")
+            .expect("CTY position should exist");
+        assert_eq!(position.currency, "GBp");
+
+        let lot = position.lots.front().expect("buy should create one lot");
+        assert_eq!(lot.acquisition_price, dec!(556.765));
+        assert_eq!(lot.cost_basis, dec!(28395.015));
+        assert_eq!(lot.fx_rate_to_position, Some(dec!(100)));
+        assert_eq!(lot.fx_rate_to_account, Some(dec!(0.01)));
+        assert_eq!(lot.fx_rate_to_base, Some(dec!(0.01)));
+
+        let lot_records = calculator.extract_lot_records_with_base(&next_state, "FIFO");
+        assert_eq!(lot_records.len(), 1);
+        assert_eq!(lot_records[0].currency, "GBp");
+        assert_eq!(lot_records[0].base_currency, "GBP");
+        assert_eq!(
+            Decimal::from_str(&lot_records[0].cost_per_unit).unwrap(),
+            dec!(556.765)
+        );
+        assert_eq!(lot_records[0].fx_rate_to_base, dec!(0.01).to_string());
+        assert_eq!(
+            Decimal::from_str(&lot_records[0].remaining_cost_basis_base).unwrap(),
+            dec!(283.95015)
+        );
+    }
+
+    #[test]
+    fn test_buy_minor_unit_lot_stores_cross_currency_base_rate_after_normalization() {
+        let mut mock_fx_service = MockFxService::new();
+        let account_currency = "GBP";
+        let activity_currency = "GBp";
+        let base_currency = Arc::new(RwLock::new("USD".to_string()));
+        let buy_date_str = "2026-03-03";
+        let buy_date = NaiveDate::from_str(buy_date_str).unwrap();
+        mock_fx_service.add_bidirectional_rate("GBP", "USD", buy_date, dec!(1.25));
+
+        let mut calculator = create_calculator(Arc::new(mock_fx_service), base_currency);
+        let previous_snapshot = create_initial_snapshot("acc_1", account_currency, "2026-03-02");
+        let buy_activity = create_default_activity(
+            "act_cty_buy_usd_base",
+            ActivityType::Buy,
+            "CTY",
+            dec!(51),
+            dec!(556.765),
+            dec!(0),
+            activity_currency,
+            buy_date_str,
+        );
+
+        let next_state = calculator
+            .calculate_next_holdings(&previous_snapshot, &[buy_activity], buy_date)
+            .unwrap()
+            .snapshot;
+        let position = next_state
+            .positions
+            .get("CTY")
+            .expect("CTY position should exist");
+        let lot = position.lots.front().expect("buy should create one lot");
+
+        assert_eq!(lot.fx_rate_to_account, Some(dec!(0.01)));
+        assert_eq!(lot.fx_rate_to_base, Some(dec!(0.0125)));
+
+        let lot_records = calculator.extract_lot_records_with_base(&next_state, "FIFO");
+        assert_eq!(lot_records[0].currency, "GBp");
+        assert_eq!(lot_records[0].base_currency, "USD");
+        assert_eq!(lot_records[0].fx_rate_to_base, dec!(0.0125).to_string());
+        assert_eq!(
+            Decimal::from_str(&lot_records[0].remaining_cost_basis_base).unwrap(),
+            dec!(354.9376875)
+        );
+    }
+
+    #[test]
+    fn test_buy_minor_unit_lot_stores_base_rate_for_all_quote_unit_currencies() {
+        let cases = [
+            ("GBp", "GBP", dec!(0.01)),
+            ("GBX", "GBP", dec!(0.01)),
+            ("ZAc", "ZAR", dec!(0.01)),
+            ("USX", "USD", dec!(0.01)),
+            ("ILA", "ILS", dec!(0.01)),
+            ("KWF", "KWD", dec!(0.001)),
+        ];
+
+        for (minor_currency, major_currency, expected_rate) in cases {
+            let asset_id = format!("TEST_{minor_currency}");
+            let base_currency = Arc::new(RwLock::new(major_currency.to_string()));
+            let buy_date_str = "2026-03-03";
+            let buy_date = NaiveDate::from_str(buy_date_str).unwrap();
+            let mut calculator = create_calculator(Arc::new(MockFxService::new()), base_currency);
+            let previous_snapshot = create_initial_snapshot("acc_1", major_currency, "2026-03-02");
+            let buy_activity = create_default_activity(
+                &format!("act_{minor_currency}_buy"),
+                ActivityType::Buy,
+                &asset_id,
+                dec!(10),
+                dec!(1000),
+                dec!(0),
+                minor_currency,
+                buy_date_str,
+            );
+
+            let next_state = calculator
+                .calculate_next_holdings(&previous_snapshot, &[buy_activity], buy_date)
+                .unwrap()
+                .snapshot;
+            let position = next_state
+                .positions
+                .get(&asset_id)
+                .expect("minor-unit position should exist");
+            assert_eq!(position.currency, minor_currency);
+
+            let lot = position.lots.front().expect("buy should create one lot");
+            assert_eq!(lot.fx_rate_to_account, Some(expected_rate));
+            assert_eq!(lot.fx_rate_to_base, Some(expected_rate));
+
+            let lot_records = calculator.extract_lot_records_with_base(&next_state, "FIFO");
+            assert_eq!(lot_records.len(), 1);
+            assert_eq!(lot_records[0].currency, minor_currency);
+            assert_eq!(lot_records[0].base_currency, major_currency);
+            assert_eq!(lot_records[0].fx_rate_to_base, expected_rate.to_string());
+            assert_eq!(
+                Decimal::from_str(&lot_records[0].remaining_cost_basis_base).unwrap(),
+                dec!(10000) * expected_rate
+            );
+        }
+    }
+
+    #[test]
     fn test_asset_transfer_out_uses_stored_lot_fx_for_net_contribution() {
         let mut mock_fx_service = MockFxService::new();
         let account_currency = "CAD";
@@ -5380,6 +5606,79 @@ mod tests {
                 .map_or(0, |(_, decimals)| decimals.len());
             assert!(decimal_places <= crate::constants::DECIMAL_PRECISION as usize);
         }
+    }
+
+    #[test]
+    fn test_sell_minor_unit_lot_disposal_base_fields_are_normalized() {
+        let account_currency = "GBP";
+        let activity_currency = "GBp";
+        let buy_date_str = "2026-03-03";
+        let sell_date_str = "2026-04-03";
+        let buy_date = NaiveDate::from_str(buy_date_str).unwrap();
+        let sell_date = NaiveDate::from_str(sell_date_str).unwrap();
+        let mut calculator = create_calculator(
+            Arc::new(MockFxService::new()),
+            Arc::new(RwLock::new(account_currency.to_string())),
+        );
+
+        let previous_snapshot = create_initial_snapshot("acc_1", account_currency, "2026-03-02");
+        let buy = create_default_activity(
+            "act_cty_buy",
+            ActivityType::Buy,
+            "CTY",
+            dec!(51),
+            dec!(556.765),
+            dec!(0),
+            activity_currency,
+            buy_date_str,
+        );
+        let after_buy = calculator
+            .calculate_next_holdings(&previous_snapshot, &[buy], buy_date)
+            .unwrap()
+            .snapshot;
+
+        let sell = create_default_activity(
+            "act_cty_sell",
+            ActivityType::Sell,
+            "CTY",
+            dec!(51),
+            dec!(565),
+            dec!(0),
+            activity_currency,
+            sell_date_str,
+        );
+        let _after_sell = calculator
+            .calculate_next_holdings(&after_buy, &[sell], sell_date)
+            .unwrap()
+            .snapshot;
+
+        let disposals = calculator.take_lot_disposals("acc_1", "FIFO");
+        assert_eq!(disposals.len(), 1);
+        let disposal = &disposals[0];
+        assert_eq!(disposal.currency, activity_currency);
+        assert_eq!(disposal.base_currency, account_currency);
+        assert_eq!(disposal.fx_rate_to_base, dec!(0.01).to_string());
+        assert_eq!(Decimal::from_str(&disposal.proceeds).unwrap(), dec!(28815));
+        assert_eq!(
+            Decimal::from_str(&disposal.cost_basis).unwrap(),
+            dec!(28395.015)
+        );
+        assert_eq!(
+            Decimal::from_str(&disposal.realized_pnl).unwrap(),
+            dec!(419.985)
+        );
+        assert_eq!(
+            Decimal::from_str(&disposal.proceeds_base).unwrap(),
+            dec!(288.15)
+        );
+        assert_eq!(
+            Decimal::from_str(&disposal.cost_basis_base).unwrap(),
+            dec!(283.95015)
+        );
+        assert_eq!(
+            Decimal::from_str(&disposal.realized_pnl_base).unwrap(),
+            dec!(4.19985)
+        );
     }
 
     #[test]

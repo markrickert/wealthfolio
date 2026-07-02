@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::events::{DomainEvent, DomainEventSink, NoOpDomainEventSink};
+use crate::fx::normalize_amount;
 use crate::quotes::{QuoteServiceTrait, SymbolSearchResult};
 use crate::taxonomies::TaxonomyServiceTrait;
 use crate::utils::isin::looks_like_isin;
@@ -11,8 +12,8 @@ use futures::stream::{self, StreamExt};
 
 use super::assets_model::{
     canonicalize_market_identity, normalize_quote_ccy_code, resolve_import_quote_ccy_precedence,
-    resolve_quote_ccy_precedence, Asset, AssetKind, AssetSpec, EnsureAssetsResult, InstrumentType,
-    NewAsset, QuoteCcyResolutionSource, QuoteMode, UpdateAssetProfile,
+    resolve_quote_ccy_precedence, Asset, AssetKind, AssetProfile, AssetSpec, EnsureAssetsResult,
+    InstrumentType, NewAsset, QuoteCcyResolutionSource, QuoteMode, UpdateAssetProfile,
 };
 use super::assets_traits::{AssetRepositoryTrait, AssetServiceTrait};
 use super::auto_classification::{AutoClassificationService, ClassificationInput};
@@ -1540,6 +1541,25 @@ impl AssetServiceTrait for AssetService {
             .map(|a| a.enrich())
     }
 
+    fn get_asset_profile(&self, asset_id: &str) -> Result<AssetProfile> {
+        let asset = self.get_asset_by_id(asset_id)?;
+        let (valuation_market_price, valuation_market_currency) = self
+            .quote_service
+            .get_latest_quote(asset_id)
+            .ok()
+            .map(|quote| {
+                let (amount, currency) = normalize_amount(quote.close, &quote.currency);
+                (Some(amount), Some(currency.to_string()))
+            })
+            .unwrap_or((None, None));
+
+        Ok(AssetProfile::new(
+            asset,
+            valuation_market_price,
+            valuation_market_currency,
+        ))
+    }
+
     async fn delete_asset(&self, asset_id: &str) -> Result<()> {
         // Clean up sync state before deleting the asset to avoid orphaned records
         if let Err(e) = self.quote_service.delete_sync_state(asset_id).await {
@@ -2642,7 +2662,8 @@ mod tests {
         LatestQuotePair, LatestQuoteSnapshot, ProviderInfo, Quote, QuoteImport, QuoteServiceTrait,
         QuoteSyncState, SymbolSearchResult, SymbolSyncPlan, SyncMode, SyncResult,
     };
-    use chrono::NaiveDate;
+    use chrono::{NaiveDate, Utc};
+    use rust_decimal::Decimal;
     use std::collections::{HashMap, HashSet};
     use std::sync::{Arc, Mutex};
 
@@ -2766,6 +2787,7 @@ mod tests {
     struct TestQuoteService {
         results: Arc<Mutex<HashMap<String, Vec<SymbolSearchResult>>>>,
         profiles: Arc<Mutex<HashMap<String, ProviderProfile>>>,
+        latest_quotes: Arc<Mutex<HashMap<String, Quote>>>,
         search_calls: Arc<Mutex<Vec<String>>>,
     }
 
@@ -2777,12 +2799,25 @@ mod tests {
                 .insert(query.to_uppercase(), results);
             self
         }
+
+        fn with_latest_quote(self, asset_id: &str, quote: Quote) -> Self {
+            self.latest_quotes
+                .lock()
+                .unwrap()
+                .insert(asset_id.to_string(), quote);
+            self
+        }
     }
 
     #[async_trait::async_trait]
     impl QuoteServiceTrait for TestQuoteService {
-        fn get_latest_quote(&self, _symbol: &str) -> Result<Quote> {
-            unimplemented!()
+        fn get_latest_quote(&self, symbol: &str) -> Result<Quote> {
+            self.latest_quotes
+                .lock()
+                .unwrap()
+                .get(symbol)
+                .cloned()
+                .ok_or_else(|| Error::Asset(format!("No latest quote for {symbol}")))
         }
 
         fn get_latest_quotes(&self, _symbols: &[String]) -> Result<HashMap<String, Quote>> {
@@ -3074,6 +3109,43 @@ mod tests {
             Arc::new(quote_service),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn get_asset_profile_normalizes_latest_quote_unit_market_price() {
+        let asset = Asset {
+            id: "asset-cty-lse".to_string(),
+            kind: AssetKind::Investment,
+            quote_mode: QuoteMode::Market,
+            quote_ccy: "GBp".to_string(),
+            created_at: Utc::now().naive_utc(),
+            updated_at: Utc::now().naive_utc(),
+            ..Default::default()
+        };
+        let quote = Quote {
+            id: "quote-cty".to_string(),
+            asset_id: asset.id.clone(),
+            timestamp: Utc::now(),
+            close: Decimal::new(565, 0),
+            currency: "GBp".to_string(),
+            created_at: Utc::now(),
+            ..Default::default()
+        };
+        let service = test_asset_service(
+            vec![asset],
+            TestQuoteService::default().with_latest_quote("asset-cty-lse", quote),
+        );
+
+        let profile = service.get_asset_profile("asset-cty-lse").unwrap();
+
+        assert_eq!(profile.asset.quote_ccy, "GBp");
+        assert_eq!(profile.valuation_market_price, Some(Decimal::new(565, 2)));
+        assert_eq!(profile.valuation_market_currency.as_deref(), Some("GBP"));
+
+        let value = serde_json::to_value(profile).unwrap();
+        assert_eq!(value["quoteCcy"], serde_json::json!("GBp"));
+        assert_eq!(value["valuationMarketCurrency"], serde_json::json!("GBP"));
+        assert!(value.get("valuationMarketPrice").is_some());
     }
 
     #[tokio::test]

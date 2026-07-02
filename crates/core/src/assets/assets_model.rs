@@ -63,6 +63,31 @@ pub enum QuoteMode {
     Manual, // User-entered quotes only
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetProfile {
+    #[serde(flatten)]
+    pub asset: Asset,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub valuation_market_price: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub valuation_market_currency: Option<String>,
+}
+
+impl AssetProfile {
+    pub fn new(
+        asset: Asset,
+        valuation_market_price: Option<Decimal>,
+        valuation_market_currency: Option<String>,
+    ) -> Self {
+        Self {
+            asset,
+            valuation_market_price,
+            valuation_market_currency,
+        }
+    }
+}
+
 impl QuoteMode {
     /// Returns the database string representation (SCREAMING_SNAKE_CASE).
     pub const fn as_db_str(&self) -> &'static str {
