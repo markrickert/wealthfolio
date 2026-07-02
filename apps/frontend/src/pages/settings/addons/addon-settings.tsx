@@ -456,6 +456,8 @@ export default function AddonSettingsPage() {
                             updateInfo={updateResult.updateInfo}
                             onUpdateComplete={() => handleUpdateComplete(addon.metadata.id)}
                             disabled={togglingAddonId === addon.metadata.id}
+                            enableAfterInstall={addon.metadata.enabled ?? true}
+                            approvedNetworkHosts={addon.metadata.network?.approvedHosts ?? []}
                           />
                         </div>
                       ) : null;
@@ -478,16 +480,22 @@ export default function AddonSettingsPage() {
       {/* Permission Dialog */}
       <PermissionDialog
         open={permissionDialog.open}
-        onOpenChange={(open) => setPermissionDialog({ ...permissionDialog, open })}
+        onOpenChange={(open) => {
+          if (!open && permissionDialog.open) {
+            void permissionDialog.onCancel?.();
+          }
+          setPermissionDialog({ ...permissionDialog, open });
+        }}
         manifest={permissionDialog.manifest}
         declaredPermissions={permissionDialog.permissions || []}
         riskLevel={permissionDialog.riskLevel || "low"}
-        onApprove={() => {
+        onApprove={(approvedNetworkHosts) => {
           if (permissionDialog.onApprove) {
-            permissionDialog.onApprove();
+            void permissionDialog.onApprove(approvedNetworkHosts);
           }
         }}
         onDeny={() => {
+          void permissionDialog.onCancel?.();
           setPermissionDialog({ open: false });
           toast({
             title: "Installation cancelled",

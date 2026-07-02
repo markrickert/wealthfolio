@@ -1,5 +1,6 @@
 import { Badge } from "@wealthfolio/ui/components/ui/badge";
 import { Button } from "@wealthfolio/ui/components/ui/button";
+import { Checkbox } from "@wealthfolio/ui/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +17,7 @@ import type {
   RiskLevel,
 } from "@wealthfolio/addon-sdk";
 import { AlertFeedback } from "@wealthfolio/ui";
+import { useEffect, useMemo, useState } from "react";
 import { PermissionCategoriesDisplay } from "./permission-categories-display";
 
 interface PermissionDialogProps {
@@ -25,7 +27,7 @@ interface PermissionDialogProps {
   detectedCategories?: PermissionCategory[];
   declaredPermissions?: Permission[];
   riskLevel: RiskLevel;
-  onApprove: () => void;
+  onApprove: (approvedNetworkHosts: string[]) => void;
   onDeny: () => void;
   isViewOnly?: boolean;
 }
@@ -52,6 +54,33 @@ export function PermissionDialog({
   onDeny,
   isViewOnly = false,
 }: PermissionDialogProps) {
+  const networkHosts = useMemo(() => {
+    const hosts = manifest?.network?.allowedHosts ?? [];
+    return Array.from(new Set(hosts.map((host) => host.trim()).filter(Boolean))).sort();
+  }, [manifest]);
+  const defaultApprovedNetworkHosts = useMemo(() => {
+    const approvedHosts = manifest?.network?.approvedHosts ?? [];
+    return approvedHosts.filter((host) => networkHosts.includes(host));
+  }, [manifest, networkHosts]);
+  const [approvedNetworkHosts, setApprovedNetworkHosts] = useState<string[]>(
+    defaultApprovedNetworkHosts,
+  );
+
+  useEffect(() => {
+    if (open) {
+      setApprovedNetworkHosts(defaultApprovedNetworkHosts);
+    }
+  }, [defaultApprovedNetworkHosts, open]);
+
+  const toggleNetworkHost = (host: string, checked: boolean | "indeterminate") => {
+    setApprovedNetworkHosts((current) => {
+      if (checked === true) {
+        return Array.from(new Set([...current, host])).sort();
+      }
+      return current.filter((currentHost) => currentHost !== host);
+    });
+  };
+
   // Safety check - don't render if manifest is missing
   if (!manifest) {
     return null;
@@ -115,11 +144,43 @@ export function PermissionDialog({
           <div className="flex-1 overflow-auto">
             <PermissionCategoriesDisplay permissions={permissionsToDisplay} />
           </div>
+
+          {networkHosts.length > 0 && (
+            <div className="space-y-3 rounded-md border p-4">
+              <div className="flex items-center gap-2">
+                <Icons.Globe className="text-muted-foreground h-4 w-4" />
+                <h3 className="text-sm font-medium">Network hosts</h3>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {networkHosts.map((host) => {
+                  const checked = approvedNetworkHosts.includes(host);
+                  return (
+                    <label
+                      key={host}
+                      className="flex min-w-0 items-center gap-3 rounded-md border px-3 py-2 text-sm"
+                    >
+                      <Checkbox
+                        checked={checked}
+                        disabled={isViewOnly}
+                        onCheckedChange={(value) => toggleNetworkHost(host, value)}
+                      />
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs">{host}</span>
+                      {isViewOnly && (
+                        <Badge variant={checked ? "default" : "outline"} className="shrink-0">
+                          {checked ? "Approved" : "Denied"}
+                        </Badge>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="gap-3">
           {isViewOnly ? (
-            <Button onClick={onApprove}>
+            <Button onClick={() => onApprove(approvedNetworkHosts)}>
               <Icons.Check className="mr-2 h-4 w-4" />
               Close
             </Button>
@@ -129,7 +190,7 @@ export function PermissionDialog({
                 <Icons.Close className="mr-2 h-4 w-4" />
                 Deny Installation
               </Button>
-              <Button onClick={onApprove}>
+              <Button onClick={() => onApprove(approvedNetworkHosts)}>
                 <Icons.Check className="mr-2 h-4 w-4" />
                 Approve & Install
               </Button>

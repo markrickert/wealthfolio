@@ -15,6 +15,7 @@ import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { type NavLink, type NavigationProps, isPathActive } from "./app-navigation";
 import { ConnectNavItem } from "./connect-nav-item";
+import { resolveNavigationIcon } from "./navigation-icons";
 
 interface AppSidebarProps {
   navigation: NavigationProps;
@@ -208,7 +209,7 @@ function NavItem({ item, collapsed, className, ...props }: NavItemProps) {
         aria-current={isActive ? "page" : undefined}
         {...props}
       >
-        <span aria-hidden="true">{item.icon ?? <Icons.ArrowRight className="h-5 w-5" />}</span>
+        <span aria-hidden="true">{resolveNavigationIcon(item.icon, "h-5 w-5")}</span>
 
         <span
           className={cn({
@@ -273,7 +274,7 @@ function AddonsMenu({ addons, collapsed }: AddonsMenuProps) {
                   aria-hidden="true"
                   className="flex size-5 shrink-0 items-center justify-center"
                 >
-                  {addon.icon ?? <Icons.ArrowRight className="h-5 w-5" />}
+                  {resolveNavigationIcon(addon.icon, "h-5 w-5")}
                 </span>
                 <span className="text-sm font-medium">{addon.title}</span>
               </Link>

@@ -1,11 +1,11 @@
 import { getDynamicNavItems, subscribeToNavigationUpdates } from "@/addons/addons-runtime-context";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 export interface NavLink {
   title: string;
   href: string;
-  icon?: React.ReactNode;
+  icon?: ReactNode;
   keywords?: string[];
   label?: string; // Optional descriptive label for launcher/search
 }

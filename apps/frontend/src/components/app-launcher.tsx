@@ -17,6 +17,7 @@ import { useSettingsContext } from "@/lib/settings-provider";
 import { Account } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useNavigation } from "@/pages/layouts/navigation/app-navigation";
+import { resolveNavigationIcon } from "@/pages/layouts/navigation/navigation-icons";
 import { useNavigationMode } from "@/pages/layouts/navigation/navigation-mode-context";
 import {
   Command,
@@ -35,7 +36,7 @@ import {
   SheetTitle,
   type Icon,
 } from "@wealthfolio/ui";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 interface RecentItem {
@@ -61,7 +62,7 @@ interface LauncherAccountItem {
 interface LauncherActionItem {
   title: string;
   href: string;
-  icon?: React.ReactNode;
+  icon?: ReactNode;
   keywords?: string[];
   label?: string;
   disabled?: boolean;
@@ -598,24 +599,7 @@ export function AppLauncher() {
     filteredAccounts.length > 0 ||
     showRecent;
 
-  const renderIcon = (icon?: React.ReactNode) => {
-    if (!icon) {
-      return null;
-    }
-
-    if (React.isValidElement<{ className?: string }>(icon)) {
-      return React.cloneElement(icon, {
-        className: [iconClassName, icon.props.className].filter(Boolean).join(" "),
-      });
-    }
-
-    if (typeof icon === "function") {
-      const IconComponent = icon as React.ComponentType<{ className?: string }>;
-      return <IconComponent className={iconClassName} />;
-    }
-
-    return <span className={iconClassName}>{icon}</span>;
-  };
+  const renderIcon = (icon?: ReactNode) => resolveNavigationIcon(icon, iconClassName);
 
   const commandContent = (
     <>

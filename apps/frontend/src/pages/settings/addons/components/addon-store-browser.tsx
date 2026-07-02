@@ -370,12 +370,20 @@ export function AddonStoreBrowser({ installedAddonIds, onInstallSuccess }: Addon
       {/* Permission Dialog */}
       <PermissionDialog
         open={permissionDialog.open}
-        onOpenChange={(open) => setPermissionDialog({ ...permissionDialog, open })}
+        onOpenChange={(open) => {
+          if (!open && permissionDialog.open) {
+            void permissionDialog.onCancel?.();
+          }
+          setPermissionDialog({ ...permissionDialog, open });
+        }}
         manifest={permissionDialog.manifest}
         declaredPermissions={permissionDialog.permissions || []}
         riskLevel={permissionDialog.riskLevel || "low"}
         onApprove={permissionDialog.onApprove || (() => undefined)}
-        onDeny={() => setPermissionDialog({ open: false })}
+        onDeny={() => {
+          void permissionDialog.onCancel?.();
+          setPermissionDialog({ open: false });
+        }}
       />
     </div>
   );

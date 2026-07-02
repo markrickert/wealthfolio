@@ -4,9 +4,10 @@ import { useAggregatedSyncStatus } from "@/features/wealthfolio-connect/hooks";
 import { cn } from "@/lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Icons } from "@wealthfolio/ui";
 import { motion } from "motion/react";
-import React, { useCallback, useId, useMemo, useState } from "react";
+import { useCallback, useId, useMemo, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { type NavigationProps, isPathActive } from "./app-navigation";
+import { resolveNavigationIcon } from "./navigation-icons";
 
 interface FloatingNavigationBarProps {
   navigation: NavigationProps;
@@ -30,22 +31,7 @@ export function FloatingNavigationBar({ navigation }: FloatingNavigationBarProps
     [navigate],
   );
 
-  const renderIcon = useCallback((icon?: React.ReactNode) => {
-    if (!icon) {
-      return <Icons.ArrowRight className="size-6" />;
-    }
-
-    if (React.isValidElement<{ className?: string }>(icon)) {
-      return icon.props.className ? icon : React.cloneElement(icon, { className: "size-6" });
-    }
-
-    if (typeof icon === "function") {
-      const IconComponent = icon as React.ComponentType<{ className?: string }>;
-      return <IconComponent className="size-6" />;
-    }
-
-    return <span className="size-6">{icon}</span>;
-  }, []);
+  const renderIcon = useCallback((icon?: ReactNode) => resolveNavigationIcon(icon, "size-6"), []);
 
   const primaryItems = navigation?.primary ?? [];
   const secondaryItems = navigation?.secondary ?? [];
