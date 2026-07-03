@@ -131,15 +131,114 @@ function getParkingRoot() {
   return root;
 }
 
+const ALLOWED_API_METHODS = new Set([
+  "accounts.getAll",
+  "accounts.create",
+  "portfolio.getHoldings",
+  "portfolio.getHolding",
+  "portfolio.update",
+  "portfolio.recalculate",
+  "portfolio.getIncomeSummary",
+  "portfolio.getHistoricalValuations",
+  "portfolio.getLatestValuations",
+  "activities.getAll",
+  "activities.search",
+  "activities.create",
+  "activities.update",
+  "activities.saveMany",
+  "activities.import",
+  "activities.checkImport",
+  "activities.getImportMapping",
+  "activities.saveImportMapping",
+  "market.searchTicker",
+  "market.syncHistory",
+  "market.sync",
+  "market.getProviders",
+  "market.fetchDividends",
+  "assets.getProfile",
+  "assets.updateProfile",
+  "assets.updateQuoteMode",
+  "quotes.update",
+  "quotes.getHistory",
+  "performance.calculateHistory",
+  "performance.calculateSummary",
+  "performance.calculateAccountsSimple",
+  "exchangeRates.getAll",
+  "exchangeRates.update",
+  "exchangeRates.add",
+  "contributionLimits.getAll",
+  "contributionLimits.create",
+  "contributionLimits.update",
+  "contributionLimits.calculateDeposits",
+  "goals.getAll",
+  "goals.create",
+  "goals.update",
+  "goals.getFunding",
+  "goals.saveFunding",
+  "goals.getAllocations",
+  "goals.updateAllocations",
+  "settings.get",
+  "settings.update",
+  "settings.backupDatabase",
+  "files.openCsvDialog",
+  "files.openSaveDialog",
+  "snapshots.getAll",
+  "snapshots.getByDate",
+  "snapshots.save",
+  "snapshots.checkImport",
+  "snapshots.importSnapshots",
+  "snapshots.delete",
+  "navigation.navigate",
+  "query.invalidateQueries",
+  "query.refetchQueries",
+  "network.request",
+  "secrets.set",
+  "secrets.get",
+  "secrets.delete",
+  "toast.success",
+  "toast.error",
+  "toast.warning",
+  "toast.info",
+  "logger.error",
+  "logger.info",
+  "logger.warn",
+  "logger.trace",
+  "logger.debug",
+]);
+
+const ALLOWED_EVENT_METHODS = new Set([
+  "events.import.onDropHover",
+  "events.import.onDrop",
+  "events.import.onDropCancelled",
+  "events.portfolio.onUpdateStart",
+  "events.portfolio.onUpdateComplete",
+  "events.portfolio.onUpdateError",
+  "events.market.onSyncStart",
+  "events.market.onSyncComplete",
+]);
+
+const FORBIDDEN_METHOD_PARTS = new Set(["__proto__", "constructor", "prototype"]);
+
 function getProperty(target: unknown, key: string): unknown {
   if (typeof target !== "object" || target === null) {
+    return undefined;
+  }
+  if (!Object.prototype.hasOwnProperty.call(target, key)) {
     return undefined;
   }
   return (target as Record<string, unknown>)[key];
 }
 
-function getMethod(target: unknown, methodPath: string) {
+function getMethod(target: unknown, methodPath: string, allowedMethods: Set<string>) {
+  if (!allowedMethods.has(methodPath)) {
+    throw new Error(`Unknown addon host API method '${methodPath}'`);
+  }
+
   const parts = methodPath.split(".").filter(Boolean);
+  if (parts.length === 0 || parts.some((part) => FORBIDDEN_METHOD_PARTS.has(part))) {
+    throw new Error(`Unknown addon host API method '${methodPath}'`);
+  }
+
   let current = target;
 
   for (const part of parts) {
@@ -296,6 +395,9 @@ export class AddonIframeManager {
     if (runtime?.nonce !== message.nonce) {
       return;
     }
+    if (event.source !== runtime.iframe.contentWindow) {
+      return;
+    }
 
     void this.dispatchMessage(runtime, message);
   };
@@ -363,7 +465,7 @@ export class AddonIframeManager {
     if (!message.requestId || !message.method) {
       return;
     }
-    const method = getMethod(runtime.api, message.method);
+    const method = getMethod(runtime.api, message.method, ALLOWED_API_METHODS);
     const result = await method(...(message.args ?? []));
     this.respond(runtime, message.requestId, true, result);
   }
@@ -373,7 +475,7 @@ export class AddonIframeManager {
       return;
     }
 
-    const method = getMethod(runtime.api, message.method);
+    const method = getMethod(runtime.api, message.method, ALLOWED_EVENT_METHODS);
     const subscriptionId = makeRequestId();
     const unlisten = (await method((event: unknown) => {
       this.post(runtime, "event", { subscriptionId, payload: event });

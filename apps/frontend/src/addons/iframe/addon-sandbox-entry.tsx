@@ -3,10 +3,7 @@ import "@/globals.css";
 import * as React from "react";
 import * as ReactDOMClient from "react-dom/client";
 import { QueryClient } from "@tanstack/react-query";
-import {
-  createHostDependencyModuleUrl,
-  isHostDependencySpecifier,
-} from "./host-dependencies";
+import { createHostDependencyModuleUrl, isHostDependencySpecifier } from "./host-dependencies";
 
 const CHANNEL = "wealthfolio:addon-sandbox:v1";
 
@@ -390,9 +387,19 @@ function unmountReactRouteRoot() {
   reactRouteRoot = undefined;
 }
 
+function stringFromPrimitive(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  return undefined;
+}
+
 function normalizeRoute(route: LegacyRouteConfig) {
-  const path = String(route.path || "");
-  const routeId = String(route.id || path || crypto.randomUUID?.() || "");
+  const path = stringFromPrimitive(route.path) ?? "";
+  const routeId = (stringFromPrimitive(route.id) ?? path) || crypto.randomUUID?.() || "";
   return {
     path,
     routeId,
@@ -406,8 +413,8 @@ function createContext() {
     sidebar: {
       addItem(cfg: Record<string, unknown>) {
         const item = {
-          id: String(cfg?.id ?? ""),
-          label: String(cfg?.label ?? ""),
+          id: stringFromPrimitive(cfg?.id) ?? "",
+          label: stringFromPrimitive(cfg?.label) ?? "",
           icon: typeof cfg?.icon === "string" ? cfg.icon : undefined,
           route: typeof cfg?.route === "string" ? cfg.route : undefined,
           order: typeof cfg?.order === "number" ? cfg.order : undefined,
@@ -477,12 +484,12 @@ async function loadAddon(code: string, files: SandboxAddonFile[] = []) {
   if (!enable) {
     throw new Error("Addon does not export an enable(context) function");
   }
-  const result = await (enable as (context: unknown) => Promise<unknown> | unknown)(createContext());
+  const result = await (enable as (context: unknown) => unknown)(createContext());
   addonDisable =
     result &&
     typeof result === "object" &&
     typeof (result as { disable?: unknown }).disable === "function"
-      ? ((result as { disable: () => Promise<void> | void }).disable)
+      ? (result as { disable: () => Promise<void> | void }).disable
       : undefined;
 }
 

@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -444,8 +445,8 @@ pub fn detect_addon_permissions(addon_files: &[AddonFile]) -> Vec<AddonPermissio
                     // Special patterns for non-API functions
                     let simple_patterns = if *category == "ui" {
                         vec![
-                            format!(".{}(", function), // ctx.onDisable( or minified e.onDisable(
-                            format!("{}(", function),  // onDisable(
+                            format!(".{}(", function),    // ctx.onDisable( or minified e.onDisable(
+                            format!("{}(", function),     // onDisable(
                             format!("ctx.{}(", function), // ctx.onDisable(
                         ]
                     } else {
@@ -749,7 +750,7 @@ fn extract_addon_zip_archive(zip_data: Vec<u8>) -> Result<ExtractedAddonArchive,
     // Now set the is_main flag correctly based on the metadata.main path
     let main_file = metadata.get_main()?;
     for file in &mut files {
-        file.is_main = file.name == main_file || file.name.ends_with(main_file);
+        file.is_main = archive_path_matches_manifest_main(&file.name, main_file);
     }
 
     // Verify that we found the main file
@@ -1114,8 +1115,22 @@ pub async fn check_addon_update_from_api(
 }
 
 /// Download addon package from URL
-pub async fn download_addon_package(download_url: &str) -> Result<Vec<u8>, String> {
-    download_addon_package_verified(download_url, None).await
+pub async fn download_addon_package(
+    download_url: &str,
+    expected_sha256: &str,
+) -> Result<Vec<u8>, String> {
+    download_addon_package_verified(download_url, expected_sha256).await
+}
+
+pub(crate) fn archive_path_matches_manifest_main(file_name: &str, main_file: &str) -> bool {
+    let file_name = file_name.replace('\\', "/");
+    let main_file = main_file.replace('\\', "/");
+    let main_file = main_file.trim_start_matches('/');
+    if main_file.is_empty() {
+        return false;
+    }
+
+    file_name == main_file || file_name.ends_with(&format!("/{main_file}"))
 }
 
 pub fn verify_addon_package_sha256(zip_data: &[u8], expected_sha256: &str) -> Result<(), String> {
@@ -1135,7 +1150,7 @@ pub fn verify_addon_package_sha256(zip_data: &[u8], expected_sha256: &str) -> Re
 
 pub async fn download_addon_package_verified(
     download_url: &str,
-    expected_sha256: Option<&str>,
+    expected_sha256: &str,
 ) -> Result<Vec<u8>, String> {
     log::info!("Downloading addon package from URL: {}", download_url);
 
@@ -1200,13 +1215,11 @@ pub async fn download_addon_package_verified(
         download_url
     );
 
-    if let Some(expected_sha256) = expected_sha256 {
-        verify_addon_package_sha256(&zip_data, expected_sha256)?;
-        log::info!(
-            "Verified SHA-256 digest for addon package: {}",
-            download_url
-        );
-    }
+    verify_addon_package_sha256(&zip_data, expected_sha256)?;
+    log::info!(
+        "Verified SHA-256 digest for addon package: {}",
+        download_url
+    );
 
     Ok(zip_data)
 }
@@ -1329,7 +1342,8 @@ pub async fn download_addon_from_store(
         let expected_sha256 = download_response
             .get("sha256")
             .or_else(|| download_response.get("checksumSha256"))
-            .and_then(|v| v.as_str());
+            .and_then(|v| v.as_str())
+            .ok_or("Download API response missing SHA-256 digest")?;
 
         log::info!(
             "Got download URL for addon '{}': {}",
@@ -1345,7 +1359,8 @@ pub async fn download_addon_from_store(
             .headers()
             .get("x-addon-sha256")
             .and_then(|v| v.to_str().ok())
-            .map(str::to_string);
+            .ok_or("Download response missing x-addon-sha256 header")?
+            .to_string();
 
         // Download the addon package directly (GET request returns the file)
         let zip_data = response
@@ -1380,10 +1395,8 @@ pub async fn download_addon_from_store(
             }
         }
 
-        if let Some(expected_sha256) = expected_sha256 {
-            verify_addon_package_sha256(&zip_data, &expected_sha256)?;
-            log::info!("Verified SHA-256 digest for addon '{}'", addon_id);
-        }
+        verify_addon_package_sha256(&zip_data, &expected_sha256)?;
+        log::info!("Verified SHA-256 digest for addon '{}'", addon_id);
 
         Ok(zip_data)
     }
@@ -1726,7 +1739,182 @@ impl AddonService {
         Ok(())
     }
 
+    fn hidden_artifact_dirs(&self, addon_id: &str, kind: &str) -> Result<Vec<PathBuf>, String> {
+        validate_addon_id(addon_id)?;
+        let addons_dir = ensure_addons_directory(&self.addons_root)?;
+        let prefix = format!(".{addon_id}.{kind}-");
+        let mut dirs = Vec::new();
+
+        for entry in fs::read_dir(&addons_dir)
+            .map_err(|e| format!("Failed to read addons directory: {}", e))?
+        {
+            let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if name.starts_with(&prefix) {
+                dirs.push(path);
+            }
+        }
+
+        dirs.sort();
+        Ok(dirs)
+    }
+
+    fn cleanup_replacement_artifacts(&self, addon_id: &str) {
+        for kind in ["tmp", "backup"] {
+            let Ok(dirs) = self.hidden_artifact_dirs(addon_id, kind) else {
+                continue;
+            };
+            for dir in dirs {
+                if let Err(error) = fs::remove_dir_all(&dir) {
+                    log::warn!("Failed to remove stale addon artifact {:?}: {}", dir, error);
+                }
+            }
+        }
+    }
+
+    fn addon_id_from_backup_dir_name(name: &str) -> Option<&str> {
+        let without_dot = name.strip_prefix('.')?;
+        let (addon_id, _) = without_dot.rsplit_once(".backup-")?;
+        validate_addon_id(addon_id).ok()?;
+        Some(addon_id)
+    }
+
+    fn is_hidden_addon_dir(dir: &Path) -> bool {
+        dir.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with('.'))
+    }
+
+    fn recover_incomplete_replacement_for_addon(&self, addon_id: &str) -> Result<(), String> {
+        let addon_dir = get_addon_path(&self.addons_root, addon_id)?;
+        if addon_dir.exists() {
+            self.cleanup_replacement_artifacts(addon_id);
+            return Ok(());
+        }
+
+        let backup_dirs = self.hidden_artifact_dirs(addon_id, "backup")?;
+        for backup_dir in backup_dirs.into_iter().rev() {
+            let manifest = match self.read_manifest_if_exists(&backup_dir) {
+                Ok(Some(manifest)) => manifest,
+                Ok(None) => continue,
+                Err(error) => {
+                    log::warn!(
+                        "Skipping invalid addon backup manifest in {:?}: {}",
+                        backup_dir,
+                        error
+                    );
+                    continue;
+                }
+            };
+            if manifest.id != addon_id {
+                log::warn!(
+                    "Skipping addon backup {:?}: manifest id '{}' does not match '{}'",
+                    backup_dir,
+                    manifest.id,
+                    addon_id
+                );
+                continue;
+            }
+
+            fs::rename(&backup_dir, &addon_dir)
+                .map_err(|e| format!("Failed to restore addon backup '{}': {}", addon_id, e))?;
+            self.cleanup_replacement_artifacts(addon_id);
+            return Ok(());
+        }
+
+        Ok(())
+    }
+
+    fn recover_incomplete_replacements(&self) -> Result<(), String> {
+        let addons_dir = ensure_addons_directory(&self.addons_root)?;
+        let mut addon_ids = Vec::new();
+
+        for entry in fs::read_dir(&addons_dir)
+            .map_err(|e| format!("Failed to read addons directory: {}", e))?
+        {
+            let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if let Some(addon_id) = Self::addon_id_from_backup_dir_name(name) {
+                addon_ids.push(addon_id.to_string());
+            }
+        }
+
+        addon_ids.sort();
+        addon_ids.dedup();
+        for addon_id in addon_ids {
+            self.recover_incomplete_replacement_for_addon(&addon_id)?;
+        }
+
+        Ok(())
+    }
+
+    fn replace_addon_directory(
+        &self,
+        addon_id: &str,
+        files: &[AddonArchiveFile],
+        metadata: &AddonManifest,
+    ) -> Result<(), String> {
+        let addon_dir = get_addon_path(&self.addons_root, addon_id)?;
+        let addons_dir = ensure_addons_directory(&self.addons_root)?;
+        let nonce = uuid::Uuid::new_v4();
+        let temp_dir = addons_dir.join(format!(".{addon_id}.tmp-{nonce}"));
+        let backup_dir = addons_dir.join(format!(".{addon_id}.backup-{nonce}"));
+
+        if temp_dir.exists() {
+            fs::remove_dir_all(&temp_dir)
+                .map_err(|e| format!("Failed to clear temporary addon directory: {}", e))?;
+        }
+        fs::create_dir_all(&temp_dir)
+            .map_err(|e| format!("Failed to create temporary addon directory: {}", e))?;
+
+        let write_result = (|| -> Result<(), String> {
+            self.write_addon_archive_files(&temp_dir, files)?;
+            self.write_manifest(&temp_dir, metadata)?;
+            Ok(())
+        })();
+
+        if let Err(err) = write_result {
+            let _ = fs::remove_dir_all(&temp_dir);
+            return Err(err);
+        }
+
+        let had_existing_addon = addon_dir.exists();
+        if had_existing_addon {
+            fs::rename(&addon_dir, &backup_dir)
+                .map_err(|e| format!("Failed to move existing addon aside: {}", e))?;
+        }
+
+        match fs::rename(&temp_dir, &addon_dir) {
+            Ok(()) => {
+                if had_existing_addon {
+                    let _ = fs::remove_dir_all(&backup_dir);
+                }
+                Ok(())
+            }
+            Err(err) => {
+                let _ = fs::remove_dir_all(&temp_dir);
+                if had_existing_addon && backup_dir.exists() {
+                    let _ = fs::rename(&backup_dir, &addon_dir);
+                }
+                Err(format!("Failed to install addon directory: {}", err))
+            }
+        }
+    }
+
     fn enabled_manifest_for_addon(&self, addon_id: &str) -> Result<AddonManifest, String> {
+        self.recover_incomplete_replacement_for_addon(addon_id)?;
         let addon_dir = get_addon_path(&self.addons_root, addon_id)?;
         let manifest = self.read_manifest_or_error(&addon_dir)?;
         if !manifest.is_enabled() {
@@ -1746,13 +1934,69 @@ impl AddonService {
             .map(|permissions| {
                 permissions.iter().any(|permission| {
                     permission.category == category
-                        && permission.functions.iter().any(|function| {
-                            function.name == function_name
-                                && (function.is_declared || function.is_detected)
-                        })
+                        && permission
+                            .functions
+                            .iter()
+                            .any(|function| function.name == function_name && function.is_declared)
                 })
             })
             .unwrap_or(false)
+    }
+
+    fn manifest_permission_keys(manifest: &AddonManifest) -> BTreeSet<String> {
+        manifest
+            .permissions
+            .as_ref()
+            .map(|permissions| {
+                permissions
+                    .iter()
+                    .flat_map(|permission| {
+                        permission
+                            .functions
+                            .iter()
+                            .filter(|function| function.is_declared || function.is_detected)
+                            .map(|function| format!("{}.{}", permission.category, function.name))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn ensure_update_does_not_add_permissions(
+        previous: Option<&AddonManifest>,
+        next: &AddonManifest,
+    ) -> Result<(), String> {
+        let Some(previous) = previous else {
+            return Ok(());
+        };
+
+        let previous_permissions = Self::manifest_permission_keys(previous);
+        let next_permissions = Self::manifest_permission_keys(next);
+        let added_permissions = next_permissions
+            .difference(&previous_permissions)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        if added_permissions.is_empty() {
+            return Ok(());
+        }
+
+        let preview = added_permissions
+            .iter()
+            .take(8)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        let suffix = if added_permissions.len() > 8 {
+            format!(" and {} more", added_permissions.len() - 8)
+        } else {
+            String::new()
+        };
+
+        Err(format!(
+            "Addon update adds new permissions and requires reinstall approval: {}{}",
+            preview, suffix
+        ))
     }
 
     fn write_network_audit_entry(
@@ -1891,22 +2135,11 @@ impl AddonServiceTrait for AddonService {
     ) -> Result<AddonManifest, String> {
         let extracted = extract_addon_zip_archive(zip_data)?;
         let addon_id = extracted.metadata.id.clone();
-        let addon_dir = get_addon_path(&self.addons_root, &addon_id)?;
-
-        if addon_dir.exists() {
-            fs::remove_dir_all(&addon_dir)
-                .map_err(|e| format!("Failed to remove existing addon: {}", e))?;
-        }
-        fs::create_dir_all(&addon_dir)
-            .map_err(|e| format!("Failed to create addon directory: {}", e))?;
-
-        self.write_addon_archive_files(&addon_dir, &extracted.files)?;
-
         let metadata = Self::apply_network_approvals(
             extracted.metadata.to_installed(enable_after_install)?,
             &approved_network_hosts,
         );
-        self.write_manifest(&addon_dir, &metadata)?;
+        self.replace_addon_directory(&addon_id, &extracted.files, &metadata)?;
 
         Ok(metadata)
     }
@@ -1932,22 +2165,12 @@ impl AddonServiceTrait for AddonService {
                 addon_id, extracted.metadata.id
             ));
         }
-        let addon_dir = get_addon_path(&self.addons_root, &extracted.metadata.id)?;
-
-        if addon_dir.exists() {
-            fs::remove_dir_all(&addon_dir)
-                .map_err(|e| format!("Failed to remove existing addon: {}", e))?;
-        }
-        fs::create_dir_all(&addon_dir)
-            .map_err(|e| format!("Failed to create addon directory: {}", e))?;
-
-        self.write_addon_archive_files(&addon_dir, &extracted.files)?;
-
+        let installed_addon_id = extracted.metadata.id.clone();
         let metadata = Self::apply_network_approvals(
             extracted.metadata.to_installed(enable_after_install)?,
             &approved_network_hosts,
         );
-        self.write_manifest(&addon_dir, &metadata)?;
+        self.replace_addon_directory(&installed_addon_id, &extracted.files, &metadata)?;
 
         // Clean staging file
         let _ = remove_addon_from_staging(addon_id, &self.addons_root);
@@ -1956,6 +2179,7 @@ impl AddonServiceTrait for AddonService {
     }
 
     async fn uninstall_addon(&self, addon_id: &str) -> Result<(), String> {
+        self.recover_incomplete_replacement_for_addon(addon_id)?;
         let addon_dir = get_addon_path(&self.addons_root, addon_id)?;
         if !addon_dir.exists() {
             return Err("Addon not found".to_string());
@@ -1965,6 +2189,7 @@ impl AddonServiceTrait for AddonService {
     }
 
     fn list_installed_addons(&self) -> Result<Vec<InstalledAddon>, String> {
+        self.recover_incomplete_replacements()?;
         let addons_dir = ensure_addons_directory(&self.addons_root)?;
         let mut installed = Vec::new();
 
@@ -1975,6 +2200,9 @@ impl AddonServiceTrait for AddonService {
                 let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
                 let dir = entry.path();
                 if !dir.is_dir() {
+                    continue;
+                }
+                if Self::is_hidden_addon_dir(&dir) {
                     continue;
                 }
                 let manifest = match self.read_manifest_if_exists(&dir) {
@@ -2000,6 +2228,7 @@ impl AddonServiceTrait for AddonService {
     }
 
     fn load_addon_for_runtime(&self, addon_id: &str) -> Result<ExtractedAddon, String> {
+        self.recover_incomplete_replacement_for_addon(addon_id)?;
         let addon_dir = get_addon_path(&self.addons_root, addon_id)?;
         let manifest = self.read_manifest_or_error(&addon_dir)?;
 
@@ -2012,10 +2241,7 @@ impl AddonServiceTrait for AddonService {
 
         let main_file = manifest.get_main()?;
         for f in &mut files {
-            let normalized_name = f.name.replace('\\', "/");
-            let normalized_main = main_file.replace('\\', "/");
-            f.is_main =
-                normalized_name == normalized_main || normalized_name.ends_with(&normalized_main);
+            f.is_main = archive_path_matches_manifest_main(&f.name, main_file);
         }
 
         if !files.iter().any(|f| f.is_main) {
@@ -2047,12 +2273,14 @@ impl AddonServiceTrait for AddonService {
     }
 
     async fn check_addon_update(&self, addon_id: &str) -> Result<AddonUpdateCheckResult, String> {
+        self.recover_incomplete_replacement_for_addon(addon_id)?;
         let addon_dir = get_addon_path(&self.addons_root, addon_id)?;
         let manifest = self.read_manifest_or_error(&addon_dir)?;
         check_addon_update_from_api(addon_id, &manifest.version, Some(&self.instance_id)).await
     }
 
     async fn check_all_addon_updates(&self) -> Result<Vec<AddonUpdateCheckResult>, String> {
+        self.recover_incomplete_replacements()?;
         let addons_dir = ensure_addons_directory(&self.addons_root)?;
         let mut results = Vec::new();
 
@@ -2063,6 +2291,9 @@ impl AddonServiceTrait for AddonService {
                 let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
                 let dir = entry.path();
                 if !dir.is_dir() {
+                    continue;
+                }
+                if Self::is_hidden_addon_dir(&dir) {
                     continue;
                 }
                 let manifest = match self.read_manifest_if_exists(&dir) {
@@ -2109,6 +2340,7 @@ impl AddonServiceTrait for AddonService {
     }
 
     async fn update_addon_from_store(&self, addon_id: &str) -> Result<AddonManifest, String> {
+        self.recover_incomplete_replacement_for_addon(addon_id)?;
         let addon_dir = get_addon_path(&self.addons_root, addon_id)?;
         let previous_manifest = self.read_manifest_if_exists(&addon_dir)?;
         let was_enabled = previous_manifest
@@ -2124,21 +2356,16 @@ impl AddonServiceTrait for AddonService {
                 addon_id, extracted.metadata.id
             ));
         }
-
-        if addon_dir.exists() {
-            fs::remove_dir_all(&addon_dir)
-                .map_err(|e| format!("Failed to remove addon directory: {}", e))?;
-        }
-        fs::create_dir_all(&addon_dir)
-            .map_err(|e| format!("Failed to create addon directory: {}", e))?;
-
-        self.write_addon_archive_files(&addon_dir, &extracted.files)?;
+        Self::ensure_update_does_not_add_permissions(
+            previous_manifest.as_ref(),
+            &extracted.metadata,
+        )?;
 
         let metadata = Self::preserve_existing_network_approvals(
             extracted.metadata.to_installed(was_enabled)?,
             previous_manifest.as_ref(),
         );
-        self.write_manifest(&addon_dir, &metadata)?;
+        self.replace_addon_directory(addon_id, &extracted.files, &metadata)?;
 
         Ok(metadata)
     }

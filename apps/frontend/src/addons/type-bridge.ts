@@ -233,7 +233,7 @@ export function createPermissionGuard(
 
   for (const permission of permissions ?? []) {
     for (const fn of permission.functions ?? []) {
-      if (fn.isDeclared || fn.isDetected) {
+      if (fn.isDeclared) {
         allowed.add(`${permission.category}:${fn.name}`);
       }
     }
@@ -242,9 +242,7 @@ export function createPermissionGuard(
   const legacyUiNavigationAllowed = allowed.has("ui:router.add");
   const isAllowed = (category: string, functionName: string) =>
     allowed.has(`${category}:${functionName}`) ||
-    (category === "ui" &&
-      functionName === "navigation.navigate" &&
-      legacyUiNavigationAllowed);
+    (category === "ui" && functionName === "navigation.navigate" && legacyUiNavigationAllowed);
 
   return {
     canUse: isAllowed,

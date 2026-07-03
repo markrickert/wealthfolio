@@ -103,6 +103,21 @@ describe("Addon Type Bridge", () => {
       );
     });
 
+    it("should not grant detected-only function permissions", () => {
+      const guard = createPermissionGuard("test-addon", [
+        {
+          category: "secrets",
+          purpose: "Secrets access",
+          functions: [{ name: "use", isDeclared: false, isDetected: true }],
+        },
+      ]);
+
+      expect(guard.canUse("secrets", "use")).toBe(false);
+      expect(() => guard.assertCanUse("secrets", "use")).toThrow(
+        "Addon 'test-addon' is not allowed to call secrets.use",
+      );
+    });
+
     it("should allow legacy addon navigation when router permission is granted", () => {
       const guard = createPermissionGuard("test-addon", [
         {

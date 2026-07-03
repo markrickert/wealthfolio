@@ -110,9 +110,13 @@ pub async fn perform_addon_network_request(
     if response.content_length().unwrap_or_default() > MAX_RESPONSE_BODY_BYTES as u64 {
         return Err("Addon network response body is too large".to_string());
     }
-    let body = response.bytes().await.map_err(|e| e.to_string())?;
-    if body.len() > MAX_RESPONSE_BODY_BYTES {
-        return Err("Addon network response body is too large".to_string());
+    let mut response = response;
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+        if body.len().saturating_add(chunk.len()) > MAX_RESPONSE_BODY_BYTES {
+            return Err("Addon network response body is too large".to_string());
+        }
+        body.extend_from_slice(&chunk);
     }
 
     Ok(AddonNetworkResponse {

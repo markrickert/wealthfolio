@@ -1,13 +1,26 @@
 use std::sync::Arc;
 
-use crate::{error::ApiResult, main_lib::AppState};
+use crate::{
+    error::{ApiError, ApiResult},
+    main_lib::AppState,
+};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     routing::post,
     Json, Router,
 };
-use wealthfolio_core::secrets::addon_secret_service_id;
+use wealthfolio_core::secrets::{addon_secret_service_id, validate_unscoped_secret_service_id};
+
+fn ensure_secret_api_auth(state: &AppState) -> ApiResult<()> {
+    if state.auth.is_none() {
+        return Err(ApiError::Unauthorized(
+            "Secrets API requires authentication".to_string(),
+        ));
+    }
+
+    Ok(())
+}
 
 #[derive(serde::Deserialize)]
 struct SecretSetBody {
@@ -20,6 +33,8 @@ async fn set_secret(
     State(state): State<Arc<AppState>>,
     Json(body): Json<SecretSetBody>,
 ) -> ApiResult<StatusCode> {
+    ensure_secret_api_auth(&state)?;
+    validate_unscoped_secret_service_id(&body.secret_key).map_err(ApiError::BadRequest)?;
     state
         .secret_store
         .set_secret(&body.secret_key, &body.secret)?;
@@ -36,6 +51,8 @@ async fn get_secret(
     State(state): State<Arc<AppState>>,
     Query(q): Query<SecretQuery>,
 ) -> ApiResult<Json<Option<String>>> {
+    ensure_secret_api_auth(&state)?;
+    validate_unscoped_secret_service_id(&q.secret_key).map_err(ApiError::BadRequest)?;
     let val = state.secret_store.get_secret(&q.secret_key)?;
     Ok(Json(val))
 }
@@ -44,6 +61,8 @@ async fn delete_secret(
     State(state): State<Arc<AppState>>,
     Query(q): Query<SecretQuery>,
 ) -> ApiResult<StatusCode> {
+    ensure_secret_api_auth(&state)?;
+    validate_unscoped_secret_service_id(&q.secret_key).map_err(ApiError::BadRequest)?;
     state.secret_store.delete_secret(&q.secret_key)?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -59,8 +78,8 @@ async fn set_addon_secret(
     Path(addon_id): Path<String>,
     Json(body): Json<AddonSecretSetBody>,
 ) -> ApiResult<StatusCode> {
-    let service_id = addon_secret_service_id(&addon_id, &body.key)
-        .map_err(crate::error::ApiError::BadRequest)?;
+    ensure_secret_api_auth(&state)?;
+    let service_id = addon_secret_service_id(&addon_id, &body.key).map_err(ApiError::BadRequest)?;
     state.secret_store.set_secret(&service_id, &body.secret)?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -75,8 +94,8 @@ async fn get_addon_secret(
     Path(addon_id): Path<String>,
     Query(q): Query<AddonSecretQuery>,
 ) -> ApiResult<Json<Option<String>>> {
-    let service_id =
-        addon_secret_service_id(&addon_id, &q.key).map_err(crate::error::ApiError::BadRequest)?;
+    ensure_secret_api_auth(&state)?;
+    let service_id = addon_secret_service_id(&addon_id, &q.key).map_err(ApiError::BadRequest)?;
     let val = state.secret_store.get_secret(&service_id)?;
     Ok(Json(val))
 }
@@ -86,8 +105,8 @@ async fn delete_addon_secret(
     Path(addon_id): Path<String>,
     Query(q): Query<AddonSecretQuery>,
 ) -> ApiResult<StatusCode> {
-    let service_id =
-        addon_secret_service_id(&addon_id, &q.key).map_err(crate::error::ApiError::BadRequest)?;
+    ensure_secret_api_auth(&state)?;
+    let service_id = addon_secret_service_id(&addon_id, &q.key).map_err(ApiError::BadRequest)?;
     state.secret_store.delete_secret(&service_id)?;
     Ok(StatusCode::NO_CONTENT)
 }

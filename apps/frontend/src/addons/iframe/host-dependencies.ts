@@ -77,10 +77,7 @@ export function isHostDependencySpecifier(specifier: string) {
   return Object.prototype.hasOwnProperty.call(HOST_DEPENDENCIES, specifier);
 }
 
-export function createHostDependencyModuleUrl(
-  specifier: string,
-  objectUrls: Map<string, string>,
-) {
+export function createHostDependencyModuleUrl(specifier: string, objectUrls: Map<string, string>) {
   const module = HOST_DEPENDENCIES[specifier];
   if (!module) {
     return undefined;

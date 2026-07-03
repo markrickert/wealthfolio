@@ -32,6 +32,73 @@ fn build_test_addon_zip_owned(entries: Vec<(String, Vec<u8>)>) -> Vec<u8> {
 }
 
 #[test]
+fn test_archive_path_matches_manifest_main_requires_component_boundary() {
+    assert!(archive_path_matches_manifest_main("addon.js", "addon.js"));
+    assert!(archive_path_matches_manifest_main(
+        "package/dist/addon.js",
+        "dist/addon.js"
+    ));
+    assert!(!archive_path_matches_manifest_main(
+        "package/dist/not-addon.js",
+        "addon.js"
+    ));
+    assert!(!archive_path_matches_manifest_main("addon.js", ""));
+}
+
+#[test]
+fn test_update_permission_escalation_requires_reinstall_approval() {
+    let previous = AddonManifest {
+        id: "test-addon".to_string(),
+        name: "Test Addon".to_string(),
+        version: "1.0.0".to_string(),
+        description: None,
+        author: None,
+        sdk_version: None,
+        main: Some("addon.js".to_string()),
+        enabled: Some(true),
+        permissions: Some(vec![AddonPermission {
+            category: "ui".to_string(),
+            purpose: "User interface".to_string(),
+            functions: vec![FunctionPermission {
+                name: "router.add".to_string(),
+                is_declared: true,
+                is_detected: false,
+                detected_at: None,
+            }],
+        }]),
+        homepage: None,
+        repository: None,
+        license: None,
+        min_wealthfolio_version: None,
+        keywords: None,
+        icon: None,
+        network: None,
+        host_dependencies: None,
+        installed_at: None,
+        updated_at: None,
+        source: None,
+        size: None,
+    };
+    let mut next = previous.clone();
+    next.version = "1.1.0".to_string();
+    next.permissions.as_mut().unwrap().push(AddonPermission {
+        category: "secrets".to_string(),
+        purpose: "Secrets".to_string(),
+        functions: vec![FunctionPermission {
+            name: "use".to_string(),
+            is_declared: true,
+            is_detected: false,
+            detected_at: None,
+        }],
+    });
+
+    let result = AddonService::ensure_update_does_not_add_permissions(Some(&previous), &next);
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("secrets.use"));
+}
+
+#[test]
 fn test_detect_addon_permissions_hello_world() {
     // Test with actual hello world addon content
     let hello_world_content = r#"
@@ -910,11 +977,17 @@ fn test_extract_addon_zip_skips_large_source_map() {
         .expect("zip with an oversized source map should still extract");
 
     assert!(
-        extracted.files.iter().any(|file| file.name == "dist/addon.js"),
+        extracted
+            .files
+            .iter()
+            .any(|file| file.name == "dist/addon.js"),
         "runtime JS should be preserved"
     );
     assert!(
-        extracted.files.iter().all(|file| !file.name.ends_with(".map")),
+        extracted
+            .files
+            .iter()
+            .all(|file| !file.name.ends_with(".map")),
         "source maps should not be installed as runtime files"
     );
 }
@@ -1019,6 +1092,102 @@ mod service_tests {
         assert!(permissions[0].functions[0].is_declared);
 
         // Clean up
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_list_installed_addons_skips_and_cleans_replacement_artifacts() {
+        let temp_dir = env::temp_dir().join("wealthfolio_test_artifact_skip");
+        if temp_dir.exists() {
+            std::fs::remove_dir_all(&temp_dir).ok();
+        }
+
+        let service = AddonService::new(&temp_dir, "test-instance");
+        let addons_dir = temp_dir.join("addons");
+        let addon_dir = addons_dir.join("artifact-addon");
+        let backup_dir = addons_dir.join(".artifact-addon.backup-test");
+        let temp_install_dir = addons_dir.join(".artifact-addon.tmp-test");
+        std::fs::create_dir_all(&addon_dir).expect("addon dir should be created");
+        std::fs::create_dir_all(&backup_dir).expect("backup dir should be created");
+        std::fs::create_dir_all(&temp_install_dir).expect("tmp dir should be created");
+
+        let manifest_json = r#"{
+            "id": "artifact-addon",
+            "name": "Artifact Addon",
+            "version": "1.0.0",
+            "main": "addon.js",
+            "enabled": true
+        }"#;
+        for dir in [&addon_dir, &backup_dir, &temp_install_dir] {
+            std::fs::write(dir.join("manifest.json"), manifest_json)
+                .expect("manifest should be written");
+            std::fs::write(dir.join("addon.js"), "console.log('ok');")
+                .expect("addon should be written");
+        }
+
+        let installed = service
+            .list_installed_addons()
+            .expect("installed addons should list");
+
+        assert_eq!(installed.len(), 1);
+        assert_eq!(installed[0].metadata.id, "artifact-addon");
+        assert!(
+            !backup_dir.exists(),
+            "stale backup should be cleaned when canonical addon exists"
+        );
+        assert!(
+            !temp_install_dir.exists(),
+            "stale temp install dir should be cleaned when canonical addon exists"
+        );
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_list_installed_addons_restores_backup_after_interrupted_replacement() {
+        let temp_dir = env::temp_dir().join("wealthfolio_test_artifact_restore");
+        if temp_dir.exists() {
+            std::fs::remove_dir_all(&temp_dir).ok();
+        }
+
+        let service = AddonService::new(&temp_dir, "test-instance");
+        let addons_dir = temp_dir.join("addons");
+        let addon_dir = addons_dir.join("recover-addon");
+        let backup_dir = addons_dir.join(".recover-addon.backup-test");
+        let temp_install_dir = addons_dir.join(".recover-addon.tmp-test");
+        std::fs::create_dir_all(&backup_dir).expect("backup dir should be created");
+        std::fs::create_dir_all(&temp_install_dir).expect("tmp dir should be created");
+
+        let manifest_json = r#"{
+            "id": "recover-addon",
+            "name": "Recover Addon",
+            "version": "1.0.0",
+            "main": "addon.js",
+            "enabled": true
+        }"#;
+        for dir in [&backup_dir, &temp_install_dir] {
+            std::fs::write(dir.join("manifest.json"), manifest_json)
+                .expect("manifest should be written");
+            std::fs::write(dir.join("addon.js"), "console.log('ok');")
+                .expect("addon should be written");
+        }
+
+        let installed = service
+            .list_installed_addons()
+            .expect("installed addons should recover backup");
+
+        assert_eq!(installed.len(), 1);
+        assert_eq!(installed[0].metadata.id, "recover-addon");
+        assert!(
+            addon_dir.exists(),
+            "backup should be restored to canonical path"
+        );
+        assert!(!backup_dir.exists(), "restored backup dir should be gone");
+        assert!(
+            !temp_install_dir.exists(),
+            "stale temp install dir should be cleaned after restore"
+        );
+
         std::fs::remove_dir_all(&temp_dir).ok();
     }
 
@@ -1152,6 +1321,72 @@ mod service_tests {
                         "category":"network",
                         "purpose":"Network access",
                         "functions":[{"name":"request","isDeclared":true,"isDetected":false}]
+                    }
+                ],
+                "network": {
+                    "allowedHosts": ["api.example.com"],
+                    "approvedHosts": ["api.example.com"]
+                }
+            }"#,
+        )
+        .expect("manifest should be written");
+        std::fs::write(addon_dir.join("addon.js"), "console.log('ok');")
+            .expect("addon should be written");
+
+        let service = AddonService::new(&temp_dir, "test-instance");
+        let result = service
+            .addon_network_request(
+                "network-addon",
+                AddonNetworkRequest {
+                    url: "https://api.example.com/v1".to_string(),
+                    method: Some("GET".to_string()),
+                    headers: None,
+                    body: None,
+                    auth: Some(AddonNetworkAuth {
+                        auth_type: "bearer".to_string(),
+                        secret_key: "api-token".to_string(),
+                    }),
+                    injected_authorization: Some("Bearer secret-token".to_string()),
+                },
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .err()
+            .unwrap_or_default()
+            .contains("not allowed to use network auth"));
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_network_auth_rejects_detected_only_secrets_use_permission() {
+        let temp_dir = env::temp_dir().join("wealthfolio_test_detected_only_network_auth");
+        if temp_dir.exists() {
+            std::fs::remove_dir_all(&temp_dir).ok();
+        }
+
+        let addon_dir = temp_dir.join("addons").join("network-addon");
+        std::fs::create_dir_all(&addon_dir).expect("addon dir should be created");
+        std::fs::write(
+            addon_dir.join("manifest.json"),
+            r#"{
+                "id":"network-addon",
+                "name":"Network Addon",
+                "version":"1.0.0",
+                "main":"addon.js",
+                "enabled": true,
+                "permissions": [
+                    {
+                        "category":"network",
+                        "purpose":"Network access",
+                        "functions":[{"name":"request","isDeclared":true,"isDetected":false}]
+                    },
+                    {
+                        "category":"secrets",
+                        "purpose":"Secrets access",
+                        "functions":[{"name":"use","isDeclared":false,"isDetected":true}]
                     }
                 ],
                 "network": {

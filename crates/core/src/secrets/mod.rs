@@ -33,6 +33,18 @@ pub fn validate_addon_secret_key(key: &str) -> std::result::Result<(), String> {
     Ok(())
 }
 
+pub fn validate_unscoped_secret_service_id(service: &str) -> std::result::Result<(), String> {
+    if service.trim().is_empty() {
+        return Err("Secret service id cannot be empty".to_string());
+    }
+
+    if service.to_ascii_lowercase().starts_with("addon:") {
+        return Err("Addon-scoped secrets must use the addon secret API".to_string());
+    }
+
+    Ok(())
+}
+
 pub fn addon_secret_service_id(addon_id: &str, key: &str) -> std::result::Result<String, String> {
     validate_addon_id(addon_id)?;
     validate_addon_secret_key(key)?;
@@ -63,5 +75,13 @@ mod tests {
         assert!(addon_secret_service_id("../bad", "api_key").is_err());
         assert!(addon_secret_service_id("example-addon", "../token").is_err());
         assert!(addon_secret_service_id("example-addon", "ApiKey").is_err());
+    }
+
+    #[test]
+    fn validate_unscoped_secret_service_id_rejects_addon_namespace() {
+        assert!(validate_unscoped_secret_service_id("market-data-provider").is_ok());
+        assert!(validate_unscoped_secret_service_id("").is_err());
+        assert!(validate_unscoped_secret_service_id("addon:example-addon:api_key").is_err());
+        assert!(validate_unscoped_secret_service_id("ADDON:example-addon:api_key").is_err());
     }
 }
