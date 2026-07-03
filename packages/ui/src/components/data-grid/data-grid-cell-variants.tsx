@@ -19,6 +19,7 @@ import { Skeleton } from "../ui/skeleton";
 import { Textarea } from "../ui/textarea";
 import { Icons } from "../ui/icons";
 import * as React from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useBadgeOverflow } from "../../hooks/use-badge-overflow";
 import { useDebouncedCallback } from "../../hooks/use-debounced-callback";
@@ -194,6 +195,7 @@ export function LongTextCell<TData>({
   readOnly,
   cellState,
 }: DataGridCellProps<TData>) {
+  const { t } = useTranslation();
   const initialValue = cell.getValue() as string;
   const [value, setValue] = React.useState(initialValue ?? "");
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
@@ -328,7 +330,7 @@ export function LongTextCell<TData>({
         onOpenAutoFocus={onOpenAutoFocus}
       >
         <Textarea
-          placeholder="Enter text..."
+          placeholder={t("ui:dataGrid.enterText", "Enter text...")}
           className="max-h-[300px] min-h-[150px] resize-none overflow-y-auto rounded-none border-0 shadow-none focus-visible:ring-0"
           ref={textareaRef}
           value={value}
@@ -594,6 +596,7 @@ export function UrlCell<TData>({
   readOnly,
   cellState,
 }: DataGridCellProps<TData>) {
+  const { t } = useTranslation();
   const initialValue = cell.getValue() as string;
   const [value, setValue] = React.useState(initialValue ?? "");
   const cellRef = React.useRef<HTMLDivElement>(null);
@@ -689,8 +692,11 @@ export function UrlCell<TData>({
       const href = getUrlHref(value);
       if (!href) {
         event.preventDefault();
-        toast.error("Invalid URL", {
-          description: "URL contains a dangerous protocol (javascript:, data:, vbscript:, or file:)",
+        toast.error(t("ui:dataGrid.invalidUrl", "Invalid URL"), {
+          description: t(
+            "ui:dataGrid.invalidUrlDescription",
+            "URL contains a dangerous protocol (javascript:, data:, vbscript:, or file:)",
+          ),
         });
         return;
       }
@@ -698,7 +704,7 @@ export function UrlCell<TData>({
       // Stop propagation to prevent grid from interfering with link navigation
       event.stopPropagation();
     },
-    [isEditing, value],
+    [isEditing, value, t],
   );
 
   React.useEffect(() => {
@@ -902,6 +908,7 @@ export function SelectCell<TData>({
   readOnly,
   cellState,
 }: DataGridCellProps<TData>) {
+  const { t } = useTranslation();
   const initialValue = cell.getValue() as string;
   const [value, setValue] = React.useState(initialValue || "");
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -918,7 +925,8 @@ export function SelectCell<TData>({
 
   const valueRenderer = cellOpts?.variant === "select" ? cellOpts.valueRenderer : undefined;
   const allowEmpty = cellOpts?.variant === "select" ? cellOpts.allowEmpty : false;
-  const emptyLabel = cellOpts?.variant === "select" ? (cellOpts.emptyLabel ?? "None") : "None";
+  const noneLabel = t("ui:dataGrid.none", "None");
+  const emptyLabel = cellOpts?.variant === "select" ? (cellOpts.emptyLabel ?? noneLabel) : noneLabel;
 
   const prevInitialValueRef = React.useRef(initialValue);
   if (initialValue !== prevInitialValueRef.current) {
@@ -1057,6 +1065,7 @@ export function MultiSelectCell<TData>({
   readOnly,
   cellState,
 }: DataGridCellProps<TData>) {
+  const { t } = useTranslation();
   const cellValue = React.useMemo(() => {
     const value = cell.getValue() as string[];
     return value ?? [];
@@ -1244,12 +1253,12 @@ export function MultiSelectCell<TData>({
                   value={searchValue}
                   onValueChange={setSearchValue}
                   onKeyDown={onInputKeyDown}
-                  placeholder="Search..."
+                  placeholder={t("ui:dataGrid.search", "Search...")}
                   className="h-auto flex-1 p-0"
                 />
               </div>
               <CommandList className="max-h-full">
-                <CommandEmpty>No options found.</CommandEmpty>
+                <CommandEmpty>{t("ui:dataGrid.noOptionsFound", "No options found.")}</CommandEmpty>
                 <CommandGroup className="max-h-[300px] scroll-py-1 overflow-y-auto overflow-x-hidden">
                   {options.map((option) => {
                     const isSelected = selectedValues.includes(option.value);
@@ -1274,7 +1283,7 @@ export function MultiSelectCell<TData>({
                     <CommandSeparator />
                     <CommandGroup>
                       <CommandItem onSelect={clearAll} className="text-muted-foreground justify-center">
-                        Clear all
+                        {t("ui:dataGrid.clearAll", "Clear all")}
                       </CommandItem>
                     </CommandGroup>
                   </>
@@ -1844,6 +1853,7 @@ export function FileCell<TData>({
   readOnly,
   cellState,
 }: DataGridCellProps<TData>) {
+  const { t } = useTranslation();
   const cellValue = React.useMemo(() => (cell.getValue() as FileCellData[]) ?? [], [cell]);
 
   const cellKey = getCellKey(rowIndex, columnId);
@@ -1896,7 +1906,9 @@ export function FileCell<TData>({
   const validateFile = React.useCallback(
     (file: File): string | null => {
       if (maxFileSize && file.size > maxFileSize) {
-        return `File size exceeds ${formatFileSize(maxFileSize)}`;
+        return t("ui:dataGrid.fileSizeExceeds", "File size exceeds {{size}}", {
+          size: formatFileSize(maxFileSize),
+        });
       }
       if (acceptedTypes) {
         const fileExtension = `.${file.name.split(".").pop()}`;
@@ -1911,12 +1923,12 @@ export function FileCell<TData>({
           return file.type === type;
         });
         if (!isAccepted) {
-          return "File type not accepted";
+          return t("ui:dataGrid.fileTypeNotAccepted", "File type not accepted");
         }
       }
       return null;
     },
-    [maxFileSize, acceptedTypes],
+    [maxFileSize, acceptedTypes, t],
   );
 
   const addFiles = React.useCallback(
@@ -1925,7 +1937,7 @@ export function FileCell<TData>({
       setError(null);
 
       if (maxFiles && files.length + newFiles.length > maxFiles) {
-        const errorMessage = `Maximum ${maxFiles} files allowed`;
+        const errorMessage = t("ui:dataGrid.maxFilesAllowed", "Maximum {{count}} files allowed", { count: maxFiles });
         setError(errorMessage);
         toast(errorMessage);
         setTimeout(() => {
@@ -1955,11 +1967,14 @@ export function FileCell<TData>({
 
           if (rejectedFiles.length === 1) {
             toast(firstError.reason, {
-              description: `"${truncatedName}" has been rejected`,
+              description: t("ui:dataGrid.fileRejected", '"{{name}}" has been rejected', { name: truncatedName }),
             });
           } else {
             toast(firstError.reason, {
-              description: `"${truncatedName}" and ${rejectedFiles.length - 1} more rejected`,
+              description: t("ui:dataGrid.filesRejected", '"{{name}}" and {{count}} more rejected', {
+                name: truncatedName,
+                count: rejectedFiles.length - 1,
+              }),
             });
           }
 
@@ -1997,7 +2012,9 @@ export function FileCell<TData>({
               toast.error(
                 error instanceof Error
                   ? error.message
-                  : `Failed to upload ${filesToValidate.length} file${filesToValidate.length !== 1 ? "s" : ""}`,
+                  : t("ui:dataGrid.uploadFailed", "Failed to upload {{count}} file", {
+                      count: filesToValidate.length,
+                    }),
               );
               setFiles((prev) => prev.filter((f) => !uploadingIds.has(f.id)));
               setUploadingFiles(new Set());
@@ -2043,7 +2060,7 @@ export function FileCell<TData>({
         }
       }
     },
-    [files, maxFiles, validateFile, tableMeta, rowIndex, columnId, readOnly, isPending],
+    [files, maxFiles, validateFile, tableMeta, rowIndex, columnId, readOnly, isPending, t],
   );
 
   const removeFile = React.useCallback(
@@ -2064,7 +2081,11 @@ export function FileCell<TData>({
             columnId,
           });
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : `Failed to delete ${fileToRemove.name}`);
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t("ui:dataGrid.deleteFailed", "Failed to delete {{name}}", { name: fileToRemove.name }),
+          );
           setDeletingFiles((prev) => {
             const next = new Set(prev);
             next.delete(fileId);
@@ -2087,7 +2108,7 @@ export function FileCell<TData>({
       });
       tableMeta?.onDataUpdate?.({ rowIndex, columnId, value: updatedFiles });
     },
-    [files, tableMeta, rowIndex, columnId, readOnly, isPending],
+    [files, tableMeta, rowIndex, columnId, readOnly, isPending, t],
   );
 
   const clearAll = React.useCallback(async () => {
@@ -2105,7 +2126,9 @@ export function FileCell<TData>({
           columnId,
         });
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to delete files");
+        toast.error(
+          error instanceof Error ? error.message : t("ui:dataGrid.deleteFilesFailed", "Failed to delete files"),
+        );
         setDeletingFiles(new Set());
         return;
       }
@@ -2119,7 +2142,7 @@ export function FileCell<TData>({
     setFiles([]);
     setDeletingFiles(new Set());
     tableMeta?.onDataUpdate?.({ rowIndex, columnId, value: [] });
-  }, [files, tableMeta, rowIndex, columnId, readOnly, isPending]);
+  }, [files, tableMeta, rowIndex, columnId, readOnly, isPending, t]);
 
   const onCellDragEnter = React.useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -2332,7 +2355,7 @@ export function FileCell<TData>({
           >
             <div className="flex flex-col gap-2 p-3">
               <span id={labelId} className="sr-only">
-                File upload
+                {t("ui:dataGrid.fileUpload", "File upload")}
               </span>
               <div
                 role="region"
@@ -2355,15 +2378,26 @@ export function FileCell<TData>({
               >
                 <Icons.Upload className="text-muted-foreground size-8" />
                 <div className="text-center text-sm">
-                  <p className="font-medium">{isDragging ? "Drop files here" : "Drag files here"}</p>
-                  <p className="text-muted-foreground text-xs">or click to browse</p>
+                  <p className="font-medium">
+                    {isDragging
+                      ? t("ui:dataGrid.dropFilesHere", "Drop files here")
+                      : t("ui:dataGrid.dragFilesHere", "Drag files here")}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {t("ui:dataGrid.clickToBrowse", "or click to browse")}
+                  </p>
                 </div>
                 <p id={descriptionId} className="text-muted-foreground text-xs">
                   {maxFileSize
-                    ? `Max size: ${formatFileSize(maxFileSize)}${maxFiles ? ` • Max ${maxFiles} files` : ""}`
+                    ? maxFiles
+                      ? t("ui:dataGrid.maxSizeAndFiles", "Max size: {{size}} • Max {{count}} files", {
+                          size: formatFileSize(maxFileSize),
+                          count: maxFiles,
+                        })
+                      : t("ui:dataGrid.maxSize", "Max size: {{size}}", { size: formatFileSize(maxFileSize) })
                     : maxFiles
-                      ? `Max ${maxFiles} files`
-                      : "Select files to upload"}
+                      ? t("ui:dataGrid.maxFiles", "Max {{count}} files", { count: maxFiles })
+                      : t("ui:dataGrid.selectFilesToUpload", "Select files to upload")}
                 </p>
               </div>
               <input
@@ -2380,7 +2414,7 @@ export function FileCell<TData>({
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <p className="text-muted-foreground text-xs font-medium">
-                      {files.length} {files.length === 1 ? "file" : "files"}
+                      {t("ui:dataGrid.fileCount", "{{count}} file", { count: files.length })}
                     </p>
                     <Button
                       type="button"
@@ -2390,7 +2424,7 @@ export function FileCell<TData>({
                       onClick={clearAll}
                       disabled={isPending}
                     >
-                      Clear all
+                      {t("ui:dataGrid.clearAll", "Clear all")}
                     </Button>
                   </div>
                   <div className="max-h-[200px] space-y-1 overflow-y-auto">
@@ -2411,9 +2445,9 @@ export function FileCell<TData>({
                             <p className="truncate text-sm">{file.name}</p>
                             <p className="text-muted-foreground text-xs">
                               {isFileUploading
-                                ? "Uploading..."
+                                ? t("ui:dataGrid.uploading", "Uploading...")
                                 : isFileDeleting
-                                  ? "Deleting..."
+                                  ? t("ui:dataGrid.deleting", "Deleting...")
                                   : formatFileSize(file.size)}
                             </p>
                           </div>
@@ -2440,7 +2474,7 @@ export function FileCell<TData>({
       {isDraggingOver ? (
         <div className="text-primary flex items-center justify-center gap-2 text-sm">
           <Icons.Upload className="size-4" />
-          <span>Drop files here</span>
+          <span>{t("ui:dataGrid.dropFilesHere", "Drop files here")}</span>
         </div>
       ) : files.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1 overflow-hidden">
@@ -2493,6 +2527,7 @@ export function SymbolCell<TData>({
   readOnly,
   cellState,
 }: DataGridCellProps<TData>) {
+  const { t } = useTranslation();
   const normalizeCryptoPairSymbol = React.useCallback((symbol: string, currencyHint?: string) => {
     // Provider may return a pair symbol like "BTC-USD". Canonical crypto IDs use the base symbol.
     const trimmed = symbol.trim();
@@ -2718,13 +2753,13 @@ export function SymbolCell<TData>({
             <Command shouldFilter={false}>
               <CommandInput
                 ref={inputRef}
-                placeholder="Search symbol or company..."
+                placeholder={t("ui:dataGrid.searchSymbol", "Search symbol or company...")}
                 value={searchQuery}
                 onValueChange={onSearchChange}
                 onKeyDown={onInputKeyDown}
               />
               <CommandList>
-                {isLoading ? <CommandEmpty>Loading...</CommandEmpty> : null}
+                {isLoading ? <CommandEmpty>{t("ui:dataGrid.loading", "Loading...")}</CommandEmpty> : null}
                 {!isLoading && !isError && options.length > 0 ? (
                   <CommandGroup>
                     {options.map((option) =>
@@ -2770,7 +2805,9 @@ export function SymbolCell<TData>({
                           <span className="font-mono text-xs font-semibold uppercase">
                             {trimmedQuery.toUpperCase()}
                           </span>
-                          <span className="text-muted-foreground text-xs font-light">Create custom asset</span>
+                          <span className="text-muted-foreground text-xs font-light">
+                            {t("ui:dataGrid.createCustomAsset", "Create custom asset")}
+                          </span>
                         </div>
                       </div>
                     </CommandItem>
@@ -2780,7 +2817,9 @@ export function SymbolCell<TData>({
                   <CommandGroup>
                     <CommandItem value="__clear__" onSelect={handleClear} className="flex items-center gap-3">
                       <Icons.X className="text-muted-foreground size-4" />
-                      <span className="text-muted-foreground text-xs">Clear symbol</span>
+                      <span className="text-muted-foreground text-xs">
+                        {t("ui:dataGrid.clearSymbol", "Clear symbol")}
+                      </span>
                     </CommandItem>
                   </CommandGroup>
                 ) : null}
@@ -2807,6 +2846,7 @@ export function CurrencyCell<TData>({
   readOnly,
   cellState,
 }: DataGridCellProps<TData>) {
+  const { t } = useTranslation();
   const initialValue = cell.getValue() as string;
   const [value, setValue] = React.useState(initialValue ?? "");
   const [searchQuery, setSearchQuery] = React.useState("");
@@ -2913,7 +2953,7 @@ export function CurrencyCell<TData>({
       <Popover open={isEditing} onOpenChange={onOpenChange}>
         <PopoverAnchor asChild>
           <span data-slot="grid-cell-content" className={cn(!value && "text-muted-foreground")}>
-            {value || "Currency"}
+            {value || t("ui:dataGrid.currency", "Currency")}
           </span>
         </PopoverAnchor>
         {isEditing && (
@@ -2927,13 +2967,13 @@ export function CurrencyCell<TData>({
             <Command shouldFilter={false}>
               <CommandInput
                 ref={inputRef}
-                placeholder="Search currency..."
+                placeholder={t("ui:dataGrid.searchCurrency", "Search currency...")}
                 value={searchQuery}
                 onValueChange={setSearchQuery}
                 onKeyDown={onInputKeyDown}
               />
               <CommandList>
-                <CommandEmpty>No currency found.</CommandEmpty>
+                <CommandEmpty>{t("ui:dataGrid.noCurrencyFound", "No currency found.")}</CommandEmpty>
                 <CommandGroup className="max-h-[300px] overflow-y-auto">
                   {filteredCurrencies.map((currency) => (
                     <CommandItem

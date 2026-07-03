@@ -1,6 +1,8 @@
 import * as React from "react";
+import { useTranslation } from "react-i18next";
 import { format, isSameDay, startOfYear, subDays, subMonths, subYears } from "date-fns";
 import { DateRange as DayPickerDateRange } from "react-day-picker";
+import { useDateFnsLocale } from "../../hooks/use-date-fns-locale";
 import { useIsMobile } from "../../hooks/use-mobile";
 import { cn } from "../../lib/utils";
 import { AnimatedToggleGroup } from "../ui/animated-toggle-group";
@@ -78,6 +80,8 @@ interface DateRangeSelectorProps {
 }
 
 export function DateRangeSelector({ value, onChange, hiddenRanges = [] }: DateRangeSelectorProps) {
+  const { t } = useTranslation();
+  const locale = useDateFnsLocale();
   const isMobile = useIsMobile();
   const [isCustomPickerOpen, setIsCustomPickerOpen] = React.useState(false);
   const [draftRange, setDraftRange] = React.useState<DateRange | undefined>(value);
@@ -121,7 +125,8 @@ export function DateRangeSelector({ value, onChange, hiddenRanges = [] }: DateRa
     setIsCustomPickerOpen(false);
   };
 
-  const formatRangeDate = (date: Date | undefined) => (date ? format(date, "MMM d, yyyy") : "Not set");
+  const formatRangeDate = (date: Date | undefined) =>
+    date ? format(date, "MMM d, yyyy", { locale }) : t("ui:dateRange.notSet", "Not set");
 
   const triggerButton = (
     <Button
@@ -132,7 +137,7 @@ export function DateRangeSelector({ value, onChange, hiddenRanges = [] }: DateRa
         "h-8 w-9 rounded-full p-0",
         isCustomRange && "bg-primary text-primary-foreground hover:bg-primary/90",
       )}
-      aria-label="Choose custom date range"
+      aria-label={t("ui:dateRange.chooseCustom", "Choose custom date range")}
     >
       <Icons.Calendar className="h-4 w-4" />
     </Button>
@@ -144,7 +149,7 @@ export function DateRangeSelector({ value, onChange, hiddenRanges = [] }: DateRa
         items={visibleRanges.map((range) => ({
           value: range.label,
           label: range.label,
-          title: range.name,
+          title: t("ui:dateRange.presets." + range.label, range.name),
         }))}
         value={selectedLabel}
         onValueChange={(newValue) => {
@@ -165,19 +170,19 @@ export function DateRangeSelector({ value, onChange, hiddenRanges = [] }: DateRa
           <SheetTrigger asChild>{triggerButton}</SheetTrigger>
           <SheetContent side="bottom" className="rounded-t-4xl mx-1 flex max-h-[85vh] flex-col p-0">
             <SheetHeader className="border-border border-b px-6 py-4">
-              <SheetTitle>Custom range</SheetTitle>
+              <SheetTitle>{t("ui:dateRange.customRange", "Custom range")}</SheetTitle>
             </SheetHeader>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
               <div className="grid grid-cols-2 gap-3">
                 <div className="border-border/70 bg-muted/30 rounded-lg border px-3 py-2">
-                  <div className="text-muted-foreground text-xs font-medium">Start</div>
+                  <div className="text-muted-foreground text-xs font-medium">{t("ui:dateRange.start", "Start")}</div>
                   <div className="text-foreground mt-1 truncate text-sm font-medium">
                     {formatRangeDate(draftRange?.from)}
                   </div>
                 </div>
                 <div className="border-border/70 bg-muted/30 rounded-lg border px-3 py-2">
-                  <div className="text-muted-foreground text-xs font-medium">End</div>
+                  <div className="text-muted-foreground text-xs font-medium">{t("ui:dateRange.end", "End")}</div>
                   <div className="text-foreground mt-1 truncate text-sm font-medium">
                     {formatRangeDate(draftRange?.to)}
                   </div>
@@ -206,7 +211,7 @@ export function DateRangeSelector({ value, onChange, hiddenRanges = [] }: DateRa
                 onClick={() => setDraftRange(allTimeRange)}
                 disabled={!draftRange && !allTimeRange}
               >
-                Clear
+                {t("ui:dateRange.clear", "Clear")}
               </Button>
               <Button
                 type="button"
@@ -214,7 +219,7 @@ export function DateRangeSelector({ value, onChange, hiddenRanges = [] }: DateRa
                 onClick={handleApplyDraftRange}
                 disabled={!isDraftRangeComplete}
               >
-                Done
+                {t("ui:dateRange.done", "Done")}
               </Button>
             </SheetFooter>
           </SheetContent>
