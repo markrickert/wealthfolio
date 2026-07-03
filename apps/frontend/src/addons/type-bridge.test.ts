@@ -146,6 +146,19 @@ describe("Addon Type Bridge", () => {
       expect(guard.canUse("ui", "navigation.navigate")).toBe(true);
     });
 
+    it("should treat missing isDeclared as declared for object function permissions", () => {
+      const guard = createPermissionGuard("test-addon", [
+        {
+          category: "ui",
+          purpose: "Navigation",
+          functions: [{ name: "router.add" }],
+        },
+      ] as unknown as Parameters<typeof createPermissionGuard>[1]);
+
+      expect(guard.canUse("ui", "router.add")).toBe(true);
+      expect(guard.canUse("ui", "navigation.navigate")).toBe(true);
+    });
+
     it("should not expose the raw QueryClient", () => {
       const sdkAPI = createSDKHostAPIBridge(
         {

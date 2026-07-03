@@ -445,7 +445,10 @@ export function RouteRenderCommit({ onRendered }: { onRendered?: () => void }) {
 function createReactRouteRenderer(component: unknown): RouteRenderer {
   return ({ root: routeRoot, onRendered }) => {
     const Component = component as React.ElementType;
-    reactRouteRoot ??= ReactDOMClient.createRoot(routeRoot);
+    if (!reactRouteRoot) {
+      routeRoot.replaceChildren();
+      reactRouteRoot = ReactDOMClient.createRoot(routeRoot);
+    }
     const reactRoot = reactRouteRoot;
     return new Promise<void>((resolve) => {
       const handleRendered = () => {

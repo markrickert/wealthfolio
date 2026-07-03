@@ -65,6 +65,7 @@ interface Runtime {
   routeStatusListeners: Set<AddonRouteStatusListener>;
   subscriptions: Map<string, () => Promise<void> | void>;
   disableAck?: () => void;
+  stopPromise?: Promise<void>;
   resolveLoad: (handle: AddonRuntimeHandle) => void;
   rejectLoad: (error: Error) => void;
   loadTimer: number;
@@ -451,23 +452,29 @@ export class AddonIframeManager {
       clearAddonRegistrations(addonId);
       return;
     }
+    runtime.stopPromise ??= this.stopRuntime(runtime);
+    await runtime.stopPromise;
+  }
 
+  private async stopRuntime(runtime: Runtime) {
     clearTimeout(runtime.loadTimer);
     runtime.activeRouteRequestId = undefined;
     clearPendingRouteRender(runtime);
-    runtime.rejectLoad(new Error(`Addon '${addonId}' was unloaded before it finished loading`));
+    runtime.rejectLoad(
+      new Error(`Addon '${runtime.addonId}' was unloaded before it finished loading`),
+    );
 
     const disabled = runtime.isLoaded ? this.waitForDisable(runtime) : Promise.resolve(true);
     this.post(runtime, "disable");
     if (!(await disabled)) {
-      logger.warn(`Timed out waiting for addon '${addonId}' to disable`);
+      logger.warn(`Timed out waiting for addon '${runtime.addonId}' to disable`);
     }
 
     await this.clearSubscriptions(runtime);
     this.hideFrame(runtime);
     runtime.iframe.remove();
-    this.runtimes.delete(addonId);
-    clearAddonRegistrations(addonId);
+    this.runtimes.delete(runtime.addonId);
+    clearAddonRegistrations(runtime.addonId);
     this.stopLayoutListenerIfIdle();
     this.stopThemeObserverIfIdle();
   }
@@ -671,10 +678,11 @@ export class AddonIframeManager {
           break;
       }
     } catch (error) {
+      logger.error(
+        `Addon '${runtime.addonId}' message '${message.type ?? "unknown"}' failed: ${String(error)}`,
+      );
       if (message.requestId) {
         this.respond(runtime, message.requestId, false, undefined, error);
-      } else {
-        logger.error(`Addon '${runtime.addonId}' message failed: ${String(error)}`);
       }
     }
   }

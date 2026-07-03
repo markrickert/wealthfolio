@@ -106,6 +106,7 @@ const dynamicNavItems = new Map<string, DynamicNavItem>();
 const dynamicRoutes = new Map<string, DynamicRouteEntry>();
 const disableCallbacks = new Map<string, Set<() => void>>();
 const navigationUpdateListeners = new Set<() => void>();
+const ADDON_ID_SUFFIX = "-addon";
 
 let hostNavigate: ((route: string) => void) | undefined;
 let hostQueryClient: QueryClientLike | undefined;
@@ -160,6 +161,14 @@ function cleanRouteNamespace(namespace: string) {
   return namespace.trim().replace(/^\/+|\/+$/g, "");
 }
 
+function getOwnedAddonRouteNamespaces(addonId: string) {
+  const cleanAddonId = cleanRouteNamespace(addonId);
+  const addonSlug = cleanAddonId.endsWith(ADDON_ID_SUFFIX)
+    ? cleanAddonId.slice(0, -ADDON_ID_SUFFIX.length)
+    : cleanAddonId;
+  return Array.from(new Set([cleanAddonId, addonSlug].filter(Boolean)));
+}
+
 function isPathWithinRoutePrefix(path: string, prefix: string) {
   const href = cleanRoutePath(path);
   const cleanPrefix = cleanRoutePath(prefix);
@@ -168,7 +177,9 @@ function isPathWithinRoutePrefix(path: string, prefix: string) {
 
 function isAddonRouteNamespaceAllowed(addonId: string, path: string, aliases: string[] = []) {
   const href = cleanRoutePath(path);
-  const namespaces = [addonId, ...aliases].map(cleanRouteNamespace).filter(Boolean);
+  const namespaces = [...getOwnedAddonRouteNamespaces(addonId), ...aliases]
+    .map(cleanRouteNamespace)
+    .filter(Boolean);
 
   return namespaces.some(
     (namespace) =>
@@ -177,12 +188,6 @@ function isAddonRouteNamespaceAllowed(addonId: string, path: string, aliases: st
       href === `/addons/${namespace}` ||
       href.startsWith(`/addons/${namespace}/`),
   );
-}
-
-function getAddonRouteNamespaceFromPath(path: string) {
-  const href = cleanRoutePath(path);
-  const match = /^\/addons?\/([^/?#]+)/.exec(href);
-  return match?.[1];
 }
 
 function hasRegisteredAddonNavPrefix(addonId: string, path: string) {
@@ -203,7 +208,7 @@ export function registerAddonNavItem(addonId: string, cfg: SidebarItemConfig) {
   }
 
   const href = cleanRoutePath(cfg.route || `/addon/${addonId}`);
-  if (!isAddonRouteNamespaceAllowed(addonId, href, [itemId])) {
+  if (!isAddonRoutePathAllowed(addonId, href)) {
     throw new Error(`Addon '${addonId}' cannot register sidebar route '${href}'`);
   }
 
@@ -233,12 +238,7 @@ export function registerAddonRoute(
   }
 
   const href = cleanRoutePath(route.path);
-  const routeNamespace = getAddonRouteNamespaceFromPath(href);
-  const aliases = [routeId, routeNamespace].filter((alias): alias is string => Boolean(alias));
-  if (
-    !isAddonRouteNamespaceAllowed(addonId, href, aliases) &&
-    !hasRegisteredAddonNavPrefix(addonId, href)
-  ) {
+  if (!isAddonRoutePathAllowed(addonId, href) && !hasRegisteredAddonNavPrefix(addonId, href)) {
     throw new Error(`Addon '${addonId}' cannot register route '${href}'`);
   }
 

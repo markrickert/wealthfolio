@@ -236,7 +236,7 @@ export function createPermissionGuard(
     for (const fn of (permission.functions ?? []) as PermissionFunctionInput[]) {
       if (typeof fn === "string") {
         allowed.add(`${permission.category}:${fn}`);
-      } else if (fn.isDeclared) {
+      } else if (typeof fn.name === "string" && fn.isDeclared !== false) {
         allowed.add(`${permission.category}:${fn.name}`);
       }
     }

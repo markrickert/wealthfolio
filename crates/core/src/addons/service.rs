@@ -1167,6 +1167,13 @@ pub async fn download_addon_package_verified(
     download_url: &str,
     expected_sha256: &str,
 ) -> Result<Vec<u8>, String> {
+    download_addon_package_with_optional_sha256(download_url, Some(expected_sha256)).await
+}
+
+async fn download_addon_package_with_optional_sha256(
+    download_url: &str,
+    expected_sha256: Option<&str>,
+) -> Result<Vec<u8>, String> {
     log::info!("Downloading addon package from URL: {}", download_url);
 
     let client = reqwest::Client::new();
@@ -1230,11 +1237,18 @@ pub async fn download_addon_package_verified(
         download_url
     );
 
-    verify_addon_package_sha256(&zip_data, expected_sha256)?;
-    log::info!(
-        "Verified SHA-256 digest for addon package: {}",
-        download_url
-    );
+    if let Some(expected_sha256) = expected_sha256 {
+        verify_addon_package_sha256(&zip_data, expected_sha256)?;
+        log::info!(
+            "Verified SHA-256 digest for addon package: {}",
+            download_url
+        );
+    } else {
+        log::warn!(
+            "Addon package download from '{}' did not include a SHA-256 digest; skipping package verification",
+            download_url
+        );
+    }
 
     Ok(zip_data)
 }
@@ -1358,7 +1372,7 @@ pub async fn download_addon_from_store(
             .get("sha256")
             .or_else(|| download_response.get("checksumSha256"))
             .and_then(|v| v.as_str())
-            .ok_or("Download API response missing SHA-256 digest")?;
+            .map(str::to_string);
 
         log::info!(
             "Got download URL for addon '{}': {}",
@@ -1367,15 +1381,18 @@ pub async fn download_addon_from_store(
         );
 
         // Now download the actual file
-        return download_addon_package_verified(actual_download_url, expected_sha256).await;
+        return download_addon_package_with_optional_sha256(
+            actual_download_url,
+            expected_sha256.as_deref(),
+        )
+        .await;
     } else {
         log::debug!("Response is binary data, treating as direct ZIP download");
         let expected_sha256 = response
             .headers()
             .get("x-addon-sha256")
             .and_then(|v| v.to_str().ok())
-            .ok_or("Download response missing x-addon-sha256 header")?
-            .to_string();
+            .map(str::to_string);
 
         // Download the addon package directly (GET request returns the file)
         let zip_data = response
@@ -1410,8 +1427,15 @@ pub async fn download_addon_from_store(
             }
         }
 
-        verify_addon_package_sha256(&zip_data, &expected_sha256)?;
-        log::info!("Verified SHA-256 digest for addon '{}'", addon_id);
+        if let Some(expected_sha256) = expected_sha256 {
+            verify_addon_package_sha256(&zip_data, &expected_sha256)?;
+            log::info!("Verified SHA-256 digest for addon '{}'", addon_id);
+        } else {
+            log::warn!(
+                "Download response for addon '{}' did not include x-addon-sha256; skipping package verification",
+                addon_id
+            );
+        }
 
         Ok(zip_data)
     }
