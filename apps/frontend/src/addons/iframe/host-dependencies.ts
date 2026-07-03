@@ -77,7 +77,12 @@ export function isHostDependencySpecifier(specifier: string) {
   return Object.prototype.hasOwnProperty.call(HOST_DEPENDENCIES, specifier);
 }
 
-export function createHostDependencyModuleUrl(specifier: string, objectUrls: Map<string, string>) {
+export function createHostDependencyModuleUrl(
+  specifier: string,
+  objectUrls: Map<string, string>,
+  createModuleUrl = (source: string) =>
+    URL.createObjectURL(new Blob([source], { type: "text/javascript" })),
+) {
   const module = HOST_DEPENDENCIES[specifier];
   if (!module) {
     return undefined;
@@ -106,7 +111,7 @@ export default defaultExport;
 ${namedExports}
 `;
 
-  const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+  const url = createModuleUrl(source);
   objectUrls.set(urlKey, url);
   return url;
 }
