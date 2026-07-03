@@ -537,8 +537,6 @@
   },
   "timezone_title": "Timezone",
   "timezone_description": "Choose the timezone used for dates, daily buckets, and yearly contribution boundaries.",
-  "timezone_select_error": "Please select a timezone.",
-  "timezone_save_button": "Save Timezone",
   "about_db_path": "Database path",
   "about_copy_db_path": "Copy database path",
   "about_copy_logs_dir": "Copy logs directory",
@@ -1396,5 +1394,6 @@
   "tz_none_found": "No timezone found.",
   "ai_providers_empty_title": "No AI Providers Available",
   "ai_providers_empty_description": "AI providers will appear here once configured. Check back later or contact support.",
-  "about_logo_alt": "Wealthfolio logo"
+  "about_logo_alt": "Wealthfolio logo",
+  "language_region_title": "Language & Region"
 }

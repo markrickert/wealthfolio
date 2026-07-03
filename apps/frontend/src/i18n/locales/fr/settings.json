@@ -538,8 +538,6 @@
   },
   "timezone_title": "Fuseau horaire",
   "timezone_description": "Choisissez le fuseau horaire utilisé pour les dates, les regroupements quotidiens et les limites annuelles de cotisation.",
-  "timezone_select_error": "Veuillez sélectionner un fuseau horaire.",
-  "timezone_save_button": "Enregistrer le fuseau horaire",
   "about_db_path": "Chemin de la base de données",
   "about_copy_db_path": "Copier le chemin de la base de données",
   "about_copy_logs_dir": "Copier le répertoire des journaux",
@@ -1396,5 +1394,6 @@
   "tz_none_found": "Aucun fuseau horaire trouvé.",
   "ai_providers_empty_title": "Aucun fournisseur d'IA disponible",
   "ai_providers_empty_description": "Les fournisseurs d'IA apparaîtront ici une fois configurés. Revenez plus tard ou contactez le support.",
-  "about_logo_alt": "Logo Wealthfolio"
+  "about_logo_alt": "Logo Wealthfolio",
+  "language_region_title": "Langue et région"
 }

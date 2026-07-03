@@ -5,8 +5,7 @@ import { SettingsHeader } from "../settings-header";
 import { AutoUpdateSettings } from "./auto-update-settings";
 import { BaseCurrencySettings } from "./currency-settings";
 import { ExchangeRatesSettings } from "./exchange-rates/exchange-rates-settings";
-import { LanguageSettings } from "./language-settings";
-import { TimezoneSettings } from "./timezone-settings";
+import { LanguageRegionSettings } from "./language-region-settings";
 
 export default function GeneralSettingsPage() {
   const { t } = useTranslation();
@@ -20,8 +19,7 @@ export default function GeneralSettingsPage() {
       />
       <Separator />
       <BaseCurrencySettings />
-      <TimezoneSettings />
-      <LanguageSettings />
+      <LanguageRegionSettings />
       <div className="pt-6">
         <ExchangeRatesSettings />
       </div>
