@@ -48,12 +48,12 @@
       "noCurrenciesFound": "Keine Währungen gefunden",
       "noTimezonesFound": "Keine Zeitzonen gefunden",
       "currencyRequired": "Bitte wählen Sie eine Basiswährung aus.",
-      "timezoneRequired": "Bitte wählen Sie eine Zeitzone aus."
+      "timezoneRequired": "Bitte wählen Sie eine Zeitzone aus.",
+      "languageLabel": "Sprache"
     }
   },
   "appearance": {
     "subtitle": "Passen Sie Ihr Erlebnis an",
-    "languageLabel": "Sprache",
     "themeLabel": "Design",
     "fontLabel": "Schriftart",
     "themeLight": "Hell",

@@ -1,5 +1,3 @@
-import { LanguageSelector } from "@/components/language-selector";
-import { DEFAULT_LOCALE } from "@/i18n/locales";
 import { useSettingsContext } from "@/lib/settings-provider";
 import { cn } from "@/lib/utils";
 import { Icons } from "@wealthfolio/ui";
@@ -44,7 +42,6 @@ export const OnboardingAppearance = forwardRef<
   );
   const [theme, setTheme] = useState<string>(settings?.theme ?? "system");
   const [font, setFont] = useState<string>(settings?.font ?? "font-mono");
-  const [language, setLanguage] = useState<string>(settings?.language ?? DEFAULT_LOCALE);
 
   useEffect(() => {
     // Always valid since we have defaults
@@ -53,16 +50,11 @@ export const OnboardingAppearance = forwardRef<
 
   useImperativeHandle(ref, () => ({
     submitForm() {
-      updateSettings({ theme, font, language })
+      updateSettings({ theme, font })
         .then(() => onNext())
         .catch((error) => console.error("Failed to save appearance settings:", error));
     },
   }));
-
-  const handleLanguageChange = (newLanguage: string) => {
-    setLanguage(newLanguage);
-    updateSettings({ language: newLanguage }).catch(console.error);
-  };
 
   // Apply theme/font preview when user selects them
   const handleThemeChange = (newTheme: string) => {
@@ -83,23 +75,6 @@ export const OnboardingAppearance = forwardRef<
 
       <Card className="border-none bg-transparent">
         <CardContent className="space-y-10 p-0 sm:p-6">
-          {/* Language Selection */}
-          <div>
-            <div className="mb-5 flex items-center gap-3">
-              <div className="bg-muted rounded-lg p-2">
-                <Icons.Globe className="text-muted-foreground h-5 w-5" />
-              </div>
-              <span className="text-xl font-semibold">
-                {t("onboarding:appearance.languageLabel")}
-              </span>
-            </div>
-            <LanguageSelector
-              value={language}
-              onChange={handleLanguageChange}
-              className="w-full max-w-[280px]"
-            />
-          </div>
-
           {/* Theme Selection */}
           <div>
             <div className="mb-5 flex items-center gap-3">

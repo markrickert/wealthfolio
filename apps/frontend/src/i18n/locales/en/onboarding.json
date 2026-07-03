@@ -48,12 +48,12 @@
       "noCurrenciesFound": "No currencies found",
       "noTimezonesFound": "No timezones found",
       "currencyRequired": "Please select a base currency.",
-      "timezoneRequired": "Please select a timezone."
+      "timezoneRequired": "Please select a timezone.",
+      "languageLabel": "Language"
     }
   },
   "appearance": {
     "subtitle": "Customize your experience",
-    "languageLabel": "Language",
     "themeLabel": "Theme",
     "fontLabel": "Font",
     "themeLight": "Light",

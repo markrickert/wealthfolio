@@ -48,12 +48,12 @@
       "noCurrenciesFound": "Aucune devise trouvée",
       "noTimezonesFound": "Aucun fuseau horaire trouvé",
       "currencyRequired": "Veuillez sélectionner une devise de base.",
-      "timezoneRequired": "Veuillez sélectionner un fuseau horaire."
+      "timezoneRequired": "Veuillez sélectionner un fuseau horaire.",
+      "languageLabel": "Langue"
     }
   },
   "appearance": {
     "subtitle": "Personnalisez votre expérience",
-    "languageLabel": "Langue",
     "themeLabel": "Thème",
     "fontLabel": "Police",
     "themeLight": "Clair",

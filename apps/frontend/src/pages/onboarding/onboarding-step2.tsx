@@ -1,3 +1,4 @@
+import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from "@/i18n/locales";
 import { useSettingsContext } from "@/lib/settings-provider";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Icons } from "@wealthfolio/ui";
@@ -126,6 +127,7 @@ export const OnboardingStep2 = forwardRef<OnboardingStep2Handle, OnboardingStep2
   ({ onNext, onValidityChange }, ref) => {
     const { t } = useTranslation();
     const { settings, updateSettings } = useSettingsContext();
+    const [language, setLanguage] = useState<string>(settings?.language ?? DEFAULT_LOCALE);
     const onboardingSettingsSchema = useMemo(() => createOnboardingSettingsSchema(t), [t]);
     const [initialValuesSet, setInitialValuesSet] = useState(false);
     const [showCurrencySearch, setShowCurrencySearch] = useState(false);
@@ -154,6 +156,14 @@ export const OnboardingStep2 = forwardRef<OnboardingStep2Handle, OnboardingStep2
       form.setValue("baseCurrency", currencyCode, { shouldValidate: true, shouldDirty: true });
       setShowCurrencySearch(false);
       setCurrencySearch("");
+    }
+
+    // Language applies instantly so the rest of onboarding switches immediately.
+    function handleLanguageSelect(code: string) {
+      setLanguage(code);
+      updateSettings({ language: code }).catch((error) =>
+        console.error("Failed to save language:", error),
+      );
     }
 
     const allTimezones = useMemo(() => getSupportedTimezones(), []);
@@ -230,6 +240,36 @@ export const OnboardingStep2 = forwardRef<OnboardingStep2Handle, OnboardingStep2
             <CardContent className="p-0 sm:p-6">
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-10">
+                  <div>
+                    <div className="mb-4 flex items-center gap-3">
+                      <div className="bg-muted rounded-lg p-2">
+                        <Icons.Globe className="text-muted-foreground h-5 w-5" />
+                      </div>
+                      <span className="text-xl font-semibold">
+                        {t("onboarding:steps.preferences.languageLabel")}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 md:grid-cols-4">
+                      {SUPPORTED_LOCALES.map((locale) => (
+                        <button
+                          key={locale.code}
+                          type="button"
+                          data-testid={`language-${locale.code}-button`}
+                          onClick={() => handleLanguageSelect(locale.code)}
+                          className={`rounded-lg border-2 p-4 font-semibold transition-all ${
+                            language === locale.code
+                              ? "border-primary bg-primary/10"
+                              : "border-border hover:border-primary/50 hover:bg-accent"
+                          }`}
+                        >
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="font-semibold">{locale.label}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <FormField
                     control={form.control}
                     name="baseCurrency"
@@ -284,7 +324,7 @@ export const OnboardingStep2 = forwardRef<OnboardingStep2Handle, OnboardingStep2
                       <FormItem>
                         <div className="mb-4 flex items-center gap-3">
                           <div className="bg-muted rounded-lg p-2">
-                            <Icons.Globe className="text-muted-foreground h-5 w-5" />
+                            <Icons.Clock className="text-muted-foreground h-5 w-5" />
                           </div>
                           <FormLabel className="text-xl font-semibold">
                             {t("onboarding:steps.preferences.timezoneLabel")}
