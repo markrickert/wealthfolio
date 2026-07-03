@@ -175,7 +175,22 @@
     "description": "No issues found. Your portfolio data is consistent and up to date."
   },
   "loadError": {
-    "title": "Failed to load health status"
+    "title": "Failed to load health status",
+    "retry": "Retry"
+  },
+  "sheet": {
+    "groupedPriceMessage": "Wealthfolio is using carried-forward prices for these dates. Refetch or add prices for real trading days; dismiss the issue if the dates were holidays or non-trading days.",
+    "pricesByInvestment": "Prices by investment",
+    "pricesByInvestmentHint": "Open an investment to refetch or add prices. If the dates were holidays or non-trading days, dismiss the issue.",
+    "priceHistoryNeedsReview": "Price history needs review",
+    "missingTradingDay_one": "1 missing trading day: {{dates}}",
+    "missingTradingDay_other": "{{count}} missing trading days: {{dates}}",
+    "dateRange": "{{from}} to {{to}}",
+    "priceIssueSummary": "{{diagnosticCount}} price {{dateWord}} across {{assetCount}} {{assetWord}}",
+    "priceDate_one": "date",
+    "priceDate_other": "dates",
+    "investment_one": "investment",
+    "investment_other": "investments"
   },
   "detail": {
     "categories": {

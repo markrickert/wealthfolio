@@ -115,7 +115,13 @@
     "refreshing": "Refreshing…",
     "sidebar": "Sidebar",
     "floating_navigation": "Floating navigation",
-    "primary_navigation": "Primary navigation"
+    "primary_navigation": "Primary navigation",
+    "more": "More",
+    "close_more_menu": "Close more menu",
+    "unpin_from_sidebar": "Unpin from sidebar",
+    "pin_to_sidebar": "Pin to sidebar",
+    "pin_addon_to_sidebar": "Pin {{name}} to sidebar",
+    "addon_options": "{{name}} options"
   },
   "component": {
     "all_accounts": "All Accounts",

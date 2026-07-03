@@ -957,7 +957,8 @@
     "showing_first_rows": "Showing first {{max}} of {{total}} rows",
     "placeholders": "Placeholders:",
     "empty_response_before": "Fill in the URL, then press ",
-    "empty_response_after": " to test."
+    "empty_response_after": " to test.",
+    "retry": "Retry"
   },
   "addon_permission_none_detected": "No data access permissions detected. This addon appears to have minimal system access.",
   "addon_permission_list_title": "Permissions",
@@ -1397,5 +1398,15 @@
   "about_logo_alt": "Wealthfolio logo",
   "language_region_title": "Language & Region",
   "appearance_navigation_title": "Navigation",
-  "appearance_navigation_description": "Choose how you navigate on large screens."
+  "appearance_navigation_description": "Choose how you navigate on large screens.",
+  "addons_pin_to_navigation": "Pin {{name}} to navigation",
+  "addons_unpin_from_navigation": "Unpin {{name}} from navigation",
+  "addons_pin_tooltip": "Pin to navigation",
+  "addons_unpin_tooltip": "Unpin from navigation",
+  "addon_permission_network_hosts": "Network hosts",
+  "addon_permission_approved": "Approved",
+  "addon_permission_denied": "Denied",
+  "health_banner_classification": "Showing classifications flagged by Health Center",
+  "health_banner_market_data": "Showing market data settings flagged by Health Center",
+  "health_banner_clear": "Clear"
 }

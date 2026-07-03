@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Icons, Sheet, SheetContent, SheetTitle } from "@wealthfolio/ui";
 import { motion } from "motion/react";
 import { useCallback, useId, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { type NavLink, type NavigationProps, isPathActive } from "./app-navigation";
 import { resolveNavigationIcon } from "./navigation-icons";
@@ -15,6 +16,7 @@ interface MobileNavBarProps {
 }
 
 export function MobileNavBar({ navigation }: MobileNavBarProps) {
+  const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -43,7 +45,7 @@ export function MobileNavBar({ navigation }: MobileNavBarProps) {
   const overflowPinnedAddonItems = pinnedAddonItems.slice(1);
 
   const searchItem = {
-    title: "Search",
+    title: t("common:search"),
     href: "#search",
     icon: <Icons.Search2 className="size-6" />,
   };
@@ -60,7 +62,7 @@ export function MobileNavBar({ navigation }: MobileNavBarProps) {
     ...primaryItems.slice(2),
     ...secondaryItems,
     {
-      title: "Connect",
+      title: t("common:connect"),
       href: "/connect",
       icon: <SyncStatusIcon status={syncStatus} className="size-6" />,
     },
@@ -79,7 +81,7 @@ export function MobileNavBar({ navigation }: MobileNavBarProps) {
           className={cn("pointer-events-auto w-full px-1 py-1", "h-[var(--mobile-nav-ui-height)]")}
         >
           <nav
-            aria-label="Primary navigation"
+            aria-label={t("common:layout.primary_navigation")}
             className={cn("grid place-items-center gap-2")}
             style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}
           >
@@ -142,7 +144,7 @@ export function MobileNavBar({ navigation }: MobileNavBarProps) {
                   triggerHaptic();
                   setMobileMenuOpen(true);
                 }}
-                aria-label="More options"
+                aria-label={t("common:layout.more_options")}
                 className="text-foreground relative z-10 flex h-14 w-full items-center justify-center rounded-full transition-colors"
               >
                 {moreItems.some((item) => isPathActive(location.pathname, item.href)) && (
@@ -177,12 +179,12 @@ export function MobileNavBar({ navigation }: MobileNavBarProps) {
         >
           <div className="bg-muted mx-auto mt-4 h-1.5 w-14 rounded-full" />
           <div className="flex items-center justify-between px-8 pb-4 pt-7">
-            <SheetTitle className="text-2xl font-semibold">More</SheetTitle>
+            <SheetTitle className="text-2xl font-semibold">{t("common:layout.more")}</SheetTitle>
             <button
               type="button"
               onClick={() => setMobileMenuOpen(false)}
               className="bg-muted text-foreground hover:bg-muted/80 flex size-11 items-center justify-center rounded-full transition-colors"
-              aria-label="Close more menu"
+              aria-label={t("common:layout.close_more_menu")}
             >
               <Icons.Close className="size-5" />
             </button>
@@ -222,7 +224,7 @@ export function MobileNavBar({ navigation }: MobileNavBarProps) {
             {addonItems.length > 0 && (
               <div className="pt-6">
                 <div className="text-muted-foreground pb-3 text-xs font-semibold uppercase tracking-[0.35em]">
-                  Add-ons
+                  {t("common:addons")}
                 </div>
                 <div className="divide-border/70 divide-y">
                   {addonItems.map((item) => {

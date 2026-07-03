@@ -175,7 +175,22 @@
     "description": "Aucun problème détecté. Les données de votre portefeuille sont cohérentes et à jour."
   },
   "loadError": {
-    "title": "Échec du chargement de l'état de santé"
+    "title": "Échec du chargement de l'état de santé",
+    "retry": "Réessayer"
+  },
+  "sheet": {
+    "groupedPriceMessage": "Wealthfolio utilise des cours reportés pour ces dates. Actualisez ou ajoutez les cours des jours de bourse réels ; ignorez le problème si ces dates étaient des jours fériés ou non ouvrés.",
+    "pricesByInvestment": "Cours par investissement",
+    "pricesByInvestmentHint": "Ouvrez un investissement pour actualiser ou ajouter des cours. Si ces dates étaient des jours fériés ou non ouvrés, ignorez le problème.",
+    "priceHistoryNeedsReview": "L'historique des cours doit être vérifié",
+    "missingTradingDay_one": "1 jour de bourse manquant : {{dates}}",
+    "missingTradingDay_other": "{{count}} jours de bourse manquants : {{dates}}",
+    "dateRange": "du {{from}} au {{to}}",
+    "priceIssueSummary": "{{diagnosticCount}} {{dateWord}} de cours sur {{assetCount}} {{assetWord}}",
+    "priceDate_one": "date",
+    "priceDate_other": "dates",
+    "investment_one": "investissement",
+    "investment_other": "investissements"
   },
   "detail": {
     "categories": {

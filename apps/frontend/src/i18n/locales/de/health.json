@@ -175,7 +175,22 @@
     "description": "Keine Probleme gefunden. Ihre Portfoliodaten sind konsistent und aktuell."
   },
   "loadError": {
-    "title": "Zustandsstatus konnte nicht geladen werden"
+    "title": "Zustandsstatus konnte nicht geladen werden",
+    "retry": "Erneut versuchen"
+  },
+  "sheet": {
+    "groupedPriceMessage": "Wealthfolio verwendet für diese Daten fortgeschriebene Kurse. Aktualisieren Sie die Kurse oder fügen Sie Kurse für echte Handelstage hinzu; verwerfen Sie das Problem, wenn die Daten Feier- oder handelsfreie Tage waren.",
+    "pricesByInvestment": "Kurse nach Anlage",
+    "pricesByInvestmentHint": "Öffnen Sie eine Anlage, um Kurse zu aktualisieren oder hinzuzufügen. Wenn die Daten Feier- oder handelsfreie Tage waren, verwerfen Sie das Problem.",
+    "priceHistoryNeedsReview": "Kurshistorie muss überprüft werden",
+    "missingTradingDay_one": "1 fehlender Handelstag: {{dates}}",
+    "missingTradingDay_other": "{{count}} fehlende Handelstage: {{dates}}",
+    "dateRange": "{{from}} bis {{to}}",
+    "priceIssueSummary": "{{diagnosticCount}} Kurs-{{dateWord}} für {{assetCount}} {{assetWord}}",
+    "priceDate_one": "datum",
+    "priceDate_other": "daten",
+    "investment_one": "Anlage",
+    "investment_other": "Anlagen"
   },
   "detail": {
     "categories": {

@@ -115,7 +115,13 @@
     "refreshing": "Actualizando…",
     "sidebar": "Barra lateral",
     "floating_navigation": "Navegación flotante",
-    "primary_navigation": "Navegación principal"
+    "primary_navigation": "Navegación principal",
+    "more": "Más",
+    "close_more_menu": "Cerrar menú",
+    "unpin_from_sidebar": "Desanclar de la barra lateral",
+    "pin_to_sidebar": "Anclar a la barra lateral",
+    "pin_addon_to_sidebar": "Anclar {{name}} a la barra lateral",
+    "addon_options": "Opciones de {{name}}"
   },
   "component": {
     "all_accounts": "Todas las cuentas",

@@ -957,7 +957,8 @@
     "showing_first_rows": "显示 {{total}} 行中的前 {{max}} 行",
     "placeholders": "占位符：",
     "empty_response_before": "填写 URL，然后按 ",
-    "empty_response_after": " 进行测试。"
+    "empty_response_after": " 进行测试。",
+    "retry": "重试"
   },
   "addon_permission_none_detected": "未检测到数据访问权限。此插件似乎对系统的访问权限极少。",
   "addon_permission_list_title": "权限",
@@ -1397,5 +1398,15 @@
   "about_logo_alt": "Wealthfolio 徽标",
   "language_region_title": "语言与地区",
   "appearance_navigation_title": "导航",
-  "appearance_navigation_description": "选择在大屏幕上的导航方式。"
+  "appearance_navigation_description": "选择在大屏幕上的导航方式。",
+  "addons_pin_to_navigation": "将 {{name}} 固定到导航栏",
+  "addons_unpin_from_navigation": "从导航栏取消固定 {{name}}",
+  "addons_pin_tooltip": "固定到导航栏",
+  "addons_unpin_tooltip": "从导航栏取消固定",
+  "addon_permission_network_hosts": "网络主机",
+  "addon_permission_approved": "已批准",
+  "addon_permission_denied": "已拒绝",
+  "health_banner_classification": "显示由健康中心标记的分类",
+  "health_banner_market_data": "显示由健康中心标记的市场数据设置",
+  "health_banner_clear": "清除"
 }

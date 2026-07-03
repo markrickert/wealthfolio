@@ -175,7 +175,22 @@
     "description": "No se encontraron problemas. Los datos de tu cartera son coherentes y están actualizados."
   },
   "loadError": {
-    "title": "Error al cargar el estado de los datos"
+    "title": "Error al cargar el estado de los datos",
+    "retry": "Reintentar"
+  },
+  "sheet": {
+    "groupedPriceMessage": "Wealthfolio está usando precios arrastrados para estas fechas. Vuelve a obtener o añade precios para días de negociación reales; descarta el problema si las fechas eran festivos o días no hábiles.",
+    "pricesByInvestment": "Precios por inversión",
+    "pricesByInvestmentHint": "Abre una inversión para volver a obtener o añadir precios. Si las fechas eran festivos o días no hábiles, descarta el problema.",
+    "priceHistoryNeedsReview": "El historial de precios necesita revisión",
+    "missingTradingDay_one": "1 día de negociación faltante: {{dates}}",
+    "missingTradingDay_other": "{{count}} días de negociación faltantes: {{dates}}",
+    "dateRange": "del {{from}} al {{to}}",
+    "priceIssueSummary": "{{diagnosticCount}} {{dateWord}} de precio en {{assetCount}} {{assetWord}}",
+    "priceDate_one": "fecha",
+    "priceDate_other": "fechas",
+    "investment_one": "inversión",
+    "investment_other": "inversiones"
   },
   "detail": {
     "categories": {

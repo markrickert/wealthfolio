@@ -958,7 +958,8 @@
     "showing_first_rows": "Affichage des {{max}} premières lignes sur {{total}}",
     "placeholders": "Espaces réservés :",
     "empty_response_before": "Remplissez l'URL, puis appuyez sur ",
-    "empty_response_after": " pour tester."
+    "empty_response_after": " pour tester.",
+    "retry": "Réessayer"
   },
   "addon_permission_none_detected": "Aucune permission d’accès aux données détectée. Cette extension semble avoir un accès système minimal.",
   "addon_permission_list_title": "Permissions",
@@ -1397,5 +1398,15 @@
   "about_logo_alt": "Logo Wealthfolio",
   "language_region_title": "Langue et région",
   "appearance_navigation_title": "Navigation",
-  "appearance_navigation_description": "Choisissez votre mode de navigation sur grand écran."
+  "appearance_navigation_description": "Choisissez votre mode de navigation sur grand écran.",
+  "addons_pin_to_navigation": "Épingler {{name}} à la navigation",
+  "addons_unpin_from_navigation": "Détacher {{name}} de la navigation",
+  "addons_pin_tooltip": "Épingler à la navigation",
+  "addons_unpin_tooltip": "Détacher de la navigation",
+  "addon_permission_network_hosts": "Hôtes réseau",
+  "addon_permission_approved": "Approuvé",
+  "addon_permission_denied": "Refusé",
+  "health_banner_classification": "Affichage des classifications signalées par le Centre de santé",
+  "health_banner_market_data": "Affichage des paramètres de données de marché signalés par le Centre de santé",
+  "health_banner_clear": "Effacer"
 }

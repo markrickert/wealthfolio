@@ -112,7 +112,13 @@
     "refreshing": "Wird aktualisiert…",
     "sidebar": "Seitenleiste",
     "floating_navigation": "Schwebende Navigation",
-    "primary_navigation": "Hauptnavigation"
+    "primary_navigation": "Hauptnavigation",
+    "more": "Mehr",
+    "close_more_menu": "Menü schließen",
+    "unpin_from_sidebar": "Von Seitenleiste lösen",
+    "pin_to_sidebar": "An Seitenleiste anheften",
+    "pin_addon_to_sidebar": "{{name}} an Seitenleiste anheften",
+    "addon_options": "Optionen für {{name}}"
   },
   "name": "Name",
   "component": {

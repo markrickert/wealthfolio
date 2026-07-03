@@ -115,7 +115,13 @@
     "refreshing": "刷新中…",
     "sidebar": "侧边栏",
     "floating_navigation": "浮动导航",
-    "primary_navigation": "主导航"
+    "primary_navigation": "主导航",
+    "more": "更多",
+    "close_more_menu": "关闭菜单",
+    "unpin_from_sidebar": "从侧边栏取消固定",
+    "pin_to_sidebar": "固定到侧边栏",
+    "pin_addon_to_sidebar": "将 {{name}} 固定到侧边栏",
+    "addon_options": "{{name}} 选项"
   },
   "component": {
     "all_accounts": "所有账户",
