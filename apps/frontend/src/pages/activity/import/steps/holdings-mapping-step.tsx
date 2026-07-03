@@ -455,7 +455,9 @@ export function HoldingsMappingStep() {
               variant="info"
               size="sm"
               title={t("activity:import.holdings.snapshots")}
-              description={t("activity:import.holdings.snapshotsDates", { count: uniqueDates.size })}
+              description={t("activity:import.holdings.snapshotsDates", {
+                count: uniqueDates.size,
+              })}
               icon={Icons.Calendar}
               className="mb-0"
             />
@@ -467,7 +469,9 @@ export function HoldingsMappingStep() {
       <div className="grid gap-4">
         <Card>
           <CardHeader className="px-4 py-3">
-            <CardTitle className="text-sm font-medium">{t("activity:import.holdings.columnMapping")}</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              {t("activity:import.holdings.columnMapping")}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-1.5 px-4 pb-4">
             {columnMappingItems.map((column) => {
@@ -559,7 +563,9 @@ export function HoldingsMappingStep() {
       {/* CSV Preview */}
       <Card>
         <CardHeader className="px-4 py-3">
-          <CardTitle className="text-sm font-medium">{t("activity:import.holdings.dataPreview")}</CardTitle>
+          <CardTitle className="text-sm font-medium">
+            {t("activity:import.holdings.dataPreview")}
+          </CardTitle>
         </CardHeader>
         <CardContent className="border-t p-0">
           <CsvPreviewTable headers={headers} rows={parsedRows} mapping={localFieldMappings} />

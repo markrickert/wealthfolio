@@ -12,8 +12,15 @@ import type { BudgetCategoryRow } from "../types/budget";
 import type { DayBucket } from "../types/report";
 
 type Status = "ok" | "warn" | "over";
-interface PacePoint { day: number; value: number }
-interface BudgetToday { year: number; month: number; day: number }
+interface PacePoint {
+  day: number;
+  value: number;
+}
+interface BudgetToday {
+  year: number;
+  month: number;
+  day: number;
+}
 
 const MIN_HISTORICAL_PACE_MONTHS = 2;
 

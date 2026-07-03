@@ -378,7 +378,11 @@ export function ConfirmStep() {
   if (importError) {
     return (
       <div className="space-y-4">
-        <ImportAlert variant="destructive" title={t("activity:import.confirm.errorTitle")} description={importError}>
+        <ImportAlert
+          variant="destructive"
+          title={t("activity:import.confirm.errorTitle")}
+          description={importError}
+        >
           <div className="mt-4">
             <Button variant="destructive" onClick={() => setImportError(null)} size="sm">
               {t("activity:import.confirm.tryAgain")}
@@ -402,7 +406,9 @@ export function ConfirmStep() {
         <ImportAlert
           variant="warning"
           title={t("activity:import.confirm.readyTitle", { count: summary.toImport })}
-          description={t("activity:import.confirm.warningsDescription", { count: summary.warnings })}
+          description={t("activity:import.confirm.warningsDescription", {
+            count: summary.warnings,
+          })}
         />
       ) : summary.forcedDuplicates > 0 ? (
         <ImportAlert
@@ -414,9 +420,7 @@ export function ConfirmStep() {
         />
       ) : (
         <div>
-          <p className="text-muted-foreground">
-            {t("activity:import.confirm.reviewSummary")}
-          </p>
+          <p className="text-muted-foreground">{t("activity:import.confirm.reviewSummary")}</p>
         </div>
       )}
 
@@ -430,7 +434,9 @@ export function ConfirmStep() {
               <Icons.FileText className="text-muted-foreground h-5 w-5" />
             </div>
             <div>
-              <div className="text-muted-foreground text-sm">{t("activity:import.confirm.totalRows")}</div>
+              <div className="text-muted-foreground text-sm">
+                {t("activity:import.confirm.totalRows")}
+              </div>
               <div className="text-2xl font-semibold">{summary.total}</div>
             </div>
           </div>
@@ -452,7 +458,9 @@ export function ConfirmStep() {
               <Icons.Minus className="text-muted-foreground h-5 w-5" />
             </div>
             <div>
-              <div className="text-muted-foreground text-sm">{t("activity:import.confirm.skipped")}</div>
+              <div className="text-muted-foreground text-sm">
+                {t("activity:import.confirm.skipped")}
+              </div>
               <div className="text-muted-foreground text-2xl font-semibold">{skippedTotal}</div>
             </div>
           </div>
@@ -502,7 +510,9 @@ export function ConfirmStep() {
                     className="bg-muted/50 flex items-center gap-2 rounded-full px-3 py-1.5"
                   >
                     <Icons.XCircle className="text-muted-foreground h-4 w-4" />
-                    <span className="text-muted-foreground text-sm">{translateSkipReason(t, reason)}</span>
+                    <span className="text-muted-foreground text-sm">
+                      {translateSkipReason(t, reason)}
+                    </span>
                     <span className="text-muted-foreground bg-background rounded-full px-2 py-0.5 text-xs font-medium">
                       {count}
                     </span>
@@ -538,7 +548,9 @@ export function ConfirmStep() {
             {isProcessing ? (
               <>
                 <Icons.Spinner className="mr-2 h-4 w-4 animate-spin" />
-                {isPreparingAssets ? t("activity:import.confirm.preparingAssets") : t("activity:import.confirm.importing")}
+                {isPreparingAssets
+                  ? t("activity:import.confirm.preparingAssets")
+                  : t("activity:import.confirm.importing")}
               </>
             ) : (
               <>

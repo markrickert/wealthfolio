@@ -486,7 +486,12 @@ function buildSparklineRows({
   const meta = new Map(taxonomyCategories.map((c) => [c.id, c]));
   const descriptorById = new Map(movers.map((m) => [m.id, m]));
 
-  interface Bucket { name: string; color: string | null; icon: string | null; perBucket: number[] }
+  interface Bucket {
+    name: string;
+    color: string | null;
+    icon: string | null;
+    perBucket: number[];
+  }
   const byCat = new Map<string, Bucket>();
 
   if (useDaily && byDayByCategory) {

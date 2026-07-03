@@ -362,7 +362,11 @@ export function ReviewStep() {
     return (
       <div className="flex flex-col items-center justify-center py-12">
         <ProgressIndicator
-          message={isValidating ? t("activity:import.review.validating") : t("activity:import.review.processing")}
+          message={
+            isValidating
+              ? t("activity:import.review.validating")
+              : t("activity:import.review.processing")
+          }
           className="border-none shadow-none"
         />
       </div>
@@ -478,7 +482,9 @@ export function ReviewStep() {
             count: importCount,
             all: filterStats.all,
           })}
-          description={t("activity:import.review.excludedDescription", { count: filterStats.skipped })}
+          description={t("activity:import.review.excludedDescription", {
+            count: filterStats.skipped,
+          })}
         />
       ) : (
         <ImportAlert
@@ -491,7 +497,9 @@ export function ReviewStep() {
       {/* Filter bar */}
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-muted-foreground mr-1 text-sm">{t("activity:import.review.activitiesCount", { count: filterStats.all })}</span>
+          <span className="text-muted-foreground mr-1 text-sm">
+            {t("activity:import.review.activitiesCount", { count: filterStats.all })}
+          </span>
           <FacetedFilter
             title={t("activity:import.review.filterType")}
             options={facetedOptions.types}

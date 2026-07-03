@@ -21,7 +21,9 @@ import {
   CardTitle,
 } from "@wealthfolio/ui/components/ui/card";
 
-interface BaseCurrencyFormValues { baseCurrency: string }
+interface BaseCurrencyFormValues {
+  baseCurrency: string;
+}
 
 // Extracted form component
 export function BaseCurrencyForm() {

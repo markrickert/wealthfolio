@@ -185,7 +185,9 @@ export function ContextResultStep() {
 
       {/* Title and description */}
       <motion.div className="mb-10 text-center" variants={itemVariants}>
-        <h2 className="text-2xl font-semibold tracking-tight">{t("activity:import.result.completeTitle")}</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">
+          {t("activity:import.result.completeTitle")}
+        </h2>
         <p className="text-muted-foreground mt-2 max-w-sm">
           {isHoldingsMode
             ? t("activity:import.result.holdingsSuccess")
@@ -195,18 +197,30 @@ export function ContextResultStep() {
 
       {/* Stats row */}
       <motion.div className="mb-10 flex items-center justify-center gap-12" variants={itemVariants}>
-        <StatItem label={t("activity:import.result.imported")} value={stats.imported} variant="success" />
+        <StatItem
+          label={t("activity:import.result.imported")}
+          value={stats.imported}
+          variant="success"
+        />
 
         {stats.duplicates > 0 && (
           <>
             <div className="bg-border h-12 w-px" />
-            <StatItem label={t("activity:import.result.duplicates")} value={stats.duplicates} variant="muted" />
+            <StatItem
+              label={t("activity:import.result.duplicates")}
+              value={stats.duplicates}
+              variant="muted"
+            />
           </>
         )}
 
         <div className="bg-border h-12 w-px" />
 
-        <StatItem label={t("activity:import.result.skipped")} value={stats.skipped} variant="muted" />
+        <StatItem
+          label={t("activity:import.result.skipped")}
+          value={stats.skipped}
+          variant="muted"
+        />
 
         <div className="bg-border h-12 w-px" />
 
@@ -221,7 +235,9 @@ export function ContextResultStep() {
         </Button>
 
         <Button size="lg" onClick={handleViewResult}>
-          {isHoldingsMode ? t("activity:import.result.viewHoldings") : t("activity:import.result.viewActivities")}
+          {isHoldingsMode
+            ? t("activity:import.result.viewHoldings")
+            : t("activity:import.result.viewActivities")}
           <Icons.ArrowRight className="ml-2 h-4 w-4" />
         </Button>
       </motion.div>

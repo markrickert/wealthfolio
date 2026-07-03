@@ -279,7 +279,11 @@ export function HoldingsReviewStep() {
       {checkResult && (
         <div className="flex flex-col gap-3">
           {checkResult.existingDates.length > 0 && (
-            <ImportAlert variant="warning" size="sm" title={t("activity:import.holdings.existingOverwrittenTitle")}>
+            <ImportAlert
+              variant="warning"
+              size="sm"
+              title={t("activity:import.holdings.existingOverwrittenTitle")}
+            >
               <p className="text-xs">
                 {t("activity:import.holdings.existingOverwritten", {
                   count: checkResult.existingDates.length,
@@ -289,7 +293,11 @@ export function HoldingsReviewStep() {
             </ImportAlert>
           )}
           {checkResult.validationErrors.length > 0 && (
-            <ImportAlert variant="destructive" size="sm" title={t("activity:import.holdings.validationErrors")}>
+            <ImportAlert
+              variant="destructive"
+              size="sm"
+              title={t("activity:import.holdings.validationErrors")}
+            >
               <ul className="list-inside list-disc text-xs">
                 {checkResult.validationErrors.map((err, i) => (
                   <li key={i}>{err}</li>
