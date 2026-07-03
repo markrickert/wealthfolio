@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@wealthfolio/ui/components/ui/card";
 import { Separator } from "@wealthfolio/ui/components/ui/separator";
@@ -63,6 +64,7 @@ const SectionHeader: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 );
 
 const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) => {
+  const { t } = useTranslation();
   const { isBalanceHidden } = useBalancePrivacy();
 
   const {
@@ -93,8 +95,10 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
   } = assetData;
 
   const isOption = optionSpec != null;
-  const quantityLabel = isOption ? "contracts" : "shares";
-  const averageCostLabel = isOption ? "Average premium" : "Average cost";
+  const quantityLabel = isOption ? t("asset:detailCard.contracts") : t("asset:detailCard.shares");
+  const averageCostLabel = isOption
+    ? t("asset:detailCard.average_premium")
+    : t("asset:detailCard.average_cost");
 
   const amountTone = (amount: number | null) => {
     if (amount == null || amount === 0) return "";
@@ -103,14 +107,14 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
 
   const positionRows = [
     {
-      label: "Book value",
+      label: t("asset:detailCard.book_value"),
       value: <AmountDisplay value={costBasis} currency={currency} isHidden={isBalanceHidden} />,
     },
     {
       label: averageCostLabel,
       value: <AmountDisplay value={averagePrice} currency={currency} isHidden={isBalanceHidden} />,
     },
-    { label: "% of my portfolio", value: formatPercent(portfolioPercent) },
+    { label: t("asset:detailCard.percent_of_portfolio"), value: formatPercent(portfolioPercent) },
   ];
 
   const performanceRows: {
@@ -123,7 +127,7 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
     ...(todaysReturn !== null && todaysReturnPercent !== null
       ? [
           {
-            label: "Today's return",
+            label: t("asset:detailCard.todays_return"),
             amount: todaysReturn,
             currency,
             percent: todaysReturnPercent,
@@ -132,49 +136,49 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
         ]
       : []),
     {
-      label: "Unrealized P&L",
+      label: t("asset:detailCard.unrealized_pnl"),
       amount: unrealizedPnl,
       currency,
       percent: unrealizedPnlPercent,
       color: amountTone(unrealizedPnl),
     },
     {
-      label: "Realized P&L",
+      label: t("asset:detailCard.realized_pnl"),
       amount: realizedPnl,
       currency,
       percent: realizedPnlPercent,
       color: amountTone(realizedPnl),
     },
     {
-      label: "Income",
+      label: t("asset:detailCard.income"),
       amount: income,
       currency,
       percent: null,
       color: amountTone(income),
     },
     {
-      label: "FX effect",
+      label: t("asset:detailCard.fx_effect"),
       amount: fxEffect,
       currency: baseCurrency,
       percent: null,
       color: amountTone(fxEffect),
     },
     {
-      label: "Price return",
+      label: t("asset:detailCard.price_return"),
       amount: null,
       currency,
       percent: priceReturnPercent,
       color: amountTone(priceReturnPercent),
     },
     {
-      label: "Total P&L",
+      label: t("asset:detailCard.total_pnl"),
       amount: totalPnl,
       currency,
       percent: totalPnlPercent,
       color: amountTone(totalPnl),
     },
     {
-      label: "Total Return",
+      label: t("asset:detailCard.total_return"),
       amount: totalReturn,
       currency,
       percent: totalReturnPercent,
@@ -204,7 +208,7 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
       <CardContent>
         <Separator className="my-3" />
         <div>
-          <SectionHeader>Position</SectionHeader>
+          <SectionHeader>{t("asset:detailCard.position")}</SectionHeader>
           <div className="space-y-1.5 text-sm">
             {positionRows.map(({ label, value }, idx) => (
               <div key={idx} className="flex justify-between">
@@ -217,7 +221,7 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
 
         <Separator className="my-3" />
         <div>
-          <SectionHeader>Performance</SectionHeader>
+          <SectionHeader>{t("asset:detailCard.performance")}</SectionHeader>
           <div className="space-y-1.5 text-sm">
             {performanceRows.map(
               ({ label, amount, currency: rowCurrency, percent, color }, idx) => (
@@ -225,7 +229,7 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
                   <span className="text-muted-foreground">{label}</span>
                   <span className="flex items-center gap-2">
                     {amount == null && percent == null ? (
-                      <span className="text-muted-foreground">N/A</span>
+                      <span className="text-muted-foreground">{t("asset:detailCard.na")}</span>
                     ) : (
                       <>
                         {amount != null && (
@@ -253,10 +257,12 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
           <>
             <Separator className="my-3" />
             <div>
-              <SectionHeader>Day Range</SectionHeader>
+              <SectionHeader>{t("asset:detailCard.day_range")}</SectionHeader>
               <div className="grid grid-cols-2 gap-x-6 gap-y-2">
                 <div className="flex flex-col">
-                  <span className="text-muted-foreground text-xs">Open</span>
+                  <span className="text-muted-foreground text-xs">
+                    {t("asset:detailCard.open")}
+                  </span>
                   <div className="text-sm font-medium">
                     <AmountDisplay
                       value={quote.open}
@@ -266,7 +272,9 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
                   </div>
                 </div>
                 <div className="flex flex-col items-end">
-                  <span className="text-muted-foreground text-xs">Close</span>
+                  <span className="text-muted-foreground text-xs">
+                    {t("asset:detailCard.close")}
+                  </span>
                   <div className="text-sm font-medium">
                     <AmountDisplay
                       value={quote.close}
@@ -276,7 +284,9 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
                   </div>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-muted-foreground text-xs">High</span>
+                  <span className="text-muted-foreground text-xs">
+                    {t("asset:detailCard.high")}
+                  </span>
                   <div className="text-success text-sm font-medium">
                     <AmountDisplay
                       value={quote.high}
@@ -286,7 +296,7 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
                   </div>
                 </div>
                 <div className="flex flex-col items-end">
-                  <span className="text-muted-foreground text-xs">Low</span>
+                  <span className="text-muted-foreground text-xs">{t("asset:detailCard.low")}</span>
                   <div className="text-destructive text-sm font-medium">
                     <AmountDisplay
                       value={quote.low}
@@ -296,7 +306,9 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
                   </div>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-muted-foreground text-xs">Adj Close</span>
+                  <span className="text-muted-foreground text-xs">
+                    {t("asset:detailCard.adj_close")}
+                  </span>
                   <div className="text-sm font-medium">
                     <AmountDisplay
                       value={quote.adjclose}
@@ -306,7 +318,9 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
                   </div>
                 </div>
                 <div className="flex flex-col items-end">
-                  <span className="text-muted-foreground text-xs">Volume</span>
+                  <span className="text-muted-foreground text-xs">
+                    {t("asset:detailCard.volume")}
+                  </span>
                   <span className="text-sm font-medium">
                     {new Intl.NumberFormat().format(quote.volume)}
                   </span>
@@ -322,10 +336,12 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
             <div className="grid grid-cols-2 gap-x-6">
               {bondSpec.couponRate != null && (
                 <div className="flex flex-col">
-                  <span className="text-muted-foreground text-xs">Coupon</span>
+                  <span className="text-muted-foreground text-xs">
+                    {t("asset:detailCard.coupon")}
+                  </span>
                   <span className="text-sm font-medium">
                     {bondSpec.couponFrequency === "ZERO"
-                      ? "Zero coupon"
+                      ? t("asset:detailCard.zero_coupon")
                       : `${(bondSpec.couponRate * 100).toFixed(3)}%`}
                     {bondSpec.couponFrequency &&
                       bondSpec.couponFrequency !== "ZERO" &&
@@ -335,7 +351,9 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
               )}
               {bondSpec.maturityDate && (
                 <div className="flex flex-col items-end">
-                  <span className="text-muted-foreground text-xs">Maturity</span>
+                  <span className="text-muted-foreground text-xs">
+                    {t("asset:detailCard.maturity")}
+                  </span>
                   <span className="text-sm font-medium">
                     {new Date(bondSpec.maturityDate + "T00:00:00").toLocaleDateString(undefined, {
                       year: "numeric",
@@ -355,13 +373,17 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
             <div className="grid grid-cols-3 gap-x-4">
               {optionSpec.right && (
                 <div className="flex flex-col">
-                  <span className="text-muted-foreground text-xs">Type</span>
+                  <span className="text-muted-foreground text-xs">
+                    {t("asset:detailCard.type")}
+                  </span>
                   <span className="text-sm font-medium">{optionSpec.right}</span>
                 </div>
               )}
               {optionSpec.strike != null && (
                 <div className="flex flex-col">
-                  <span className="text-muted-foreground text-xs">Strike</span>
+                  <span className="text-muted-foreground text-xs">
+                    {t("asset:detailCard.strike")}
+                  </span>
                   <div className="text-sm font-medium">
                     <AmountDisplay
                       value={optionSpec.strike}
@@ -373,7 +395,9 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
               )}
               {optionSpec.expiration && (
                 <div className="flex flex-col items-end">
-                  <span className="text-muted-foreground text-xs">Expiry</span>
+                  <span className="text-muted-foreground text-xs">
+                    {t("asset:detailCard.expiry")}
+                  </span>
                   <span className="text-sm font-medium">
                     {new Date(optionSpec.expiration + "T00:00:00").toLocaleDateString(undefined, {
                       year: "numeric",

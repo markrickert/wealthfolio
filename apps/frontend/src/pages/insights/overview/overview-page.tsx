@@ -27,6 +27,7 @@ import { PortfolioComposition } from "@/pages/holdings/components/composition-ch
 import { DrillableAccountChart } from "@/pages/holdings/components/drillable-account-chart";
 import { DrillableDonutChart } from "@/pages/holdings/components/drillable-donut-chart";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { computeValueStrip, valueStripFromCurrentSummary } from "./allocation-derivations";
 import { PortfolioExplorer } from "./portfolio-explorer";
 import { TargetRailsCard } from "./target-rails-card";
@@ -46,6 +47,7 @@ export function OverviewPage({
   onFilterChange,
   onToolbarActionsChange,
 }: OverviewPageProps) {
+  const { t } = useTranslation();
   const { settings } = useSettingsContext();
   const baseCurrency = settings?.baseCurrency ?? "USD";
 
@@ -282,10 +284,12 @@ export function OverviewPage({
                 onClick={() => backTo(effectiveTargetId ? "details" : "current")}
               >
                 <Icons.ArrowLeft className="mr-1.5 h-4 w-4" />
-                Back to allocation
+                {t("insights:insights.back_to_allocation")}
               </Button>
               <span className="bg-border hidden h-5 w-px sm:block" />
-              <h2 className="text-foreground text-[16px] font-semibold">Target allocation</h2>
+              <h2 className="text-foreground text-[16px] font-semibold">
+                {t("insights:insights.target_allocation")}
+              </h2>
             </div>
           </div>
           {targetsLoading ? (
@@ -336,10 +340,12 @@ export function OverviewPage({
             onClick={() => backTo("details")}
           >
             <Icons.ArrowLeft className="mr-1.5 h-4 w-4" />
-            Back to overview
+            {t("insights:insights.back_to_overview")}
           </Button>
           <span className="bg-border hidden h-5 w-px sm:block" />
-          <h2 className="text-foreground min-w-0 text-[16px] font-semibold">Rebalance</h2>
+          <h2 className="text-foreground min-w-0 text-[16px] font-semibold">
+            {t("insights:insights.rebalance")}
+          </h2>
         </div>
         <RebalanceTab
           profile={effectiveTarget ?? null}
@@ -385,11 +391,11 @@ export function OverviewPage({
         ) : (
           <EmptyPlaceholder
             icon={<Icons.Target className="text-muted-foreground h-10 w-10" />}
-            title="No target selected"
-            description="Create a target allocation to compare current weights against intended weights."
+            title={t("insights:insights.no_target_selected")}
+            description={t("insights:insights.no_target_selected_description")}
           >
             <Button size="sm" onClick={handleCreateTarget}>
-              Set target allocation
+              {t("insights:insights.set_target_allocation")}
             </Button>
           </EmptyPlaceholder>
         )}
@@ -411,7 +417,7 @@ export function OverviewPage({
             accountValuations={currentValuation?.accounts}
           />
           <DrillableDonutChart
-            title="Classes"
+            title={t("insights:insights.chart_classes")}
             allocation={allocations?.assetClasses}
             baseCurrency={baseCurrency}
             isLoading={isLoading}
@@ -421,7 +427,7 @@ export function OverviewPage({
             onCardClick={() => openAllocationSheet(allocations?.assetClasses)}
           />
           <DrillableDonutChart
-            title="Regions"
+            title={t("insights:insights.chart_regions")}
             allocation={allocations?.regions}
             baseCurrency={baseCurrency}
             isLoading={isLoading}
@@ -429,7 +435,7 @@ export function OverviewPage({
             onCardClick={() => openAllocationSheet(allocations?.regions)}
           />
           <DrillableDonutChart
-            title="Sectors"
+            title={t("insights:insights.chart_sectors")}
             allocation={allocations?.sectors}
             baseCurrency={baseCurrency}
             isLoading={isLoading}

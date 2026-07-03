@@ -3,6 +3,7 @@ import { useTaxonomy } from "@/hooks/use-taxonomies";
 import { cn } from "@/lib/utils";
 import type { DriftReport, DriftRow, AllocationTarget } from "@/lib/types";
 import { Button, Card, Icons, Skeleton } from "@wealthfolio/ui";
+import { useTranslation } from "react-i18next";
 import {
   allocationTargetColorForRow,
   buildAllocationTargetColorMap,
@@ -43,6 +44,7 @@ export function TargetRailsCard({
   onCreateTarget,
   onViewDetails,
 }: TargetRailsCardProps) {
+  const { t } = useTranslation();
   const { isBalanceHidden } = useBalancePrivacy();
   const selectedTarget = targets.find((target) => target.id === selectedTargetId) ?? null;
   const { data: taxonomy } = useTaxonomy(selectedTarget?.taxonomyId ?? null);
@@ -106,7 +108,7 @@ export function TargetRailsCard({
       {/* Header: title + Details (top-right) */}
       <div className="flex items-center justify-between gap-3">
         <div className="text-muted-foreground text-[12px] font-semibold uppercase tracking-[0.18em]">
-          Target allocation
+          {t("insights:insights.rails.target_allocation")}
         </div>
         {hasTarget && onViewDetails && (
           <Button
@@ -115,7 +117,7 @@ export function TargetRailsCard({
             className="h-8 gap-1 rounded-full px-3.5 text-xs"
             onClick={onViewDetails}
           >
-            Details
+            {t("insights:insights.rails.details")}
             <Icons.ArrowRight className="h-3 w-3" />
           </Button>
         )}
@@ -188,14 +190,12 @@ export function TargetRailsCard({
           {/* Suggested moves — fills the remaining height */}
           <div className="flex flex-col pt-5 xl:flex-1">
             <div className="text-muted-foreground mb-2 text-[10px] font-semibold uppercase tracking-wider">
-              Suggested moves
+              {t("insights:insights.rails.suggested_moves")}
             </div>
             {moves.length === 0 ? (
               <div className="text-muted-foreground flex flex-col items-center justify-center gap-1.5 py-4 text-center xl:flex-1">
                 <Icons.CheckCircle className="text-success h-6 w-6" />
-                <span className="text-[12px]">
-                  All categories inside target range — no rebalancing needed
-                </span>
+                <span className="text-[12px]">{t("insights:insights.rails.all_in_range")}</span>
               </div>
             ) : (
               <div className="flex flex-col gap-2.5">
@@ -212,7 +212,11 @@ export function TargetRailsCard({
                           className="h-2 w-2 shrink-0 rounded-sm"
                           style={{ background: color }}
                         />
-                        <span className="text-muted-foreground">{add ? "Add" : "Trim"}</span>
+                        <span className="text-muted-foreground">
+                          {add
+                            ? t("insights:insights.rails.add")
+                            : t("insights:insights.rails.trim")}
+                        </span>
                         <span className="text-foreground truncate font-medium">
                           {row.categoryName}
                         </span>
@@ -250,18 +254,23 @@ export function TargetRailsCard({
             />
             <span className="min-w-0 flex-1 truncate">
               {withinTolerance
-                ? "Inside target range"
-                : `${resolvedDriftReport?.outOfBandCount} outside range · largest gap ${largestGapLabel}`}
+                ? t("insights:insights.rails.inside_target_range")
+                : t("insights:insights.rails.outside_range", {
+                    count: resolvedDriftReport?.outOfBandCount ?? 0,
+                    gap: largestGapLabel,
+                  })}
             </span>
-            <span className="shrink-0 tabular-nums">tolerance {toleranceLabel}</span>
+            <span className="shrink-0 tabular-nums">
+              {t("insights:insights.rails.tolerance", { tolerance: toleranceLabel })}
+            </span>
           </div>
         </>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-5 py-1 text-center">
           <div className="bg-muted/25 w-full rounded-xl border p-4">
             <div className="text-muted-foreground mb-4 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider">
-              <span>Current</span>
-              <span>Target</span>
+              <span>{t("insights:insights.rails.current")}</span>
+              <span>{t("insights:insights.rails.target")}</span>
             </div>
             <div className="space-y-3">
               {[
@@ -292,15 +301,15 @@ export function TargetRailsCard({
             </div>
             <div>
               <h3 className="text-foreground text-[13px] font-semibold">
-                No target allocation yet
+                {t("insights:insights.rails.no_target_yet")}
               </h3>
               <p className="text-muted-foreground mt-1 text-[12px] leading-relaxed">
-                Compare current weights with your intended portfolio.
+                {t("insights:insights.rails.compare_weights")}
               </p>
             </div>
             {onCreateTarget && (
               <Button size="sm" className="gap-2 rounded-full px-4" onClick={onCreateTarget}>
-                Set target allocation
+                {t("insights:insights.rails.set_target_allocation")}
                 <Icons.ArrowRight className="h-3.5 w-3.5" />
               </Button>
             )}

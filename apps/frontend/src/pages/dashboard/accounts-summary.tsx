@@ -23,6 +23,7 @@ import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@wealthfolio/ui/components/ui/tooltip";
 import { format } from "date-fns";
 import React, { useCallback, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 
 interface AccountSummaryDisplayData {
@@ -141,6 +142,7 @@ const AccountSummaryComponent = React.memo(
     displayInAccountCurrency?: boolean;
     isNested?: boolean;
   }) => {
+    const { t } = useTranslation();
     const isGroup = item.isGroup ?? false;
     const useAccountCurrency =
       displayInAccountCurrency || (item.displayInAccountCurrency && Boolean(item.accountCurrency));
@@ -173,7 +175,7 @@ const AccountSummaryComponent = React.memo(
     const accountId = item.accountId;
 
     const subText = isGroup
-      ? `${item.accountCount} ${item.accountCount === 1 ? "account" : "accounts"}`
+      ? t("dashboard:accounts_count", { count: item.accountCount })
       : useAccountCurrency
         ? (item.accountCurrency ?? item.baseCurrency)
         : item.baseCurrency;
@@ -206,8 +208,8 @@ const AccountSummaryComponent = React.memo(
     const warningMessages = hasBadData
       ? [
           item.trackingMode === "HOLDINGS"
-            ? "Return % unavailable - missing cost basis or starting holdings value."
-            : "Return % unavailable - activity history may be inconsistent.",
+            ? t("dashboard:summary.return_unavailable_holdings")
+            : t("dashboard:summary.return_unavailable_activity"),
         ]
       : [];
     const shouldShowWarning = hasBadData;
@@ -374,6 +376,7 @@ export const AccountsSummary = React.memo(
     currentAccountValuations?: CurrentAccountValuation[];
     isLoadingCurrentValuations?: boolean;
   }) => {
+    const { t } = useTranslation();
     const { accountsGrouped, setAccountsGrouped, settings } = useSettingsContext();
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
@@ -512,12 +515,14 @@ export const AccountsSummary = React.memo(
                 <Icons.AlertTriangle className="text-destructive h-4 w-4" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-destructive text-sm font-medium">Failed to load accounts</p>
+                <p className="text-destructive text-sm font-medium">
+                  {t("dashboard:summary.failed_to_load")}
+                </p>
                 <p className="text-muted-foreground mt-1 break-words text-xs">
-                  {errorAccounts?.message || "An unexpected error occurred"}
+                  {errorAccounts?.message || t("dashboard:summary.unexpected_error")}
                 </p>
                 <p className="text-muted-foreground mt-2 text-xs">
-                  Try restarting the app. If this persists, your database may need to be reset.
+                  {t("dashboard:summary.try_restarting")}
                 </p>
               </div>
             </div>
@@ -528,12 +533,12 @@ export const AccountsSummary = React.memo(
       if (!combinedAccountViews || combinedAccountViews.length === 0) {
         return (
           <div className="border-border/50 bg-success/10 rounded-xl border p-6 text-center md:p-8">
-            <p className="text-sm">No accounts found.</p>
+            <p className="text-sm">{t("dashboard:no_accounts_found")}</p>
             <Link
               to="/settings/accounts"
               className="text-muted-foreground hover:text-foreground mt-2 inline-flex items-center gap-1 text-xs underline-offset-4 hover:underline"
             >
-              Add your first account
+              {t("dashboard:add_first_account")}
               <Icons.ChevronRight className="h-3 w-3" />
             </Link>
           </div>
@@ -688,19 +693,24 @@ export const AccountsSummary = React.memo(
       isErrorAccounts,
       errorAccounts,
       settings?.baseCurrency,
+      t,
     ]);
 
     return (
       <div className="mb-4 w-full space-y-0">
         <div className="flex flex-row items-center justify-between gap-2 pb-2">
-          <h2 className="text-sm font-semibold tracking-tight">Accounts</h2>
+          <h2 className="text-sm font-semibold tracking-tight">{t("dashboard:accounts")}</h2>
           <Button
             variant="ghost"
             className="text-muted-foreground hover:bg-success/10"
             size="sm"
             onClick={() => setAccountsGrouped(!accountsGrouped)}
-            aria-label={accountsGrouped ? "List view" : "Group view"}
-            title={accountsGrouped ? "Switch to list view" : "Switch to group view"}
+            aria-label={accountsGrouped ? t("dashboard:list_view") : t("dashboard:group_view")}
+            title={
+              accountsGrouped
+                ? t("dashboard:switch_to_list_view")
+                : t("dashboard:switch_to_group_view")
+            }
             disabled={isLoadingAccounts || combinedAccountViews.length === 0}
           >
             {accountsGrouped ? (
@@ -716,10 +726,10 @@ export const AccountsSummary = React.memo(
               <Icons.AlertTriangle className="text-destructive mt-0.5 h-4 w-4 shrink-0" />
               <div className="min-w-0">
                 <p className="text-destructive text-sm font-medium">
-                  Failed to load performance metrics
+                  {t("dashboard:summary.failed_to_load_performance")}
                 </p>
                 <p className="text-muted-foreground mt-1 break-words text-xs">
-                  {performanceError?.message || "Account values are shown without period returns."}
+                  {performanceError?.message || t("dashboard:summary.values_without_returns")}
                 </p>
               </div>
             </div>

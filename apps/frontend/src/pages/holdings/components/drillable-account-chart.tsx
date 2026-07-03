@@ -16,6 +16,7 @@ import {
   Skeleton,
 } from "@wealthfolio/ui";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface DrillableAccountChartProps {
   isLoading?: boolean;
@@ -35,6 +36,7 @@ export function DrillableAccountChart({
   accountValuations,
   onAccountClick,
 }: DrillableAccountChartProps) {
+  const { t } = useTranslation();
   const { settings } = useSettingsContext();
   const baseCurrency = settings?.baseCurrency ?? "USD";
   const [activeIndex, setActiveIndex] = useState(0);
@@ -181,12 +183,12 @@ export function DrillableAccountChart({
       <CardHeader className="px-5 pb-1 pt-5">
         {isAtRoot ? (
           <CardTitle className="text-muted-foreground text-[12px] font-semibold uppercase tracking-[0.18em]">
-            Accounts
+            {t("holdings:accounts")}
           </CardTitle>
         ) : (
           <AllocationBreadcrumb
             path={path}
-            rootLabel="Accounts"
+            rootLabel={t("holdings:accounts")}
             onNavigate={handleBreadcrumbNavigate}
           />
         )}
@@ -201,7 +203,7 @@ export function DrillableAccountChart({
             endAngle={0}
           />
         ) : (
-          <EmptyPlaceholder description="No account data available." />
+          <EmptyPlaceholder description={t("holdings:no_account_data")} />
         )}
       </CardContent>
     </Card>

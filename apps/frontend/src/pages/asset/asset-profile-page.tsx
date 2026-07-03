@@ -33,6 +33,8 @@ import {
 } from "@wealthfolio/ui/components/ui/alert-dialog";
 import { Tabs, TabsContent } from "@wealthfolio/ui/components/ui/tabs";
 import { useCallback, useMemo, useState } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AlternativeAssetContent, useAlternativeAssetActions } from "./alternative-asset-content";
@@ -145,6 +147,7 @@ const parseSubTabParam = (param: string | null): OverviewSubTab => {
 };
 
 export const AssetProfilePage = () => {
+  const { t } = useTranslation();
   const { settings } = useSettingsContext();
   const baseCurrency = settings?.baseCurrency ?? "USD";
   const { assetId: encodedAssetId = "" } = useParams<{ assetId: string }>();
@@ -180,11 +183,11 @@ export const AssetProfilePage = () => {
 
   const fxTabs = useMemo(() => {
     const items: { value: "overview" | "quotes"; label: string }[] = [
-      { value: "overview", label: "Overview" },
-      { value: "quotes", label: "Quotes" },
+      { value: "overview", label: t("asset:profile.overview") },
+      { value: "quotes", label: t("asset:profile.quotes") },
     ];
     return items;
-  }, []);
+  }, [t]);
 
   const [fxActiveTab, setFxActiveTab] = useState<"overview" | "quotes">(
     queryParams.get("tab") === "quotes" ? "quotes" : "overview",
@@ -269,7 +272,7 @@ export const AssetProfilePage = () => {
           id: category.id,
           categoryName: category.name,
           categoryColor: category.color,
-          taxonomyName: "Class",
+          taxonomyName: t("asset:profile.class"),
         });
       }
     }
@@ -285,7 +288,7 @@ export const AssetProfilePage = () => {
           id: category.id,
           categoryName: category.name === "Exchange Traded Fund (ETF)" ? "ETF" : category.name,
           categoryColor: category.color,
-          taxonomyName: "Type",
+          taxonomyName: t("asset:profile.type"),
         });
       }
     }
@@ -299,7 +302,7 @@ export const AssetProfilePage = () => {
       if (category) {
         badges.push({
           id: category.id,
-          categoryName: `Risk: ${category.name}`,
+          categoryName: t("asset:profile.risk", { name: category.name }),
           categoryColor: category.color,
           taxonomyName: "Risk",
         });
@@ -352,6 +355,7 @@ export const AssetProfilePage = () => {
     riskCategoryTaxonomy,
     industriesTaxonomy,
     regionsTaxonomy,
+    t,
   ]);
 
   const quote = useMemo(() => {
@@ -398,7 +402,7 @@ export const AssetProfilePage = () => {
     mutationFn: async () => {
       const accountHoldings = await getAssetHoldings(assetId);
       const nonZeroHoldings = accountHoldings.filter((h) => h.quantity > 0);
-      if (nonZeroHoldings.length === 0) throw new Error("No open positions found");
+      if (nonZeroHoldings.length === 0) throw new Error(t("asset:profile.no_open_positions"));
 
       for (const h of nonZeroHoldings) {
         await createActivity({
@@ -417,10 +421,10 @@ export const AssetProfilePage = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries();
-      toast.success("Option expiry recorded");
+      toast.success(t("asset:profile.option_expiry_recorded"));
     },
     onError: (error) => {
-      toast.error("Failed to record option expiry", { description: String(error) });
+      toast.error(t("asset:profile.option_expiry_failed"), { description: String(error) });
     },
   });
 
@@ -489,17 +493,19 @@ export const AssetProfilePage = () => {
   );
 
   const overviewSubTabs = useMemo(() => {
-    const items: { value: OverviewSubTab; label: string }[] = [{ value: "about", label: "About" }];
+    const items: { value: OverviewSubTab; label: string }[] = [
+      { value: "about", label: t("asset:profile.about") },
+    ];
     if (assetLots.length > 0) {
-      items.push({ value: "holdings", label: "Holdings" });
+      items.push({ value: "holdings", label: t("asset:profile.holdings") });
     }
-    items.push({ value: "activities", label: "Activities" });
+    items.push({ value: "activities", label: t("asset:profile.activities") });
     if (hasManualSnapshots) {
-      items.push({ value: "snapshots", label: "Snapshots" });
+      items.push({ value: "snapshots", label: t("asset:profile.snapshots") });
     }
-    items.push({ value: "quotes", label: "Quotes" });
+    items.push({ value: "quotes", label: t("asset:profile.quotes") });
     return items;
-  }, [hasManualSnapshots, assetLots.length]);
+  }, [hasManualSnapshots, assetLots.length, t]);
 
   const handleSubTabChange = useCallback(
     (next: OverviewSubTab) => {
@@ -735,10 +741,10 @@ export const AssetProfilePage = () => {
   // Top toggle is only used for alternative assets (Overview | Values).
   const altToggleItems = useMemo(
     () => [
-      { value: "overview" as AssetTab, label: "Overview" },
-      { value: "history" as AssetTab, label: "Values" },
+      { value: "overview" as AssetTab, label: t("asset:profile.overview") },
+      { value: "history" as AssetTab, label: t("asset:profile.history") },
     ],
-    [],
+    [t],
   );
 
   // Content for each sub-tab. Shared between desktop and mobile renderers.
@@ -781,7 +787,7 @@ export const AssetProfilePage = () => {
                   setEditSheetOpen(true);
                 }}
               >
-                More
+                {t("asset:profile.more")}
               </Button>
             </>
           ) : (
@@ -794,7 +800,7 @@ export const AssetProfilePage = () => {
                 setEditSheetOpen(true);
               }}
             >
-              + Add classifications
+              {t("asset:profile.add_classifications")}
             </Button>
           )}
         </div>
@@ -802,13 +808,13 @@ export const AssetProfilePage = () => {
         {/* ISIN */}
         {profile?.isin && (
           <p className="text-muted-foreground text-sm">
-            <span className="font-medium">ISIN:</span> {profile.isin}
+            <span className="font-medium">{t("asset:profile.isin_label")}</span> {profile.isin}
           </p>
         )}
 
         {/* Notes section */}
         <p className="text-muted-foreground text-sm">
-          {assetProfile?.notes || holding?.instrument?.notes || "No notes added."}
+          {assetProfile?.notes || holding?.instrument?.notes || t("asset:profile.no_notes")}
         </p>
       </div>
     );
@@ -895,6 +901,7 @@ export const AssetProfilePage = () => {
     handleActivityEdit,
     handleActivityDelete,
     handleActivityDuplicate,
+    t,
   ]);
 
   // Build swipable tabs for mobile from sub-tabs.
@@ -978,21 +985,21 @@ export const AssetProfilePage = () => {
                 groups={
                   [
                     {
-                      title: "Manage",
+                      title: t("asset:profile.manage"),
                       items: [
                         {
                           icon: Icons.Download,
-                          label: "Update Price",
+                          label: t("asset:profile.update_price"),
                           onClick: handleUpdateQuotes,
                         },
                         {
                           icon: Icons.Refresh,
-                          label: "Refresh History",
+                          label: t("asset:profile.refresh_history"),
                           onClick: handleRefreshQuotesWithConfirm,
                         },
                         {
                           icon: Icons.Pencil,
-                          label: "Edit",
+                          label: t("asset:profile.edit"),
                           onClick: () => setEditSheetOpen(true),
                         },
                       ],
@@ -1025,13 +1032,13 @@ export const AssetProfilePage = () => {
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="secondary" className="gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-blue-500" />
-                  FX Rate
+                  {t("asset:profile.fx_rate")}
                 </Badge>
               </div>
 
               {/* Notes section */}
               <p className="text-muted-foreground text-sm">
-                {assetProfile?.notes || "No notes added."}
+                {assetProfile?.notes || t("asset:profile.no_notes")}
               </p>
             </div>
           )}
@@ -1071,18 +1078,19 @@ export const AssetProfilePage = () => {
       <Page>
         <PageHeader
           heading={assetId}
-          text={`Error loading data for ${assetId}`}
+          text={t("asset:profile.error_loading_data", { assetId })}
           onBack={handleBack}
         />
         <PageContent>
-          <p>
-            Could not load necessary information for this asset. Please check the asset ID or try
-            again later.
-          </p>
-          {isHoldingError && <p className="text-sm text-red-500">Holding fetch error.</p>}
-          {isQuotesError && <p className="text-sm text-red-500">Quote fetch error.</p>}
+          <p>{t("asset:profile.could_not_load")}</p>
+          {isHoldingError && (
+            <p className="text-sm text-red-500">{t("asset:profile.holding_fetch_error")}</p>
+          )}
+          {isQuotesError && (
+            <p className="text-sm text-red-500">{t("asset:profile.quote_fetch_error")}</p>
+          )}
           {isAssetProfileError && (
-            <p className="text-sm text-red-500">Asset profile fetch error.</p>
+            <p className="text-sm text-red-500">{t("asset:profile.asset_profile_fetch_error")}</p>
           )}
         </PageContent>
       </Page>
@@ -1124,35 +1132,35 @@ export const AssetProfilePage = () => {
                 isAltAsset && altHolding
                   ? ([
                       {
-                        title: "Valuation",
+                        title: t("asset:profile.valuation"),
                         items: [
                           {
                             icon: Icons.DollarSign,
-                            label: "Update Value",
+                            label: t("asset:profile.update_value"),
                             onClick: () => altAssetActions.openUpdateValuation(),
                           },
                         ],
                       },
                       {
-                        title: "Manage",
+                        title: t("asset:profile.manage"),
                         items: [
                           {
                             icon: Icons.Pencil,
-                            label: "Edit Details",
+                            label: t("asset:profile.edit_details"),
                             onClick: () => altAssetActions.openEditDetails(),
                           },
                           ...(altAssetActions.isLinkableAsset
                             ? [
                                 {
                                   icon: Icons.Link,
-                                  label: "Add Liability",
+                                  label: t("asset:profile.add_liability"),
                                   onClick: () => altAssetActions.openAddLiability(),
                                 },
                               ]
                             : []),
                           {
                             icon: Icons.Trash,
-                            label: "Delete",
+                            label: t("asset:profile.delete"),
                             onClick: () => altAssetActions.openDeleteConfirm(),
                           },
                         ],
@@ -1160,11 +1168,11 @@ export const AssetProfilePage = () => {
                     ] satisfies ActionPaletteGroup[])
                   : ([
                       {
-                        title: "Record Transaction",
+                        title: t("asset:profile.record_transaction"),
                         items: [
                           {
                             icon: Icons.TrendingUp,
-                            label: "Buy",
+                            label: t("asset:profile.buy"),
                             onClick: () =>
                               navigate(
                                 `/activities/manage?assetId=${encodeURIComponent(assetId)}&type=BUY`,
@@ -1172,7 +1180,7 @@ export const AssetProfilePage = () => {
                           },
                           {
                             icon: Icons.TrendingDown,
-                            label: "Sell",
+                            label: t("asset:profile.sell"),
                             onClick: () =>
                               navigate(
                                 `/activities/manage?assetId=${encodeURIComponent(assetId)}&type=SELL`,
@@ -1180,7 +1188,7 @@ export const AssetProfilePage = () => {
                           },
                           {
                             icon: Icons.Coins,
-                            label: "Dividend",
+                            label: t("asset:profile.dividend"),
                             onClick: () =>
                               navigate(
                                 `/activities/manage?assetId=${encodeURIComponent(assetId)}&type=DIVIDEND`,
@@ -1188,7 +1196,7 @@ export const AssetProfilePage = () => {
                           },
                           {
                             icon: Icons.Ellipsis,
-                            label: "Other",
+                            label: t("asset:profile.other"),
                             onClick: () =>
                               navigate(`/activities/manage?assetId=${encodeURIComponent(assetId)}`),
                           },
@@ -1196,7 +1204,7 @@ export const AssetProfilePage = () => {
                             ? [
                                 {
                                   icon: Icons.XCircle,
-                                  label: "Confirm Expiry",
+                                  label: t("asset:profile.confirm_expiry"),
                                   onClick: () => setConfirmExpiryOpen(true),
                                 },
                               ]
@@ -1204,21 +1212,21 @@ export const AssetProfilePage = () => {
                         ],
                       },
                       {
-                        title: "Manage",
+                        title: t("asset:profile.manage"),
                         items: [
                           {
                             icon: Icons.Download,
-                            label: "Update Price",
+                            label: t("asset:profile.update_price"),
                             onClick: handleUpdateQuotes,
                           },
                           {
                             icon: Icons.Refresh,
-                            label: "Refresh History",
+                            label: t("asset:profile.refresh_history"),
                             onClick: handleRefreshQuotesWithConfirm,
                           },
                           {
                             icon: Icons.Pencil,
-                            label: "Edit",
+                            label: t("asset:profile.edit"),
                             onClick: () => setEditSheetOpen(true),
                           },
                         ],
@@ -1258,7 +1266,7 @@ export const AssetProfilePage = () => {
             </h1>
             <p className="text-muted-foreground flex items-center gap-1.5 text-xs leading-tight md:text-sm">
               {isAltAsset && altHolding ? (
-                getAlternativeAssetKindLabel(altHolding.kind)
+                getAlternativeAssetKindLabel(altHolding.kind, t)
               ) : (
                 <>
                   {assetProfile?.displayCode ?? holding?.instrument?.symbol ?? assetId}
@@ -1282,7 +1290,7 @@ export const AssetProfilePage = () => {
               withMobileNavOffset
               items={[
                 {
-                  name: "Overview",
+                  name: t("asset:profile.overview"),
                   content: (
                     <AlternativeAssetContent
                       assetId={assetId}
@@ -1295,7 +1303,7 @@ export const AssetProfilePage = () => {
                   ),
                 },
                 {
-                  name: "Values",
+                  name: t("asset:profile.history"),
                   content: (
                     <AlternativeAssetContent
                       assetId={assetId}
@@ -1309,11 +1317,11 @@ export const AssetProfilePage = () => {
                 },
               ]}
               displayToggle={true}
-              onViewChange={(_index: number, name: string) => {
-                const tabValue = name.toLowerCase() === "values" ? "history" : "overview";
+              onViewChange={(index: number) => {
+                const tabValue: AssetTab = index === 1 ? "history" : "overview";
                 if (tabValue === activeTab) return;
                 triggerHaptic();
-                setActiveTab(tabValue as AssetTab);
+                setActiveTab(tabValue);
                 navigate(`${location.pathname}?tab=${tabValue}`, { replace: true });
               }}
             />
@@ -1410,21 +1418,20 @@ export const AssetProfilePage = () => {
       <AlertDialog open={confirmExpiryOpen} onOpenChange={setConfirmExpiryOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Confirm option expiry</AlertDialogTitle>
+            <AlertDialogTitle>{t("asset:profile.confirm_option_expiry_title")}</AlertDialogTitle>
             <AlertDialogDescription>
-              This will record the option as expired worthless, removing the position with no cash
-              effect. This action cannot be easily undone.
+              {t("asset:profile.confirm_option_expiry_description")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("common:cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 confirmExpiryMutation.mutate();
                 setConfirmExpiryOpen(false);
               }}
             >
-              Confirm Expiry
+              {t("asset:profile.confirm_expiry")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1490,14 +1497,14 @@ function AlternativeAssetIcon({ kind, size = 20 }: { kind: string; size?: number
 }
 
 // Helper to get display label for alternative asset kinds
-function getAlternativeAssetKindLabel(kind: string): string {
+function getAlternativeAssetKindLabel(kind: string, t: TFunction): string {
   const labels: Record<string, string> = {
-    property: "Property",
-    vehicle: "Vehicle",
-    collectible: "Collectible",
-    precious: "Precious Metal",
-    liability: "Liability",
-    other: "Other Asset",
+    property: t("asset:profile.kind.property"),
+    vehicle: t("asset:profile.kind.vehicle"),
+    collectible: t("asset:profile.kind.collectible"),
+    precious: t("asset:profile.kind.precious_metal"),
+    liability: t("asset:profile.kind.liability"),
+    other: t("asset:profile.kind.other"),
   };
   return labels[kind.toLowerCase()] || kind;
 }

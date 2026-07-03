@@ -11,6 +11,7 @@ import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@wealthfolio/ui/components/ui/tooltip";
 import { useMemo, useSyncExternalStore, type FC } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { Tooltip as ChartTooltip, type TreemapNode, Treemap } from "recharts";
 
@@ -42,22 +43,27 @@ function subscribeToDarkModeChange(onStoreChange: () => void): () => void {
 const DisplayModeToggle: React.FC<{
   displayMode: DisplayMode;
   onToggle: () => void;
-}> = ({ displayMode, onToggle }) => (
-  <Tooltip>
-    <TooltipTrigger asChild>
-      <Button variant="secondary" size="icon-sm" className="rounded-full" onClick={onToggle}>
-        {displayMode === "symbol" ? (
-          <Icons.Hash className="h-4 w-4" />
-        ) : (
-          <Icons.Type className="h-4 w-4" />
-        )}
-      </Button>
-    </TooltipTrigger>
-    <TooltipContent>
-      <p>{displayMode === "symbol" ? "Show full names" : "Show symbols"}</p>
-    </TooltipContent>
-  </Tooltip>
-);
+}> = ({ displayMode, onToggle }) => {
+  const { t } = useTranslation();
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="secondary" size="icon-sm" className="rounded-full" onClick={onToggle}>
+          {displayMode === "symbol" ? (
+            <Icons.Hash className="h-4 w-4" />
+          ) : (
+            <Icons.Type className="h-4 w-4" />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>
+          {displayMode === "symbol" ? t("holdings:show_full_names") : t("holdings:show_symbols")}
+        </p>
+      </TooltipContent>
+    </Tooltip>
+  );
+};
 
 // Treemap heatmap palette — symbols colored by return.
 // Matches the "Allocation Concept E - Unified" design: gains lerp from a light
@@ -239,6 +245,7 @@ interface TooltipProps {
 }
 
 const CompositionTooltip = ({ active, payload, settings }: TooltipProps) => {
+  const { t } = useTranslation();
   if (active && payload?.length) {
     const data = payload[0].payload;
     const value = payload[0].value;
@@ -265,7 +272,9 @@ const CompositionTooltip = ({ active, payload, settings }: TooltipProps) => {
           {/* Market Value */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground pr-6 text-sm">Market Value</span>
+              <span className="text-muted-foreground pr-6 text-sm">
+                {t("holdings:market_value_label")}
+              </span>
               <span className="text-sm font-semibold">
                 {formatAmount(value, settings?.baseCurrency ?? "USD")}
               </span>
@@ -273,7 +282,7 @@ const CompositionTooltip = ({ active, payload, settings }: TooltipProps) => {
 
             {/* Gain/Loss */}
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground text-sm">Return</span>
+              <span className="text-muted-foreground text-sm">{t("holdings:return")}</span>
               <span
                 className={cn(
                   "flex items-center gap-1 text-sm font-semibold",
@@ -303,6 +312,7 @@ export function PortfolioComposition({ holdings, isLoading }: PortfolioCompositi
     "symbol",
   );
   const { settings } = useSettingsContext();
+  const { t } = useTranslation();
   const isDark = useSyncExternalStore(subscribeToDarkModeChange, getDarkModeSnapshot, () => false);
 
   const toggleDisplayMode = () => {
@@ -352,7 +362,7 @@ export function PortfolioComposition({ holdings, isLoading }: PortfolioCompositi
           <div className="flex items-center space-x-2">
             <Icons.LayoutDashboard className="text-muted-foreground h-4 w-4" />
             <CardTitle className="text-muted-foreground text-sm font-medium uppercase tracking-wider">
-              Composition
+              {t("holdings:composition")}
             </CardTitle>
           </div>
           <div className="flex items-center space-x-3">
@@ -373,14 +383,14 @@ export function PortfolioComposition({ holdings, isLoading }: PortfolioCompositi
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <div className="flex items-center space-x-2">
             <Icons.LayoutDashboard className="text-muted-foreground h-4 w-4" />
-            <CardTitle className="text-md font-medium">Composition</CardTitle>
+            <CardTitle className="text-md font-medium">{t("holdings:composition")}</CardTitle>
           </div>
         </CardHeader>
         <CardContent className="flex h-[500px] items-center justify-center">
           <EmptyPlaceholder
             icon={<Icons.BarChart className="h-10 w-10" />}
-            title="No holdings data"
-            description="There is no holdings data available for your portfolio."
+            title={t("holdings:no_holdings_data")}
+            description={t("holdings:no_holdings_data_desc")}
           />
         </CardContent>
       </Card>
@@ -392,16 +402,16 @@ export function PortfolioComposition({ holdings, isLoading }: PortfolioCompositi
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <div className="flex items-center space-x-2">
           <CardTitle className="text-muted-foreground text-sm font-medium uppercase tracking-wider">
-            Composition
+            {t("holdings:composition")}
           </CardTitle>
         </div>
         <div className="flex items-center space-x-3">
           <DisplayModeToggle displayMode={displayMode} onToggle={toggleDisplayMode} />
           <AnimatedToggleGroup
             items={[
-              { value: "daily", label: "Daily" },
-              { value: "pnl", label: "P&L" },
-              { value: "return", label: "Return" },
+              { value: "daily", label: t("holdings:daily") },
+              { value: "pnl", label: t("holdings:pnl") },
+              { value: "return", label: t("holdings:return") },
             ]}
             value={returnType}
             onValueChange={(value: ReturnType) => setReturnType(value)}

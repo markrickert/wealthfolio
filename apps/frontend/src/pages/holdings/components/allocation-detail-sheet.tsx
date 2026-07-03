@@ -10,6 +10,7 @@ import {
 import { AmountDisplay, Skeleton } from "@wealthfolio/ui";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { useState, useCallback, useEffect } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
@@ -45,6 +46,7 @@ export function AllocationDetailSheet({
   baseCurrency,
   initialCategoryId,
 }: AllocationDetailSheetProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [selectedCategoryName, setSelectedCategoryName] = useState<string | null>(null);
@@ -203,7 +205,7 @@ export function AllocationDetailSheet({
         }}
       >
         <SheetHeader className="mt-4">
-          <SheetTitle>{allocation?.taxonomyName ?? "Allocation"}</SheetTitle>
+          <SheetTitle>{allocation?.taxonomyName ?? t("holdings:allocation")}</SheetTitle>
         </SheetHeader>
 
         <div className="flex-1 space-y-4 overflow-y-auto py-4">
@@ -327,11 +329,16 @@ export function AllocationDetailSheet({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-medium">
-                  Holdings in{" "}
-                  <span style={{ color: selectedColor ?? undefined }}>{selectedCategoryName}</span>
+                  <Trans
+                    i18nKey="holdings:holdings_in_category"
+                    values={{ category: selectedCategoryName }}
+                    components={{
+                      1: <span style={{ color: selectedColor ?? undefined }} />,
+                    }}
+                  />
                 </h3>
                 <Button variant="ghost" size="sm" onClick={handleClearSelection}>
-                  Clear
+                  {t("common:clear")}
                 </Button>
               </div>
 
@@ -355,7 +362,7 @@ export function AllocationDetailSheet({
                 <div className="space-y-3 py-4 text-center">
                   <div className="space-y-1">
                     <p className="text-muted-foreground text-sm">
-                      Could not load holdings for this category.
+                      {t("holdings:could_not_load_holdings")}
                     </p>
                     {holdingsQueryError?.message && (
                       <p className="text-muted-foreground text-xs">{holdingsQueryError.message}</p>
@@ -366,7 +373,7 @@ export function AllocationDetailSheet({
                     size="sm"
                     onClick={() => void refetchAllocationHoldings()}
                   >
-                    Retry
+                    {t("common:retry")}
                   </Button>
                 </div>
               ) : holdings && holdings.length > 0 ? (
@@ -379,7 +386,8 @@ export function AllocationDetailSheet({
                       ? (holding.accountName ?? holding.symbol)
                       : holding.symbol;
                     const secondaryLabel = isCash
-                      ? (holding.name ?? `Cash (${holding.currency})`)
+                      ? (holding.name ??
+                        t("holdings:cash_with_currency", { currency: holding.currency }))
                       : (holding.name ?? holding.symbol);
                     const rowKey = isCash
                       ? [
@@ -421,21 +429,23 @@ export function AllocationDetailSheet({
                 </div>
               ) : (
                 <p className="text-muted-foreground py-4 text-center text-sm">
-                  No holdings found in this category.
+                  {t("holdings:no_holdings_in_category")}
                 </p>
               )}
             </div>
           )}
 
           {!hasData && (
-            <p className="text-muted-foreground py-8 text-center">No allocation data available.</p>
+            <p className="text-muted-foreground py-8 text-center">
+              {t("holdings:no_allocation_data")}
+            </p>
           )}
         </div>
 
         <SheetFooter className="border-t pt-4">
           <SheetClose asChild>
             <Button variant="outline" className="w-full">
-              Close
+              {t("holdings:close")}
             </Button>
           </SheetClose>
         </SheetFooter>

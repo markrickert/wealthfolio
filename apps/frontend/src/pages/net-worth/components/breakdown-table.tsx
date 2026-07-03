@@ -6,6 +6,7 @@ import {
 } from "@wealthfolio/ui/components/ui/collapsible";
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { CompactAmount } from "./compact-amount";
 import { CompositionBar } from "./composition-bar";
 import {
@@ -120,6 +121,7 @@ export function BreakdownTable({
   periodLabel,
   onSelect,
 }: BreakdownTableProps) {
+  const { t } = useTranslation();
   const hasLiabilities = data.liabilities.total > 0 || data.liabilities.breakdown.length > 0;
   const netWorthChange = deriveChange(
     history.map((point) => point.netWorth),
@@ -129,7 +131,10 @@ export function BreakdownTable({
   const [liabilitiesOpen, setLiabilitiesOpen] = useState(true);
 
   return (
-    <DashboardCard title="Breakdown" meta={`Change over ${periodLabel}`}>
+    <DashboardCard
+      title={t("insights:networth.breakdown")}
+      meta={t("insights:networth.breakdown_table.change_over", { period: periodLabel })}
+    >
       {/* Assets — collapsible */}
       <Collapsible open={assetsOpen} onOpenChange={setAssetsOpen}>
         <CollapsibleTrigger className="flex w-full items-center justify-between text-left">
@@ -137,7 +142,7 @@ export function BreakdownTable({
             <Icons.ChevronRight
               className={`text-muted-foreground h-3.5 w-3.5 transition-transform ${assetsOpen ? "rotate-90" : ""}`}
             />
-            Assets
+            {t("insights:networth.breakdown_table.assets")}
           </span>
           <span className="text-success text-sm font-semibold tabular-nums">
             <CompactAmount value={data.assets.total} currency={currency} />
@@ -151,10 +156,14 @@ export function BreakdownTable({
 
           {/* Column labels */}
           <div className={`${ROW_GRID} pt-2`}>
-            <span className={CARD_LABEL}>Category</span>
+            <span className={CARD_LABEL}>{t("insights:networth.breakdown_table.category")}</span>
             <span className={`${CARD_LABEL} hidden text-right md:block`}>%</span>
-            <span className={`${CARD_LABEL} justify-self-end`}>Value</span>
-            <span className={`${CARD_LABEL} justify-self-end`}>Δ {periodLabel}</span>
+            <span className={`${CARD_LABEL} justify-self-end`}>
+              {t("insights:networth.breakdown_table.value")}
+            </span>
+            <span className={`${CARD_LABEL} justify-self-end`}>
+              {t("insights:networth.breakdown_table.delta_period", { period: periodLabel })}
+            </span>
           </div>
 
           <div className="divide-border/40 divide-y">
@@ -203,7 +212,7 @@ export function BreakdownTable({
               <Icons.ChevronRight
                 className={`text-muted-foreground h-3.5 w-3.5 transition-transform ${liabilitiesOpen ? "rotate-90" : ""}`}
               />
-              Liabilities
+              {t("insights:networth.breakdown_table.liabilities")}
             </span>
             <span className="text-destructive text-sm font-semibold tabular-nums">
               -<CompactAmount value={data.liabilities.total} currency={currency} />
@@ -252,7 +261,7 @@ export function BreakdownTable({
       <div className={`${ROW_GRID} border-border/60 mt-3 border-t pt-3`}>
         <span className="flex items-center gap-1.5 text-sm font-bold">
           <span className="text-muted-foreground w-3.5 shrink-0 text-center font-normal">=</span>
-          Net Worth
+          {t("insights:networth.breakdown_table.net_worth")}
         </span>
         <span className="hidden md:block" />
         <span className="justify-self-end text-sm font-bold tabular-nums">

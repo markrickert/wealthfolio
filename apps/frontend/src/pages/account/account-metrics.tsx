@@ -22,6 +22,7 @@ import {
   TooltipTrigger,
 } from "@wealthfolio/ui";
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useBalanceUpdate } from "./use-balance-update";
 
@@ -32,6 +33,7 @@ interface EditableBalanceProps {
 }
 
 const EditableBalance: React.FC<EditableBalanceProps> = ({ account, initialBalance, currency }) => {
+  const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const [balance, setBalance] = useState(initialBalance);
   const { updateBalance, isPending } = useBalanceUpdate(account);
@@ -72,7 +74,7 @@ const EditableBalance: React.FC<EditableBalanceProps> = ({ account, initialBalan
           </div>
         </TooltipTrigger>
         <TooltipContent>
-          <p>Click to update the cash balance</p>
+          <p>{t("account:click_to_update_cash_balance")}</p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
@@ -107,6 +109,7 @@ interface CashCurrencyBreakdownProps {
 }
 
 function CashCurrencyBreakdown({ cashCurrencySplit, displayCurrency }: CashCurrencyBreakdownProps) {
+  const { t } = useTranslation();
   const rows =
     cashCurrencySplit?.filter((split) => Math.abs(split.valueLocal ?? split.valueBase) > 0) ?? [];
 
@@ -131,7 +134,7 @@ function CashCurrencyBreakdown({ cashCurrencySplit, displayCurrency }: CashCurre
           </span>
         );
       })}
-      {remainingCount > 0 && <span>+{remainingCount} more</span>}
+      {remainingCount > 0 && <span>{t("account:more_count", { count: remainingCount })}</span>}
     </div>
   );
 }
@@ -146,10 +149,12 @@ const AccountMetrics: React.FC<AccountMetricsProps> = ({
   isPerformanceLoading,
   performanceError,
   hideBalanceEdit = false,
-  balanceLabel = "Cash Balance",
+  balanceLabel,
   isHoldingsMode = false,
   balanceWarning,
 }) => {
+  const { t } = useTranslation();
+  const resolvedBalanceLabel = balanceLabel ?? t("account:cash_balance");
   // Full skeleton only when valuation data itself is loading
   if (isLoading || !valuation)
     return (
@@ -190,7 +195,7 @@ const AccountMetrics: React.FC<AccountMetricsProps> = ({
   const unrealizedPnlValue = canShowUnrealizedPnl ? (
     <GainAmount value={unrealizedPnl} currency={displayCurrency} className="text-sm" />
   ) : (
-    <span className="text-muted-foreground text-xs">N/A</span>
+    <span className="text-muted-foreground text-xs">{t("account:not_available")}</span>
   );
 
   // Book value includes position cost basis plus cash.
@@ -200,7 +205,7 @@ const AccountMetrics: React.FC<AccountMetricsProps> = ({
   const rows = isHoldingsMode
     ? [
         {
-          label: "Investments",
+          label: t("account:investments"),
           value: (
             <PrivacyAmount
               value={valuation?.investmentMarketValue || 0}
@@ -209,14 +214,14 @@ const AccountMetrics: React.FC<AccountMetricsProps> = ({
           ),
         },
         {
-          label: "Book Value",
+          label: t("account:book_value"),
           value: <PrivacyAmount value={holdingsBookValue} currency={displayCurrency} />,
         },
         {
-          label: "Period P&L",
+          label: t("account:period_pnl"),
           value:
             performancePnl == null ? (
-              <span className="text-muted-foreground text-xs">N/A</span>
+              <span className="text-muted-foreground text-xs">{t("account:not_available")}</span>
             ) : (
               <span className="flex items-center gap-1">
                 <GainAmount
@@ -225,7 +230,9 @@ const AccountMetrics: React.FC<AccountMetricsProps> = ({
                   className="text-sm"
                 />
                 {performanceReturn == null ? (
-                  <span className="text-muted-foreground text-xs">N/A</span>
+                  <span className="text-muted-foreground text-xs">
+                    {t("account:not_available")}
+                  </span>
                 ) : (
                   <GainPercent value={performanceReturn} variant="badge" className="text-xs" />
                 )}
@@ -235,7 +242,7 @@ const AccountMetrics: React.FC<AccountMetricsProps> = ({
       ]
     : [
         {
-          label: "Investments",
+          label: t("account:investments"),
           value: (
             <PrivacyAmount
               value={valuation?.investmentMarketValue || 0}
@@ -244,21 +251,21 @@ const AccountMetrics: React.FC<AccountMetricsProps> = ({
           ),
         },
         {
-          label: "Net Contribution",
+          label: t("account:net_contribution"),
           value: (
             <PrivacyAmount value={valuation?.netContribution || 0} currency={displayCurrency} />
           ),
         },
         {
-          label: "Cost Basis",
+          label: t("account:cost_basis"),
           value: <PrivacyAmount value={valuation?.costBasis || 0} currency={displayCurrency} />,
         },
         {
-          label: "All-time Return",
+          label: t("account:all_time_return"),
           value: allTimeReturnValue,
         },
         {
-          label: "Unrealized P&L",
+          label: t("account:unrealized_pnl"),
           value: unrealizedPnlValue,
         },
       ];
@@ -271,7 +278,7 @@ const AccountMetrics: React.FC<AccountMetricsProps> = ({
   return (
     <Card className={cn("flex flex-col", className)}>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-lg font-bold">{balanceLabel}</CardTitle>
+        <CardTitle className="text-lg font-bold">{resolvedBalanceLabel}</CardTitle>
         <div className="flex items-center gap-2">
           {balanceWarning ? (
             <TooltipProvider>
@@ -339,23 +346,25 @@ const AccountMetrics: React.FC<AccountMetricsProps> = ({
       <CardFooter className="mt-auto flex flex-col items-start gap-1 px-3 pb-3 pt-0">
         {performanceError ? (
           <p className="text-muted-foreground m-0 p-0 text-xs">
-            {lastUpdated && <>Last updated: {lastUpdated}</>}
+            {lastUpdated && <>{t("account:last_updated", { date: lastUpdated })}</>}
           </p>
         ) : isHoldingsMode ? (
           <>
             <p className="text-muted-foreground m-0 p-0 text-xs">
-              TWR and IRR require transaction tracking.
+              {t("account:twr_irr_require_transactions")}
             </p>
             {lastUpdated && (
-              <p className="text-muted-foreground m-0 p-0 text-xs">Last updated: {lastUpdated}</p>
+              <p className="text-muted-foreground m-0 p-0 text-xs">
+                {t("account:last_updated", { date: lastUpdated })}
+              </p>
             )}
           </>
         ) : (
           <p className="text-muted-foreground m-0 p-0 text-xs">
             {hasPerformancePeriod
-              ? `From ${formattedStartDate} to ${formattedEndDate}`
+              ? t("account:from_to", { start: formattedStartDate, end: formattedEndDate })
               : lastUpdated
-                ? `Last updated: ${lastUpdated}`
+                ? t("account:last_updated", { date: lastUpdated })
                 : ""}
           </p>
         )}

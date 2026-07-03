@@ -6,6 +6,7 @@ import { QueryKeys } from "@/lib/query-keys";
 import { ContributionLimit, DepositsCalculation } from "@/lib/types";
 import { useQuery } from "@tanstack/react-query";
 import { PrivacyAmount } from "@wealthfolio/ui";
+import { Trans, useTranslation } from "react-i18next";
 
 interface AccountContributionLimitProps {
   accountId: string;
@@ -63,6 +64,7 @@ function AccountContributionLimitItem({
   totalDeposits: number;
   baseCurrency: string;
 }) {
+  const { t } = useTranslation();
   const progressValue = totalDeposits ? totalDeposits : 0;
   const progressPercentageNumber =
     limit.limitAmount > 0 ? (progressValue / limit.limitAmount) * 100 : 0;
@@ -86,24 +88,40 @@ function AccountContributionLimitItem({
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-sm font-semibold">
-              {limit.contributionYear} {groupName} limit
+              {t("account:contribution.year_limit", {
+                year: limit.contributionYear,
+                group: groupName,
+              })}
             </p>
             <p className="text-muted-foreground text-xs">
-              <PrivacyAmount value={progressValue} currency={baseCurrency} /> of{" "}
-              <PrivacyAmount value={limit.limitAmount} currency={baseCurrency} /> used
+              <Trans
+                i18nKey="account:contribution.used"
+                components={{
+                  used: <PrivacyAmount value={progressValue} currency={baseCurrency} />,
+                  limit: <PrivacyAmount value={limit.limitAmount} currency={baseCurrency} />,
+                }}
+              />
             </p>
           </div>
           <div className={`shrink-0 text-right text-xs font-semibold ${statusClassName}`}>
             {isOverLimit ? (
-              <>
-                Over by <PrivacyAmount value={Math.abs(remainingAmount)} currency={baseCurrency} />
-              </>
+              <Trans
+                i18nKey="account:contribution.over_by"
+                components={{
+                  amount: (
+                    <PrivacyAmount value={Math.abs(remainingAmount)} currency={baseCurrency} />
+                  ),
+                }}
+              />
             ) : isAtLimit ? (
-              "Limit reached"
+              t("account:contribution.limit_reached")
             ) : (
-              <>
-                <PrivacyAmount value={remainingAmount} currency={baseCurrency} /> left
-              </>
+              <Trans
+                i18nKey="account:contribution.left"
+                components={{
+                  amount: <PrivacyAmount value={remainingAmount} currency={baseCurrency} />,
+                }}
+              />
             )}
           </div>
         </div>

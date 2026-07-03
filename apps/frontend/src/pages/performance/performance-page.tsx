@@ -61,6 +61,7 @@ import {
 } from "@wealthfolio/ui";
 import { isSameDay, subDays, subMonths } from "date-fns";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AccountSelector } from "../../components/account-selector";
 import { AccountSelectorMobile } from "../../components/account-selector-mobile";
 import { BenchmarkSymbolSelectorMobile } from "../../components/benchmark-symbol-selector-mobile";
@@ -76,19 +77,24 @@ import {
   migratePerformanceSelectedItems,
 } from "./performance-selection";
 
+type TFunction = ReturnType<typeof useTranslation>["t"];
+
 function chartMetricForResult(result: PerformanceResult): PerformanceMetric {
   return result.mode === "valueReturn" ? "valueReturn" : "twr";
 }
 
-function trackingModeBadge(result: PerformanceResult): {
+function trackingModeBadge(
+  result: PerformanceResult,
+  t: TFunction,
+): {
   label: string;
   variant: "outline" | "warning";
 } | null {
   if (result.isMixedTrackingMode) {
-    return { label: "Mixed mode", variant: "warning" };
+    return { label: t("performance:tracking_mode.mixed"), variant: "warning" };
   }
   if (result.isHoldingsMode || result.mode === "valueReturn") {
-    return { label: "Holdings mode", variant: "outline" };
+    return { label: t("performance:tracking_mode.holdings"), variant: "outline" };
   }
   return null;
 }
@@ -103,47 +109,51 @@ interface ChartExclusion {
 function chartExclusion(
   result: PerformanceResult | undefined,
   metric: PerformanceMetric,
+  t: TFunction,
 ): ChartExclusion {
   if (!result) {
     return {
       kind: "missingData",
-      message: "Performance data is not available for this selection.",
+      message: t("performance:exclusion.no_data"),
     };
   }
   if (!result.series.length) {
     return {
       kind: "missingData",
-      message: "No chart series is available for this period.",
+      message: t("performance:exclusion.no_series"),
     };
   }
 
   if (metric === "twr" && result.mode === "valueReturn") {
     return {
       kind: "differentReturnMethod",
-      message: "Holdings-mode accounts use Value Return and are not plotted with TWR.",
+      message: t("performance:exclusion.holdings_not_twr"),
     };
   }
   if (metric === "valueReturn" && result.mode === "timeWeighted") {
     return {
       kind: "differentReturnMethod",
-      message: "Transaction-mode accounts use TWR and are not plotted with Value Return.",
+      message: t("performance:exclusion.transaction_not_value"),
     };
   }
 
   return {
     kind: "dateOverlap",
-    message: "No overlapping chart dates with the selected item.",
+    message: t("performance:exclusion.no_overlap"),
   };
 }
 
-function comparisonNoticeMessage(kinds: ChartExclusionKind[]): string {
+function comparisonNoticeMessage(kinds: ChartExclusionKind[], t: TFunction): string {
   if (kinds.includes("differentReturnMethod")) {
-    return "Different return methods cannot share the same chart. Select a muted chip to switch the chart mode.";
+    return t("performance:comparison_notice.different_methods");
   }
-  return "These selected items do not have enough overlapping chart dates with the active chart.";
+  return t("performance:comparison_notice.not_enough_overlap");
 }
 
-function metricPresentation(metric: PerformanceMetric): {
+function metricPresentation(
+  metric: PerformanceMetric,
+  t: TFunction,
+): {
   label: string;
   mobileLabel: string;
   infoText: string;
@@ -151,49 +161,49 @@ function metricPresentation(metric: PerformanceMetric): {
   switch (metric) {
     case "twr":
       return {
-        label: "Time-Weighted Return",
-        mobileLabel: "TWR",
+        label: t("performance:metric.time_weighted_return"),
+        mobileLabel: t("performance:metric.twr_short"),
         infoText: TIME_WEIGHTED_RETURN_INFO,
       };
     case "irr":
       return {
-        label: "Money-Weighted Return",
-        mobileLabel: "MWR",
+        label: t("performance:metric.money_weighted_return"),
+        mobileLabel: t("performance:metric.mwr_short"),
         infoText: MONEY_WEIGHTED_RETURN_INFO,
       };
     case "valueReturn":
       return {
-        label: "Value Return",
-        mobileLabel: "Value",
+        label: t("performance:metric.value_return"),
+        mobileLabel: t("performance:metric.value_short"),
         infoText: VALUE_RETURN_INFO,
       };
     case "volatility":
       return {
-        label: "Volatility",
-        mobileLabel: "Vol",
+        label: t("performance:metric.volatility"),
+        mobileLabel: t("performance:metric.vol_short"),
         infoText: volatilityInfo,
       };
     case "drawdown":
       return {
-        label: "Max Drawdown",
-        mobileLabel: "Drawdown",
+        label: t("performance:metric.max_drawdown"),
+        mobileLabel: t("performance:metric.drawdown_short"),
         infoText: maxDrawdownInfo,
       };
   }
 }
 
-function stripReturnLabel(label: string | undefined): string {
+function stripReturnLabel(label: string | undefined, t: TFunction): string {
   switch (label) {
-    case "Time-Weighted Return":
-      return "Time-weighted";
-    case "Money-Weighted Return":
-      return "Money-weighted";
-    case "Value Return":
-      return "Value return";
-    case "Price Return":
-      return "Price return";
+    case t("performance:metric.time_weighted_return"):
+      return t("performance:metric.time_weighted_short");
+    case t("performance:metric.money_weighted_return"):
+      return t("performance:metric.money_weighted_short");
+    case t("performance:metric.value_return"):
+      return t("performance:metric.value_return_short");
+    case t("performance:metric.price_return"):
+      return t("performance:metric.price_return_short");
     default:
-      return label ?? "Return";
+      return label ?? t("performance:metric.return");
   }
 }
 
@@ -288,9 +298,13 @@ function presentWarning(text: string, namesById: Map<string, string>): string {
   return formatWarningNumbers(humanizeAccountIds(text, namesById));
 }
 
-function presentMoneyWeightedWarning(text: string, namesById: Map<string, string>): string {
+function presentMoneyWeightedWarning(
+  text: string,
+  namesById: Map<string, string>,
+  t: TFunction,
+): string {
   return presentWarning(text, namesById)
-    .replace(/\bXIRR\b/gi, "annualized MWR")
+    .replace(/\bXIRR\b/gi, t("performance:metric.annualized_mwr"))
     .replace(/\bIRR\b/g, "MWR");
 }
 
@@ -303,8 +317,13 @@ function MetricValue({
   className?: string;
   tone?: "gain" | "neutral";
 }) {
+  const { t } = useTranslation();
   if (value == null) {
-    return <span className={cn(className, "text-muted-foreground/50 font-normal")}>N/A</span>;
+    return (
+      <span className={cn(className, "text-muted-foreground/50 font-normal")}>
+        {t("performance:not_available")}
+      </span>
+    );
   }
 
   if (tone === "neutral") {
@@ -434,6 +453,7 @@ interface StripHelpItem {
 }
 
 function StripHelpPopover({ items }: { items: StripHelpItem[] }) {
+  const { t } = useTranslation();
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -441,7 +461,7 @@ function StripHelpPopover({ items }: { items: StripHelpItem[] }) {
           variant="ghost"
           size="icon"
           className="text-muted-foreground hover:text-foreground absolute right-0 top-0 h-6 w-6 rounded-full"
-          aria-label="Performance metric explanations"
+          aria-label={t("performance:help.aria_label")}
         >
           <Icons.Info className="h-3.5 w-3.5" />
         </Button>
@@ -449,9 +469,9 @@ function StripHelpPopover({ items }: { items: StripHelpItem[] }) {
       <PopoverContent className="w-[34rem] max-w-[calc(100vw-2rem)] p-0" side="bottom" align="end">
         <div className="space-y-4 p-5">
           <div>
-            <div className="text-sm font-semibold">Performance metrics</div>
+            <div className="text-sm font-semibold">{t("performance:help.title")}</div>
             <div className="text-muted-foreground mt-1 text-xs">
-              Explanations and calculation notes for the selected item.
+              {t("performance:help.description")}
             </div>
           </div>
           <div className="space-y-3">
@@ -580,7 +600,7 @@ function AttributionDetailMetric({
   dateRangeLabel,
   isMobile,
   sectionTitle,
-  label = "Period Gain/Loss",
+  label,
   showLabelIcon = true,
   className,
   labelClassName,
@@ -599,7 +619,9 @@ function AttributionDetailMetric({
   valueClassName?: string;
   align?: "left" | "center" | "right";
 }) {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
+  const resolvedLabel = label ?? t("performance:attribution.period_gain_loss");
   if (!result || result.mode === "symbolPriceBased") return null;
   const periodPnl = performancePeriodPnl(result);
   if (periodPnl == null) return null;
@@ -607,46 +629,46 @@ function AttributionDetailMetric({
   const currency = result.scope.currency;
   const driverRows: AttributionRow[] = [
     {
-      label: "Unrealized P&L",
+      label: t("performance:attribution.unrealized_pnl"),
       value: Number(result.attribution.unrealizedPnlChange),
-      description: "Profit and loss from open positions",
+      description: t("performance:attribution.unrealized_pnl_desc"),
     },
     {
-      label: "Realized P&L",
+      label: t("performance:attribution.realized_pnl"),
       value: Number(result.attribution.realizedPnl),
-      description: "Profit and loss from closed positions",
+      description: t("performance:attribution.realized_pnl_desc"),
     },
     {
-      label: "Income",
+      label: t("performance:attribution.income"),
       value: Number(result.attribution.income),
-      description: "Dividends and interest received",
+      description: t("performance:attribution.income_desc"),
     },
     {
-      label: "FX effect",
+      label: t("performance:attribution.fx_effect"),
       value: Number(result.attribution.fxEffect),
-      description: "Gain or loss from currency conversion",
+      description: t("performance:attribution.fx_effect_desc"),
     },
     {
-      label: "Fees",
+      label: t("performance:attribution.fees"),
       value: -Number(result.attribution.fees),
-      description: "Trading commissions and account fees",
+      description: t("performance:attribution.fees_desc"),
     },
     {
-      label: "Taxes",
+      label: t("performance:attribution.taxes"),
       value: -Number(result.attribution.taxes),
-      description: "Tax withholdings on income",
+      description: t("performance:attribution.taxes_desc"),
     },
   ];
   const flowRows: AttributionRow[] = [
     {
-      label: "Contributions",
+      label: t("performance:attribution.contributions"),
       value: Number(result.attribution.contributions),
-      description: "Cash you added to the account",
+      description: t("performance:attribution.contributions_desc"),
     },
     {
-      label: "Distributions",
+      label: t("performance:attribution.distributions"),
       value: -Number(result.attribution.distributions),
-      description: "Cash withdrawn from the account",
+      description: t("performance:attribution.distributions_desc"),
     },
   ];
 
@@ -661,7 +683,7 @@ function AttributionDetailMetric({
         labelClassName,
       )}
     >
-      <span>{label}</span>
+      <span>{resolvedLabel}</span>
       {showLabelIcon && <Icons.Info className="h-3 w-3" />}
     </div>
   );
@@ -729,7 +751,7 @@ function AttributionDetailMetric({
         <SheetHeader className="border-border border-b px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 space-y-2">
-              <SheetTitle className="text-xl">Attribution</SheetTitle>
+              <SheetTitle className="text-xl">{t("performance:attribution.title")}</SheetTitle>
               <SheetDescription className="truncate">
                 {[itemName, dateRangeLabel].filter(Boolean).join(" · ")}
               </SheetDescription>
@@ -741,13 +763,13 @@ function AttributionDetailMetric({
                 className="text-muted-foreground h-8 w-8 shrink-0"
               >
                 <Icons.X className="h-4 w-4" />
-                <span className="sr-only">Close attribution</span>
+                <span className="sr-only">{t("performance:attribution.close")}</span>
               </Button>
             </SheetClose>
           </div>
           <div className="pt-3">
             <div className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-              Period gain/loss
+              {t("performance:attribution.period_gain_loss_lower")}
             </div>
             <AttributionAmount
               value={periodPnl}
@@ -759,20 +781,22 @@ function AttributionDetailMetric({
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-2">
           <div className="py-3.5">
             <div className="text-muted-foreground mb-3 text-xs font-medium uppercase tracking-wide">
-              Performance drivers
+              {t("performance:attribution.performance_drivers")}
             </div>
             <AttributionRows rows={driverRows} currency={currency} />
           </div>
 
           <div className="py-3.5">
             <div className="text-muted-foreground mb-3 text-xs font-medium uppercase tracking-wide">
-              Cash flows
+              {t("performance:attribution.cash_flows")}
             </div>
             <AttributionRows rows={flowRows} currency={currency} amountTone="neutral" />
           </div>
         </div>
         <div className="border-border bg-background flex items-center justify-between gap-4 border-t px-6 py-4">
-          <div className="text-xs font-medium uppercase tracking-wide">Total gain/loss</div>
+          <div className="text-xs font-medium uppercase tracking-wide">
+            {t("performance:attribution.total_gain_loss")}
+          </div>
           <AttributionAmount
             value={periodPnl}
             currency={currency}
@@ -797,6 +821,7 @@ function PerformanceContent({
   errorMessages: string[];
   isMobile: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="relative flex h-full w-full flex-col">
       {chartData && chartData.length > 0 && (
@@ -813,8 +838,8 @@ function PerformanceContent({
         <EmptyPlaceholder
           className="mx-auto flex max-w-[420px] items-center justify-center"
           icon={<Icons.BarChart className="h-10 w-10" />}
-          title="No performance data"
-          description="Select accounts to compare their performance over time."
+          title={t("performance:empty.title")}
+          description={t("performance:empty.description")}
         />
       )}
 
@@ -828,7 +853,7 @@ function PerformanceContent({
             <div className="bg-background/80 rounded-md border px-3 py-1.5 shadow-sm backdrop-blur-sm">
               <p className="text-muted-foreground flex items-center text-xs font-medium">
                 <span className="bg-primary mr-2 inline-block h-2 w-2 animate-pulse rounded-full"></span>
-                Calculating...
+                {t("performance:calculating")}
               </p>
             </div>
           </div>
@@ -838,7 +863,7 @@ function PerformanceContent({
       {/* Error display using AlertFeedback component */}
       {hasErrors && (
         <div className="w-full">
-          <AlertFeedback title="Error calculating performance data" variant="error">
+          <AlertFeedback title={t("performance:error_calculating")} variant="error">
             <div>
               {errorMessages.map((error, index) => (
                 <p key={index} className="text-sm">
@@ -848,7 +873,7 @@ function PerformanceContent({
             </div>
             <div className="mt-4 flex justify-end">
               <Button size="sm" onClick={() => window.location.reload()} variant="default">
-                Retry
+                {t("performance:retry")}
               </Button>
             </div>
           </AlertFeedback>
@@ -877,6 +902,7 @@ const SelectedItemBadge = ({
   onDelete: (e: React.MouseEvent) => void;
   color?: string;
 }) => {
+  const { t } = useTranslation();
   return (
     <Badge
       className={cn(
@@ -919,7 +945,7 @@ const SelectedItemBadge = ({
         </span>
         {!isPlotted && (
           <span className="bg-background/70 text-muted-foreground rounded px-1.5 py-0.5 text-[10px] font-medium">
-            Not plotted
+            {t("performance:not_plotted")}
           </span>
         )}
         {isPlotted && contextLabel && (
@@ -937,7 +963,7 @@ const SelectedItemBadge = ({
           "focus-visible:ring-destructive/50 focus-visible:ring-2",
         )}
         onClick={onDelete}
-        aria-label={`Remove ${item.name}`}
+        aria-label={t("performance:remove_item", { name: item.name })}
       >
         <Icons.Close className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
       </Button>
@@ -946,6 +972,7 @@ const SelectedItemBadge = ({
 };
 
 export default function PerformancePage() {
+  const { t } = useTranslation();
   const isMobile = useIsMobileViewport();
   const [storedSelectedItems, setSelectedItems] = usePersistentState<TrackedItem[]>(
     "performance:selectedItems",
@@ -1074,13 +1101,14 @@ export default function PerformancePage() {
     if (!targetId) return null;
     const found = performanceData.find((item) => item?.id === targetId);
     if (!found) return null;
-    const name = selectedItems.find((item) => item.id === found.id)?.name ?? "Unknown";
+    const name =
+      selectedItems.find((item) => item.id === found.id)?.name ?? t("performance:unknown");
     return {
       result: found,
       name,
       chartMetric: chartMetricForResult(found),
     };
-  }, [selectedItemId, performanceData, selectedItems]);
+  }, [selectedItemId, performanceData, selectedItems, t]);
 
   const selectedChartMetric = selectedPerformanceData?.chartMetric ?? "twr";
   const activeChartAnchorId = selectedPerformanceData?.result.id ?? selectedItemId;
@@ -1117,7 +1145,7 @@ export default function PerformancePage() {
         const isPlotted = isLoadingPerformance || hasErrors || isAnchor || chartedIds.has(item.id);
         const exclusion = isPlotted
           ? undefined
-          : chartExclusion(resultById.get(item.id), selectedChartMetric);
+          : chartExclusion(resultById.get(item.id), selectedChartMetric, t);
         const plotState: SelectedItemPlotState = {
           isPlotted,
           reason: exclusion?.message,
@@ -1134,6 +1162,7 @@ export default function PerformancePage() {
     performanceData,
     selectedChartMetric,
     selectedItems,
+    t,
   ]);
 
   const notPlottedItems = useMemo(
@@ -1147,9 +1176,9 @@ export default function PerformancePage() {
       .filter((kind): kind is ChartExclusionKind => Boolean(kind));
     return {
       count: notPlottedItems.length,
-      message: comparisonNoticeMessage(kinds),
+      message: comparisonNoticeMessage(kinds, t),
     };
-  }, [itemPlotStateById, notPlottedItems]);
+  }, [itemPlotStateById, notPlottedItems, t]);
 
   // Calculate selected item data
   const selectedItemData = useMemo(() => {
@@ -1160,11 +1189,11 @@ export default function PerformancePage() {
       found.mode === "symbolPriceBased" &&
       (selectedMetric === "twr" || selectedMetric === "valueReturn")
         ? {
-            label: "Price Return",
-            mobileLabel: "Price",
+            label: t("performance:metric.price_return"),
+            mobileLabel: t("performance:metric.price_short"),
             infoText: PRICE_RETURN_INFO,
           }
-        : metricPresentation(selectedMetric);
+        : metricPresentation(selectedMetric, t);
     const selectedMetricValue = displayMetricValue(found, selectedMetric);
     const rawWarnings = found.dataQuality.warnings ?? [];
     const rawMoneyWeightedWarnings = rawWarnings.filter(isMoneyWeightedMessage);
@@ -1172,7 +1201,7 @@ export default function PerformancePage() {
       .filter((warning) => !isMoneyWeightedMessage(warning))
       .map((warning) => presentWarning(warning, accountNamesById));
     const moneyWeightedWarnings = rawMoneyWeightedWarnings.map((warning) =>
-      presentMoneyWeightedWarning(warning, accountNamesById),
+      presentMoneyWeightedWarning(warning, accountNamesById, t),
     );
     const rawReason = selectedMetricValue == null ? firstNotApplicableReason(found) : undefined;
     const showAnnualizedMoneyWeightedReturn =
@@ -1183,7 +1212,7 @@ export default function PerformancePage() {
     const rawMoneyWeightedReason =
       moneyWeightedReturn == null ? firstMoneyWeightedReason(found) : undefined;
     const presentedMoneyWeightedReason = rawMoneyWeightedReason
-      ? presentMoneyWeightedWarning(rawMoneyWeightedReason, accountNamesById)
+      ? presentMoneyWeightedWarning(rawMoneyWeightedReason, accountNamesById, t)
       : undefined;
     const moneyWeightedReason =
       presentedMoneyWeightedReason ??
@@ -1193,9 +1222,11 @@ export default function PerformancePage() {
       Boolean(moneyWeightedReason) ||
       moneyWeightedWarnings.length > 0;
     const moneyWeightedReturnLabel = showAnnualizedMoneyWeightedReturn
-      ? "Annualized MWR"
-      : "Money-Weighted Return";
-    const moneyWeightedReturnMobileLabel = showAnnualizedMoneyWeightedReturn ? "Ann. MWR" : "MWR";
+      ? t("performance:metric.annualized_mwr")
+      : t("performance:metric.money_weighted_return");
+    const moneyWeightedReturnMobileLabel = showAnnualizedMoneyWeightedReturn
+      ? t("performance:metric.ann_mwr_short")
+      : t("performance:metric.mwr_short");
     const moneyWeightedHelpWarnings = [
       ...moneyWeightedWarnings,
       ...(moneyWeightedReason ? [moneyWeightedReason] : []),
@@ -1217,23 +1248,22 @@ export default function PerformancePage() {
           ]
         : []),
       {
-        label: "Annualized Return",
+        label: t("performance:metric.annualized_return"),
         infoText: annualizedReturnInfo,
       },
       {
-        label: "Volatility",
+        label: t("performance:metric.volatility"),
         infoText: volatilityInfo,
       },
       {
-        label: "Max Drawdown",
+        label: t("performance:metric.max_drawdown"),
         infoText: maxDrawdownInfo,
       },
       ...(periodPnl != null
         ? [
             {
-              label: "Gain / loss",
-              infoText:
-                "Total profit or loss over the selected period. Open the metric for attribution details.",
+              label: t("performance:metric.gain_loss"),
+              infoText: t("performance:metric.gain_loss_info"),
             },
           ]
         : []),
@@ -1249,8 +1279,8 @@ export default function PerformancePage() {
       annualizedReturn: annualizedDisplayMetricValue(found, selectedMetric),
       annualizedReturnLabel:
         showMoneyWeightedReturn && selectedMetric === "twr"
-          ? "Annualized TWR"
-          : "Annualized Return",
+          ? t("performance:metric.annualized_twr")
+          : t("performance:metric.annualized_return"),
       moneyWeightedReturn,
       moneyWeightedReturnLabel,
       moneyWeightedReturnMobileLabel,
@@ -1262,13 +1292,13 @@ export default function PerformancePage() {
       periodPnl,
       helpItems,
       ...selectedMetricPresentation,
-      trackingModeBadge: trackingModeBadge(found),
+      trackingModeBadge: trackingModeBadge(found, t),
       returnWarnings: visibleWarnings,
       volatilityWarnings: [],
       warnings: visibleWarnings,
       notApplicableReasons: found.dataQuality.notApplicableReasons ?? [],
     };
-  }, [selectedPerformanceData, accountNamesById]);
+  }, [selectedPerformanceData, accountNamesById, t]);
 
   const preserveCurrentChartAnchor = (fallbackId: string) => {
     setSelectedItemId(
@@ -1405,7 +1435,7 @@ export default function PerformancePage() {
                         plotReason={plotState.reason}
                         contextLabel={
                           selectedChartMetric === "valueReturn" && item.type === "symbol"
-                            ? "Reference"
+                            ? t("performance:reference")
                             : undefined
                         }
                         onSelect={() => handleBadgeSelect(item)}
@@ -1426,7 +1456,7 @@ export default function PerformancePage() {
                 variant="outline"
                 size="icon"
                 className="bg-secondary/30 hover:bg-muted/80 size-9 flex-shrink-0 rounded-md border-[1.5px] border-none"
-                aria-label="Add item"
+                aria-label={t("performance:add_item")}
               >
                 <Icons.Plus className="h-4 w-4" />
               </Button>
@@ -1434,14 +1464,14 @@ export default function PerformancePage() {
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuItem onSelect={() => setAccountSheetOpen(true)} className="py-4 md:py-2">
                 <Icons.Briefcase className="mr-2 h-4 w-4" />
-                Add Account
+                {t("performance:add_account")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={() => setBenchmarkSheetOpen(true)}
                 className="py-4 md:py-2"
               >
                 <Icons.TrendingUp className="mr-2 h-4 w-4" />
-                Add Benchmark
+                {t("performance:add_benchmark")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1471,7 +1501,7 @@ export default function PerformancePage() {
                           plotReason={plotState.reason}
                           contextLabel={
                             selectedChartMetric === "valueReturn" && item.type === "symbol"
-                              ? "Reference"
+                              ? t("performance:reference")
                               : undefined
                           }
                           onSelect={() => handleBadgeSelect(item)}
@@ -1494,7 +1524,7 @@ export default function PerformancePage() {
             <AccountSelector
               setSelectedAccount={handleAccountSelect}
               variant="button"
-              buttonText="Add account"
+              buttonText={t("performance:add_account")}
               includePortfolio={true}
               accountPurpose={AccountPurpose.PERFORMANCE}
               onPortfolioSelect={handlePortfolioSelect}
@@ -1541,7 +1571,7 @@ export default function PerformancePage() {
                   )}
                 >
                   <CardTitle className={cn("min-w-0 text-lg sm:text-xl", isMobile && "text-sm")}>
-                    Performance
+                    {t("performance:performance")}
                   </CardTitle>
                   <CardDescription
                     className={cn(
@@ -1580,7 +1610,9 @@ export default function PerformancePage() {
                           <CarouselItem className="basis-[42%] pl-2">
                             <div className="bg-muted/30 rounded-lg px-3 py-2">
                               <HeaderMetric
-                                label={selectedItemData?.mobileLabel ?? "Return"}
+                                label={
+                                  selectedItemData?.mobileLabel ?? t("performance:metric.return")
+                                }
                                 infoText={selectedItemData?.infoText ?? SIMPLE_RETURN_INFO}
                                 warningText={selectedItemData?.returnWarnings}
                                 boldTerms={selectedItemData?.warningTerms}
@@ -1595,9 +1627,10 @@ export default function PerformancePage() {
                             <div className="bg-muted/30 rounded-lg px-3 py-2">
                               <HeaderMetric
                                 label={
-                                  selectedItemData?.annualizedReturnLabel === "Annualized TWR"
-                                    ? "Ann. TWR"
-                                    : "Annualized"
+                                  selectedItemData?.annualizedReturnLabel ===
+                                  t("performance:metric.annualized_twr")
+                                    ? t("performance:metric.ann_twr_short")
+                                    : t("performance:metric.annualized_short")
                                 }
                                 infoText={annualizedReturnInfo}
                                 value={selectedItemData?.annualizedReturn ?? null}
@@ -1624,7 +1657,7 @@ export default function PerformancePage() {
                           <CarouselItem className="basis-[42%] pl-2">
                             <div className="bg-muted/30 rounded-lg px-3 py-2">
                               <HeaderMetric
-                                label="Volatility"
+                                label={t("performance:metric.volatility")}
                                 infoText={volatilityInfo}
                                 warningText={selectedItemData?.volatilityWarnings}
                                 value={selectedItemData?.volatility ?? null}
@@ -1637,7 +1670,7 @@ export default function PerformancePage() {
                           <CarouselItem className="basis-[42%] pl-2">
                             <div className="bg-muted/30 rounded-lg px-3 py-2">
                               <HeaderMetric
-                                label="Max Drawdown"
+                                label={t("performance:metric.max_drawdown")}
                                 infoText={maxDrawdownInfo}
                                 value={selectedItemData?.maxDrawdown ?? null}
                                 align="left"
@@ -1667,7 +1700,7 @@ export default function PerformancePage() {
                         )}
                         <div className="flex min-w-max items-stretch justify-start 2xl:justify-end">
                           <StripSection
-                            title="Returns"
+                            title={t("performance:section.returns")}
                             className={
                               selectedItemData?.showMoneyWeightedReturn ? "w-[28rem]" : "w-[19rem]"
                             }
@@ -1681,7 +1714,7 @@ export default function PerformancePage() {
                               )}
                             >
                               <StripMetric
-                                label={stripReturnLabel(selectedItemData?.label)}
+                                label={stripReturnLabel(selectedItemData?.label, t)}
                                 value={selectedItemData?.selectedMetricValue ?? null}
                                 reason={selectedItemData?.selectedMetricReason}
                                 hasWarning={Boolean(
@@ -1700,22 +1733,22 @@ export default function PerformancePage() {
                                 />
                               )}
                               <StripMetric
-                                label="Annualized"
+                                label={t("performance:metric.annualized_short")}
                                 value={selectedItemData?.annualizedReturn ?? null}
                               />
                             </div>
                           </StripSection>
 
-                          <StripSection title="Risk" className="w-[19rem]">
+                          <StripSection title={t("performance:section.risk")} className="w-[19rem]">
                             <div className="grid grid-cols-2 gap-5">
                               <StripMetric
-                                label="Volatility"
+                                label={t("performance:metric.volatility")}
                                 value={selectedItemData?.volatility ?? null}
                                 tone="neutral"
                                 hasWarning={Boolean(selectedItemData?.volatilityWarnings.length)}
                               />
                               <StripMetric
-                                label="Max drawdown"
+                                label={t("performance:metric.max_drawdown_short")}
                                 value={selectedItemData?.maxDrawdown ?? null}
                               />
                             </div>
@@ -1727,8 +1760,8 @@ export default function PerformancePage() {
                               itemName={selectedItemData.name}
                               dateRangeLabel={displayDateRange}
                               isMobile={isMobile}
-                              sectionTitle="Total"
-                              label="Gain / loss"
+                              sectionTitle={t("performance:section.total")}
+                              label={t("performance:metric.gain_loss")}
                               showLabelIcon={false}
                               align="left"
                               className="w-[11.75rem]"
@@ -1750,8 +1783,9 @@ export default function PerformancePage() {
                     </div>
                     <div className="min-w-0">
                       <div className="text-foreground font-medium">
-                        {comparisonNotice.count} selected{" "}
-                        {comparisonNotice.count === 1 ? "item is" : "items are"} not plotted
+                        {t("performance:comparison_notice.not_plotted_count", {
+                          count: comparisonNotice.count,
+                        })}
                       </div>
                       <div className="text-muted-foreground mt-0.5">{comparisonNotice.message}</div>
                     </div>

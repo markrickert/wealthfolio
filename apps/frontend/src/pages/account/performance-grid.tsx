@@ -20,6 +20,7 @@ import {
 } from "@/lib/performance";
 import { cn } from "@/lib/utils";
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 export interface PerformanceGridProps {
   performance?: PerformanceResult | null;
@@ -37,6 +38,7 @@ export const PerformanceGrid: React.FC<PerformanceGridProps> = ({
   className,
   isHoldingsMode = false,
 }) => {
+  const { t } = useTranslation();
   if (performanceError) {
     return (
       <div className={cn("w-full", className)}>
@@ -84,10 +86,10 @@ export const PerformanceGrid: React.FC<PerformanceGridProps> = ({
   const twrDisplayValue = showAnnualizedTwr ? twrAnnualized : twrValue;
   const irrDisplayValue = showAnnualizedIrr ? irrAnnualized : irrValue;
   const twrInfoText = showAnnualizedTwr
-    ? `${TIME_WEIGHTED_RETURN_INFO} Hover the value to see cumulative TWR.`
+    ? `${TIME_WEIGHTED_RETURN_INFO}${t("account:metric.twr_hover_hint")}`
     : TIME_WEIGHTED_RETURN_INFO;
   const irrInfoText = showAnnualizedIrr
-    ? `${IRR_RETURN_INFO} Hover the value to see the selected-period IRR.`
+    ? `${IRR_RETURN_INFO}${t("account:metric.irr_hover_hint")}`
     : IRR_RETURN_INFO;
   const holdingsValueReturn = performanceSummaryReturn(performance) ?? undefined;
   const periodPnl = performancePeriodPnl(performance) ?? undefined;
@@ -105,7 +107,7 @@ export const PerformanceGrid: React.FC<PerformanceGridProps> = ({
           <CardContent className="p-0">
             <div className="grid grid-cols-2 gap-3">
               <MetricDisplay
-                label="Value Return"
+                label={t("account:metric.value_return")}
                 value={holdingsValueReturn}
                 emptyReason={unavailableReason}
                 infoText={VALUE_RETURN_INFO}
@@ -113,16 +115,16 @@ export const PerformanceGrid: React.FC<PerformanceGridProps> = ({
                 className="border-muted/30 bg-muted/30 min-h-16 rounded-md border p-2.5"
               />
               <MetricDisplay
-                label="Total P&L"
+                label={t("account:metric.total_pnl")}
                 value={periodPnl}
                 emptyReason={unavailableReason}
-                infoText="Total profit or loss over the selected period."
+                infoText={t("account:metric.total_pnl_info")}
                 isPercentage={false}
                 currency={performance.scope.currency}
                 className="border-muted/30 bg-muted/30 min-h-16 rounded-md border p-2.5"
               />
               <MetricDisplay
-                label="Volatility"
+                label={t("account:volatility")}
                 value={volatility}
                 emptyReason={unavailableReason}
                 infoText={HOLDINGS_MODE_VOLATILITY_INFO}
@@ -131,7 +133,7 @@ export const PerformanceGrid: React.FC<PerformanceGridProps> = ({
                 className="border-muted/30 bg-muted/30 min-h-16 rounded-md border p-2.5"
               />
               <MetricDisplay
-                label="Max Drawdown"
+                label={t("account:max_drawdown")}
                 value={maxDrawdown}
                 emptyReason={unavailableReason}
                 infoText={HOLDINGS_MODE_MAX_DRAWDOWN_INFO}
@@ -151,27 +153,35 @@ export const PerformanceGrid: React.FC<PerformanceGridProps> = ({
         <CardContent className="p-0">
           <div className="grid grid-cols-2 gap-3">
             <MetricDisplay
-              label={showAnnualizedTwr ? "Annualized TWR" : "Time Weighted Return"}
+              label={
+                showAnnualizedTwr
+                  ? t("account:metric.annualized_twr")
+                  : t("account:time_weighted_return")
+              }
               value={twrDisplayValue}
               secondaryValue={showAnnualizedTwr ? twrValue : undefined}
-              secondaryValueLabel={showAnnualizedTwr ? "Cumulative TWR" : undefined}
+              secondaryValueLabel={
+                showAnnualizedTwr ? t("account:metric.cumulative_twr") : undefined
+              }
               emptyReason={unavailableReason}
               infoText={twrInfoText}
               isPercentage={true}
               className="border-muted/30 bg-muted/30 min-h-16 rounded-md border p-2.5"
             />
             <MetricDisplay
-              label={showAnnualizedIrr ? "Annualized IRR" : "IRR"}
+              label={
+                showAnnualizedIrr ? t("account:metric.annualized_irr") : t("account:metric.irr")
+              }
               value={irrDisplayValue}
               secondaryValue={showAnnualizedIrr ? irrValue : undefined}
-              secondaryValueLabel={showAnnualizedIrr ? "Period IRR" : undefined}
+              secondaryValueLabel={showAnnualizedIrr ? t("account:metric.period_irr") : undefined}
               emptyReason={unavailableReason}
               infoText={irrInfoText}
               isPercentage={true}
               className="border-muted/30 bg-muted/30 min-h-16 rounded-md border p-2.5"
             />
             <MetricDisplay
-              label="Volatility"
+              label={t("account:volatility")}
               value={volatility}
               emptyReason={unavailableReason}
               infoText={VOLATILITY_INFO}
@@ -180,7 +190,7 @@ export const PerformanceGrid: React.FC<PerformanceGridProps> = ({
               className="border-muted/30 bg-muted/30 min-h-16 rounded-md border p-2.5"
             />
             <MetricDisplay
-              label="Max Drawdown"
+              label={t("account:max_drawdown")}
               value={maxDrawdown}
               emptyReason={unavailableReason}
               infoText={MAX_DRAWDOWN_INFO}
