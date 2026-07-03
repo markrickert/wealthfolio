@@ -784,6 +784,7 @@ export function TransferForm({
                 <AmountInput
                   name="unitPrice"
                   label={t("activity:form.label_cost_basis")}
+                  data-testid="cost-basis-input"
                   maxDecimalPlaces={4}
                   currency={currency}
                 />

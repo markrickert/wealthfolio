@@ -233,7 +233,11 @@ export function AccountForm({ defaultValues, onSuccess = () => undefined }: Acco
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-6 p-5 sm:p-6">
+      <form
+        data-testid="account-form"
+        onSubmit={form.handleSubmit(onSubmit)}
+        className="flex flex-col gap-6 p-5 sm:p-6"
+      >
         <DialogHeader className="pr-10 text-left">
           <div className="flex items-start gap-3">
             <div className="bg-muted flex h-11 w-11 shrink-0 items-center justify-center rounded-xl">
@@ -259,6 +263,7 @@ export function AccountForm({ defaultValues, onSuccess = () => undefined }: Acco
                     <FormLabel>{t("settings:accounts_form_name_label")}</FormLabel>
                     <FormControl>
                       <Input
+                        data-testid="account-name-input"
                         placeholder={t("settings:accounts_form_name_placeholder")}
                         {...field}
                       />
@@ -314,6 +319,7 @@ export function AccountForm({ defaultValues, onSuccess = () => undefined }: Acco
                       <FormLabel>{t("settings:accounts_form_currency_label")}</FormLabel>
                       <FormControl>
                         <CurrencyInput
+                          data-testid="account-currency-select"
                           value={field.value}
                           onChange={(value: string) => field.onChange(value)}
                         />
@@ -399,6 +405,7 @@ export function AccountForm({ defaultValues, onSuccess = () => undefined }: Acco
                       className="grid gap-3"
                     >
                       <label
+                        data-testid="tracking-mode-transactions"
                         className={cn(
                           trackingOptionClassName,
                           field.value === "TRANSACTIONS"
@@ -418,6 +425,7 @@ export function AccountForm({ defaultValues, onSuccess = () => undefined }: Acco
                       </label>
                       {!isCreditCardAccount && (
                         <label
+                          data-testid="tracking-mode-holdings"
                           className={cn(
                             trackingOptionClassName,
                             field.value === "HOLDINGS"
@@ -519,11 +527,15 @@ export function AccountForm({ defaultValues, onSuccess = () => undefined }: Acco
         </div>
         <DialogFooter className="gap-2">
           <DialogClose asChild>
-            <Button type="button" variant="outline">
+            <Button data-testid="account-cancel-button" type="button" variant="outline">
               {t("settings:accounts_cancel_button")}
             </Button>
           </DialogClose>
-          <Button type="submit" disabled={needsSetup && !currentTrackingMode}>
+          <Button
+            data-testid="account-submit-button"
+            type="submit"
+            disabled={needsSetup && !currentTrackingMode}
+          >
             {defaultValues?.id ? (
               <Icons.Save className="h-4 w-4" />
             ) : (

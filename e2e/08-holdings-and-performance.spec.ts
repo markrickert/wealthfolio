@@ -9,11 +9,9 @@ interface AccountPayload {
   currency: string;
 }
 
-interface AssetPayload {
+interface ActivityPayload {
   id: string;
-  displayCode?: string | null;
-  instrumentSymbol?: string | null;
-  instrumentType?: string | null;
+  assetId?: string | null;
 }
 
 interface HoldingPayload {
@@ -81,7 +79,7 @@ test.describe("Holdings and Performance Pages", () => {
     await page.goto(`${BASE_URL}/dashboard`, { waitUntil: "domcontentloaded" });
 
     const account = await createApiAccount(page, `E2E Trade Tax Account ${Date.now()}`);
-    await createApiTradeActivity(page, {
+    const buyActivity = await createApiTradeActivity(page, {
       id: `${account.id}-buy`,
       accountId: account.id,
       activityType: "BUY",
@@ -103,9 +101,10 @@ test.describe("Holdings and Performance Pages", () => {
     });
     await triggerFullRecalculation(page);
 
-    const assetId = await getAssetIdForSymbol(page, "AAPL");
+    const assetId = buyActivity.assetId;
+    expect(assetId, "Expected created BUY activity to resolve an AAPL asset").toBeTruthy();
     await expect
-      .poll(() => getTaxTradeState(page, account.id, assetId), {
+      .poll(() => getTaxTradeState(page, account.id, assetId!), {
         timeout: 60000,
         intervals: [1000, 2000, 5000],
       })
@@ -248,8 +247,8 @@ async function createApiTradeActivity(
     fee: number;
     tax: number;
   },
-) {
-  await apiPost(page, "/activities", {
+): Promise<ActivityPayload> {
+  return apiPost<ActivityPayload>(page, "/activities", {
     id: activity.id,
     accountId: activity.accountId,
     activityType: activity.activityType,
@@ -259,6 +258,7 @@ async function createApiTradeActivity(
       quoteMode: "MARKET",
       quoteCcy: "USD",
       instrumentType: "EQUITY",
+      exchangeMic: "XNAS",
     },
     quantity: activity.quantity,
     unitPrice: activity.unitPrice,
@@ -275,17 +275,6 @@ async function triggerFullRecalculation(page: Page) {
   const response = await page.request.post(`${BASE_URL}/api/v1/portfolio/recalculate`);
   expect(response.status()).toBe(202);
   await waitForSyncToast(page, 90000);
-}
-
-async function getAssetIdForSymbol(page: Page, symbol: string): Promise<string> {
-  const assets = await apiGet<AssetPayload[]>(page, "/assets");
-  const asset = assets.find(
-    (candidate) =>
-      candidate.displayCode === symbol ||
-      (candidate.instrumentSymbol === symbol && candidate.instrumentType === "EQUITY"),
-  );
-  expect(asset, `Expected ${symbol} asset to exist`).toBeTruthy();
-  return asset!.id;
 }
 
 async function getTaxTradeState(

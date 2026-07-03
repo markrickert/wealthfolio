@@ -155,7 +155,7 @@ const SettingsAccountsPage = () => {
 
   return (
     <>
-      <div className="space-y-6">
+      <div data-testid="settings-accounts-page" className="space-y-6">
         <SettingsHeader
           heading={t("settings:accounts_title")}
           text={t("settings:accounts_description")}
@@ -164,6 +164,7 @@ const SettingsAccountsPage = () => {
           {/* Mobile: icon button; Desktop: full button */}
           <>
             <Button
+              data-testid="add-account-icon-button"
               size="icon"
               className="sm:hidden"
               onClick={() => handleAddAccount()}
@@ -171,7 +172,12 @@ const SettingsAccountsPage = () => {
             >
               <Icons.Plus className="h-4 w-4" />
             </Button>
-            <Button size="sm" className="hidden sm:inline-flex" onClick={() => handleAddAccount()}>
+            <Button
+              data-testid="add-account-header-button"
+              size="sm"
+              className="hidden sm:inline-flex"
+              onClick={() => handleAddAccount()}
+            >
               <Icons.Plus className="mr-2 h-4 w-4" />
               {t("settings:accounts_add_button")}
             </Button>
@@ -244,7 +250,7 @@ const SettingsAccountsPage = () => {
               <EmptyPlaceholder.Description>
                 {t("settings:accounts_empty_description")}
               </EmptyPlaceholder.Description>
-              <Button onClick={() => handleAddAccount()}>
+              <Button data-testid="add-account-empty-button" onClick={() => handleAddAccount()}>
                 <Icons.Plus className="mr-2 h-4 w-4" />
                 {t("settings:accounts_add_first")}
               </Button>

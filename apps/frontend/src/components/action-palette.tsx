@@ -10,6 +10,7 @@ export interface ActionPaletteItem {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   onClick: () => void;
+  testId?: string;
   variant?: "default" | "destructive";
 }
 
@@ -111,6 +112,7 @@ export function ActionPalette({
                     <React.Fragment key={itemIndex}>
                       {itemIndex > 0 && <div className="bg-border/70 mx-3 h-px" />}
                       <button
+                        data-testid={item.testId}
                         onClick={() => handleItemClick(item)}
                         className={cn(
                           "flex w-full items-center gap-4 rounded-xl px-3 py-3",

@@ -21,10 +21,18 @@ interface AmountInputProps<TFieldValues extends FieldValues = FieldValues> {
   label?: string;
   labelHelpText?: string;
   placeholder?: string;
+  "data-testid"?: string;
   /** Maximum decimal places (default: 2 for currency) */
   maxDecimalPlaces?: number;
   /** Currency code to display as adornment (e.g., "USD") */
   currency?: string;
+}
+
+function toInputTestId(name: string) {
+  return `${name
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .toLowerCase()
+    .replace(/\s+/g, "-")}-input`;
 }
 
 export function AmountInput<TFieldValues extends FieldValues = FieldValues>({
@@ -32,12 +40,13 @@ export function AmountInput<TFieldValues extends FieldValues = FieldValues>({
   label,
   labelHelpText,
   placeholder = "0.00",
+  "data-testid": dataTestId,
   maxDecimalPlaces = 2,
   currency,
 }: AmountInputProps<TFieldValues>) {
   const { t } = useTranslation(["activity"]);
   const resolvedLabel = label ?? t("activity:form.label_amount");
-  const testId = `${String(name).toLowerCase().replace(/\s+/g, "-")}-input`;
+  const testId = dataTestId ?? toInputTestId(String(name));
   const { control } = useFormContext<TFieldValues>();
 
   return (

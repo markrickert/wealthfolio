@@ -70,7 +70,10 @@ const OnboardingPage = () => {
   };
 
   return (
-    <div className="bg-background flex h-screen flex-col pt-[env(safe-area-inset-top)]">
+    <div
+      data-testid="onboarding-page"
+      className="bg-background flex h-screen flex-col pt-[env(safe-area-inset-top)]"
+    >
       {/* Fixed Header with Logo and Steppers */}
       <header className="flex-none px-4 pt-8 sm:px-6 sm:pt-12">
         <div className="flex flex-col items-center">
@@ -175,6 +178,7 @@ const OnboardingPage = () => {
                 )}
               </div>
               <Button
+                data-testid="onboarding-continue-button"
                 onClick={handleContinue}
                 disabled={!isStepValid}
                 className="from-primary to-primary/90 bg-linear-to-r"

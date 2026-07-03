@@ -54,6 +54,7 @@ export function LoginPage() {
                 <form className="space-y-8" onSubmit={handleSubmit}>
                   <div className="space-y-2">
                     <Input
+                      data-testid="login-password-input"
                       id="password"
                       type="password"
                       value={password}
@@ -76,7 +77,12 @@ export function LoginPage() {
                     ) : null}
                   </div>
 
-                  <Button type="submit" className="w-full" disabled={loginLoading}>
+                  <Button
+                    data-testid="login-submit-button"
+                    type="submit"
+                    className="w-full"
+                    disabled={loginLoading}
+                  >
                     {loginLoading ? t("auth:login.signingIn") : t("auth:login.signIn")}
                   </Button>
                 </form>

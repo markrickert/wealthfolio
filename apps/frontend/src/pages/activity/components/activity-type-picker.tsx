@@ -87,6 +87,7 @@ function ActivityTypeButton({
 
   return (
     <button
+      data-testid={`activity-type-${type.value.toLowerCase()}`}
       ref={buttonRef}
       type="button"
       onClick={onClick}

@@ -16,12 +16,16 @@ interface LanguageSelectorProps {
 export function LanguageSelector({ value, onChange, className }: LanguageSelectorProps) {
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className={className}>
+      <SelectTrigger data-testid="language-select" className={className}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
         {SUPPORTED_LOCALES.map((locale) => (
-          <SelectItem key={locale.code} value={locale.code}>
+          <SelectItem
+            data-testid={`language-option-${locale.code}`}
+            key={locale.code}
+            value={locale.code}
+          >
             {locale.label}
           </SelectItem>
         ))}

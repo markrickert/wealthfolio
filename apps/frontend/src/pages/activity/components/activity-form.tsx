@@ -100,7 +100,10 @@ export function ActivityForm({
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
-      <SheetContent className="flex w-full flex-col overflow-hidden sm:max-w-[625px]">
+      <SheetContent
+        data-testid="activity-form-dialog"
+        className="flex w-full flex-col overflow-hidden sm:max-w-[625px]"
+      >
         <SheetHeader>
           <SheetTitle>
             {isEditing ? t("activity:mobile_update_activity") : t("activity:add_activity")}

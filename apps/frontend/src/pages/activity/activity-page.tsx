@@ -544,21 +544,25 @@ const ActivityPage = () => {
           {
             icon: Icons.Activity,
             label: t("activity:add_transaction"),
+            testId: "add-transaction-action",
             onClick: () => handleEdit(undefined),
           },
           {
             icon: Icons.UploadSimple,
             label: t("activity:page.import_from_csv"),
+            testId: "import-activities-action",
             onClick: () => navigate("/import"),
           },
           {
             icon: Icons.Holdings,
             label: t("activity:page.transfer_holdings"),
+            testId: "transfer-holdings-action",
             onClick: () => setShowBulkHoldingsForm(true),
           },
           {
             icon: Icons.House,
             label: t("activity:page.add_personal_asset"),
+            testId: "add-personal-asset-action",
             onClick: () => setShowAlternativeAssetModal(true),
           },
         ],
@@ -577,7 +581,7 @@ const ActivityPage = () => {
           onOpenChange={setShowActionPalette}
           groups={actionPaletteGroups}
           trigger={
-            <Button size="sm">
+            <Button data-testid="add-activities-button" size="sm">
               <Icons.Plus className="mr-2 h-4 w-4" />
               {t("activity:page.add_activities")}
             </Button>
@@ -606,11 +610,13 @@ const ActivityPage = () => {
           {
             icon: Icons.Activity,
             label: t("activity:add_transaction"),
+            testId: "add-transaction-action",
             onClick: () => spendingTabRef.current?.openAddForm(),
           },
           {
             icon: Icons.UploadSimple,
             label: t("activity:page.import_from_csv"),
+            testId: "import-activities-action",
             onClick: () => navigate("/import"),
           },
         ],
@@ -644,7 +650,7 @@ const ActivityPage = () => {
           onOpenChange={setShowSpendingActionPalette}
           groups={spendingActionPaletteGroups}
           trigger={
-            <Button size="sm">
+            <Button data-testid="add-activities-button" size="sm">
               <Icons.Plus className="mr-2 h-4 w-4" />
               {t("activity:page.add_activities")}
             </Button>

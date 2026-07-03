@@ -1,11 +1,18 @@
 import { expect, Page, test } from "@playwright/test";
-import { gotoActivities } from "./helpers";
+import {
+  completeOnboardingIfNeeded,
+  createAccount,
+  gotoActivities,
+  gotoAppPath,
+  openAddActivitySheet,
+  selectAccountOption,
+  selectActivityType,
+} from "./helpers";
 
 test.describe.configure({ mode: "serial" });
 
 test.describe("Onboarding And Main Flow", () => {
   const BASE_URL = process.env.WF_E2E_BASE_URL || "http://localhost:1420";
-  const TEST_PASSWORD = "password001";
   let page: Page;
 
   // Helper to generate date parts for a date N days ago
@@ -137,135 +144,16 @@ test.describe("Onboarding And Main Flow", () => {
     // Increase timeout for this test as it includes waiting for backend to start
     test.setTimeout(180000); // 3 minutes
 
-    // Navigate to the app
-    await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
-
-    // The app might show login page first if auth is configured
-    // Wait for either login page or onboarding to appear (backend must be ready)
-    const loginInput = page.getByPlaceholder("Enter your password");
-    const continueButton = page.getByRole("button", { name: "Continue" });
-
-    // Wait for either login or onboarding to appear (up to 2 minutes for backend to start)
-    await expect(loginInput.or(continueButton)).toBeVisible({ timeout: 120000 });
-
-    // If login page is shown, enter password and sign in
-    if (await loginInput.isVisible()) {
-      await loginInput.fill(TEST_PASSWORD);
-      await page.getByRole("button", { name: "Sign In", exact: true }).click();
-
-      // Wait for redirect to onboarding after successful login
-      await expect(page).toHaveURL(new RegExp(`${BASE_URL}/onboarding`), { timeout: 10000 });
-    } else {
-      // Already on onboarding page
-      await expect(page).toHaveURL(new RegExp(`${BASE_URL}/onboarding`), { timeout: 5000 });
-    }
-
-    // Step 1: Info screen showing "Two ways to track your portfolio" - just click Continue
-    await expect(page.getByRole("button", { name: "Continue" })).toBeVisible({ timeout: 10000 });
-    await page.getByRole("button", { name: "Continue" }).click();
-
-    // Step 2: Currency selection
-    const cadButton = page.getByTestId("currency-cad-button");
-    await expect(cadButton).toBeVisible({ timeout: 5000 });
-    await cadButton.click();
-    // Verify CAD is selected (has border-primary styling)
-    await expect(cadButton).toHaveClass(/border-primary/);
-
-    // Click Continue to proceed to appearance step
-    const step2ContinueButton = page.getByRole("button", { name: "Continue" });
-    await expect(step2ContinueButton).toBeEnabled();
-    await step2ContinueButton.click();
-
-    // Step 3: Appearance - Select Light theme
-    const lightThemeButton = page.getByTestId("theme-light-button");
-    await expect(lightThemeButton).toBeVisible({ timeout: 5000 });
-    await lightThemeButton.click();
-    // Verify Light theme is selected
-    await expect(lightThemeButton).toHaveClass(/border-primary/);
-
-    // Click Continue to proceed to connect step
-    const step3ContinueButton = page.getByRole("button", { name: "Continue" });
-    await expect(step3ContinueButton).toBeEnabled();
-    await step3ContinueButton.click();
-
-    // Step 4: Connect - Click "Get Started" to complete onboarding
-    const getStartedButton = page.getByTestId("onboarding-finish-button");
-    await expect(getStartedButton).toBeVisible({ timeout: 15000 });
-    await getStartedButton.click();
-
-    await expect(page).toHaveURL(new RegExp(`${BASE_URL}/settings/accounts`), {
-      timeout: 10000,
-    });
-
-    await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible({ timeout: 10000 });
+    await completeOnboardingIfNeeded(page);
+    await gotoAppPath(page, "/settings/accounts");
+    await expect(
+      page.getByTestId("settings-accounts-page").filter({ visible: true }).first(),
+    ).toBeVisible({ timeout: 10000 });
   });
 
   test("2. Create accounts (CAD, USD, EUR, GBP)", async () => {
-    // Navigate to accounts page
-    await page.goto(`${BASE_URL}/settings/accounts`, { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
-
     for (const account of TEST_DATA.accounts) {
-      // Find and click the "Add account" button (lowercase "a" in desktop view)
-      const addAccountButton = page.getByRole("button", { name: /Add account/i });
-      await expect(addAccountButton).toBeVisible();
-      await addAccountButton.click();
-
-      // Wait for account form dialog to appear
-      await expect(page.getByRole("heading", { name: /Add Account/i })).toBeVisible();
-
-      // Fill in account name
-      const nameInput = page.getByLabel("Account Name");
-      await expect(nameInput).toBeVisible();
-      await nameInput.fill(account.name);
-
-      // Select Currency using the CurrencyInput component
-      const currencyTrigger = page.getByLabel("Currency");
-      await expect(currencyTrigger).toBeVisible();
-
-      // Check if the currency needs to be changed
-      const currentCurrencyText = await currencyTrigger.textContent();
-      if (!currentCurrencyText?.includes(account.currency)) {
-        await currencyTrigger.click();
-        await page.waitForSelector('[role="listbox"], [role="option"]', {
-          state: "visible",
-          timeout: 5000,
-        });
-
-        // Type to search for the currency
-        const searchInput = page.getByPlaceholder("Search currency...");
-        if (await searchInput.isVisible()) {
-          await searchInput.fill(account.currency);
-          await page.waitForTimeout(200);
-        }
-
-        // Click the matching option
-        const option = page.getByRole("option", { name: new RegExp(account.currency) }).first();
-        await expect(option).toBeVisible({ timeout: 5000 });
-        await option.click();
-        await page.waitForTimeout(200);
-      }
-
-      // Select Transactions tracking mode
-      const transactionsRadio = page.getByRole("radio", { name: /Transactions/i });
-      await expect(transactionsRadio).toBeVisible();
-      await transactionsRadio.click();
-
-      // Submit the form - button text is "Add Account"
-      const submitButton = page.getByRole("button", { name: /Add Account/i }).last();
-      await expect(submitButton).toBeVisible();
-      await submitButton.click();
-
-      // Wait for dialog to close
-      await expect(page.getByRole("heading", { name: /Add Account/i })).not.toBeVisible({
-        timeout: 10000,
-      });
-
-      // Wait for the list to refresh and show the new account
-      // The account appears as a link in the account list
-      await page.waitForTimeout(500);
-      const accountLink = page.getByRole("link", { name: account.name });
-      await expect(accountLink).toBeVisible({ timeout: 10000 });
+      await createAccount(page, account.name, account.currency);
     }
   });
 
@@ -277,33 +165,11 @@ test.describe("Onboarding And Main Flow", () => {
     for (let i = 0; i < TEST_DATA.deposits.length; i++) {
       const deposit = TEST_DATA.deposits[i];
 
-      // Wait for any overlay/backdrop to disappear before opening new sheet
-      await page
-        .locator('[data-state="open"][aria-hidden="true"]')
-        .waitFor({ state: "hidden", timeout: 5000 })
-        .catch(() => {});
-
-      // Open Add Activities palette and select Add Transaction
-      await page.getByRole("button", { name: "Add Activities" }).click();
-      await page.getByRole("button", { name: "Add Transaction" }).click();
-
-      // Wait for sheet to appear
-      await expect(page.getByRole("heading", { name: "Add Activity" })).toBeVisible();
-
-      // Select Deposit type from the activity type picker
-      // The buttons have aria-pressed attribute when selected
-      const depositButton = page.getByRole("button", { name: "Deposit", exact: true });
-      await expect(depositButton).toBeVisible();
-      await depositButton.click();
-      await page.waitForTimeout(200);
+      await openAddActivitySheet(page);
+      await selectActivityType(page, "Deposit");
 
       // Select Account using the AccountSelect component
-      const accountSelect = page.getByTestId("account-select");
-      await accountSelect.click();
-      await page
-        .getByRole("option", { name: new RegExp(`${deposit.account}.*\\(${deposit.currency}\\)`) })
-        .first()
-        .click();
+      await selectAccountOption(page, deposit.account, deposit.currency);
 
       // Fill date using direct input (spread deposits over different days)
       await fillDateField(page, 30 - i); // 30, 29, 28, 27 days ago
@@ -329,7 +195,7 @@ test.describe("Onboarding And Main Flow", () => {
       await submitButton.click();
 
       // Wait for the activity to be added - look for sheet close
-      await expect(page.getByRole("heading", { name: "Add Activity" })).not.toBeVisible({
+      await expect(page.getByTestId("activity-form-dialog")).not.toBeVisible({
         timeout: 20000,
       });
 
@@ -352,26 +218,11 @@ test.describe("Onboarding And Main Flow", () => {
       // Wait for any overlay/backdrop to disappear before opening new sheet
       await page.waitForTimeout(500);
 
-      // Open Add Activities palette and select Add Transaction
-      await page.getByRole("button", { name: "Add Activities" }).click();
-      await page.getByRole("button", { name: "Add Transaction" }).click();
-
-      // Wait for sheet to appear
-      await expect(page.getByRole("heading", { name: "Add Activity" })).toBeVisible();
-
-      // Select Buy type from the activity type picker
-      const buyButton = page.getByRole("button", { name: "Buy", exact: true });
-      await expect(buyButton).toBeVisible();
-      await buyButton.click();
-      await page.waitForTimeout(200);
+      await openAddActivitySheet(page);
+      await selectActivityType(page, "Buy");
 
       // Select Account
-      const accountSelect = page.getByTestId("account-select");
-      await accountSelect.click();
-      await page
-        .getByRole("option", { name: new RegExp(`${trade.account}.*\\(${trade.currency}\\)`) })
-        .first()
-        .click();
+      await selectAccountOption(page, trade.account, trade.currency);
 
       // Fill date using direct input (spread trades over different days, after deposits)
       await fillDateField(page, 20 - i); // 20, 19, 18, 17 days ago
@@ -426,7 +277,7 @@ test.describe("Onboarding And Main Flow", () => {
       await submitButton.click();
 
       // Wait for sheet to close
-      await expect(page.getByRole("heading", { name: "Add Activity" })).not.toBeVisible({
+      await expect(page.getByTestId("activity-form-dialog")).not.toBeVisible({
         timeout: 20000,
       });
 
@@ -495,7 +346,7 @@ test.describe("Onboarding And Main Flow", () => {
     };
 
     // Navigate to dashboard first to trigger market sync
-    await page.goto(`${BASE_URL}/dashboard`, { waitUntil: "domcontentloaded" });
+    await gotoAppPath(page, "/dashboard");
 
     // Wait for initial sync to complete (this triggers quote fetching)
     await waitForSyncComplete(90000);

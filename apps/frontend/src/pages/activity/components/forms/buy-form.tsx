@@ -533,6 +533,7 @@ export function BuyForm({
             <AmountInput
               name="unitPrice"
               label={priceLabel}
+              data-testid="price-input"
               maxDecimalPlaces={4}
               currency={currency}
             />

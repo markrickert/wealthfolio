@@ -317,9 +317,14 @@ export function InterestForm({
 
           {isStakingReward && (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <QuantityInput name="quantity" label={t("activity:form.label_received_quantity")} />
+              <QuantityInput
+                name="quantity"
+                data-testid="received-quantity-input"
+                label={t("activity:form.label_received_quantity")}
+              />
               <AmountInput
                 name="unitPrice"
+                data-testid="fmv-per-unit-input"
                 label={t("activity:form.label_fmv_per_unit")}
                 labelHelpText={fmvHelpText}
                 maxDecimalPlaces={4}
@@ -331,6 +336,7 @@ export function InterestForm({
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <AmountInput
               name="amount"
+              data-testid={isStakingReward ? "interest-amount-input" : undefined}
               label={
                 isStakingReward
                   ? t("activity:form.label_interest_amount")

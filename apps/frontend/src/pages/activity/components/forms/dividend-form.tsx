@@ -325,6 +325,7 @@ export function DividendForm({
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <QuantityInput
                 name="quantity"
+                data-testid="received-quantity-input"
                 label={
                   subtype === ACTIVITY_SUBTYPES.DRIP
                     ? t("activity:form.label_reinvested_quantity")
@@ -333,6 +334,7 @@ export function DividendForm({
               />
               <AmountInput
                 name="unitPrice"
+                data-testid="fmv-per-unit-input"
                 label={
                   subtype === ACTIVITY_SUBTYPES.DRIP
                     ? t("activity:form.label_reinvestment_price")
@@ -348,6 +350,7 @@ export function DividendForm({
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <AmountInput
               name="amount"
+              data-testid={isAssetBacked ? "dividend-amount-input" : undefined}
               label={
                 isAssetBacked
                   ? t("activity:form.label_dividend_amount")

@@ -7,6 +7,7 @@ import {
   gotoActivities,
   loginIfNeeded,
   openAddActivitySheet,
+  selectAccountOption,
   selectActivityType,
   waitForSyncToast,
 } from "./helpers";
@@ -254,11 +255,7 @@ async function selectAccount(
   accountName: string,
   currency: string,
 ) {
-  await dialog.getByTestId("account-select").click();
-  await page
-    .getByRole("option", { name: new RegExp(`${escapeRegExp(accountName)}.*\\(${currency}\\)`) })
-    .first()
-    .click();
+  await selectAccountOption(page, accountName, currency, dialog.getByTestId("account-select"));
 }
 
 async function searchAndSelectSymbol(

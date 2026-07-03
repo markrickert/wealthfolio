@@ -101,7 +101,13 @@ export function AccountSelect<TFieldValues extends FieldValues = FieldValues>({
               </SelectTrigger>
               <SelectContent className="max-h-[500px] overflow-y-auto">
                 {accounts.map((account) => (
-                  <SelectItem value={account.value} key={account.value}>
+                  <SelectItem
+                    value={account.value}
+                    key={account.value}
+                    data-testid="account-option"
+                    data-account-name={account.label}
+                    data-account-currency={account.currency}
+                  >
                     {account.label}
                     <span className="text-muted-foreground font-light">({account.currency})</span>
                   </SelectItem>
