@@ -120,13 +120,7 @@ export function PermissionDialog({
               </div>
             </div>
           </DialogTitle>
-          <DialogDescription className="space-y-2">
-            <div className="text-muted-foreground text-sm">
-              {manifest.description && (
-                <p className="text-muted-foreground text-sm">{manifest.description}</p>
-              )}
-            </div>
-          </DialogDescription>
+          <DialogDescription>{manifest.description}</DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 space-y-6 overflow-hidden">
