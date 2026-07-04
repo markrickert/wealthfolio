@@ -444,7 +444,8 @@ export function MobileDetailsStep({ accounts, activityType, isEditing }: MobileD
         : t("activity:form.label_price");
 
   // Toggle shown in the "Asset & Account" card header: transfer mode for
-  // transfers, asset type (Stock/Option/Bond) for buy/sell.
+  // transfers. Asset type (Stock/Option/Bond) renders as a full-width row
+  // inside the section instead (see below).
   const headerAction = isTransfer ? (
     <AnimatedToggleGroup
       items={transferModeItems}
@@ -453,13 +454,18 @@ export function MobileDetailsStep({ accounts, activityType, isEditing }: MobileD
       size="sm"
       rounded="lg"
     />
-  ) : isBuyOrSell && !isEditing ? (
-    <AssetTypeSelector
-      control={control as any}
-      name={"assetType" as any}
-      onValueChange={handleAssetTypeChange}
-    />
   ) : null;
+
+  // Stock/Option/Bond selector — full-width segmented control on mobile.
+  const assetTypeSelector =
+    isBuyOrSell && !isEditing ? (
+      <AssetTypeSelector
+        control={control as any}
+        name={"assetType" as any}
+        onValueChange={handleAssetTypeChange}
+        className="w-full"
+      />
+    ) : null;
 
   const detailsTitle = isBuyOrSell
     ? t("activity:form.section_trade")
@@ -524,6 +530,7 @@ export function MobileDetailsStep({ accounts, activityType, isEditing }: MobileD
       <ScrollArea>
         <div className="form-mobile-spacing pb-4">
           <FormSection title={t("activity:form.section_asset_account")} action={headerAction}>
+            {assetTypeSelector}
             {/* External checkbox + direction (transfers) */}
             {isTransfer && (
               <div className="flex items-center gap-4">

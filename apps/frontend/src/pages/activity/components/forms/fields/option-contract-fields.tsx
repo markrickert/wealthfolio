@@ -1,8 +1,9 @@
 import TickerSearchInput from "@/components/ticker-search";
 import { buildOccSymbol, parseOccSymbol } from "@/lib/occ-symbol";
 import type { SymbolSearchResult } from "@/lib/types";
-import { normalizeCurrency } from "@/lib/utils";
+import { cn, normalizeCurrency } from "@/lib/utils";
 import { resolveSymbolQuote } from "@/adapters";
+import { motion } from "motion/react";
 import { Input } from "@wealthfolio/ui/components/ui/input";
 import {
   DatePickerInput,
@@ -12,7 +13,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@wealthfolio/ui";
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useFormContext, type FieldPath, type FieldValues } from "react-hook-form";
 
@@ -43,6 +44,7 @@ export function OptionContractFields<TFieldValues extends FieldValues = FieldVal
 }: OptionContractFieldsProps<TFieldValues>) {
   const { t } = useTranslation(["activity"]);
   const { control, setValue, getValues, watch } = useFormContext<TFieldValues>();
+  const optionTypeId = useId();
   const latestResolveRequestId = useRef(0);
   const needsCurrencyConfirmation = useRef(false);
   const provisionalCurrency = useRef<string | undefined>(undefined);
@@ -189,59 +191,75 @@ export function OptionContractFields<TFieldValues extends FieldValues = FieldVal
         )}
       />
 
-      {/* Call / Put — full-width toggle, prominent */}
+      {/* Call / Put — segmented control matching the Stock/Option/Bond tabs */}
       <FormField
         control={control}
         name={optionTypeName}
-        render={({ field }) => (
-          <FormItem>
-            <FormControl>
-              <div className="bg-muted grid grid-cols-2 gap-1 rounded-lg p-1">
-                <button
-                  type="button"
-                  onClick={() => field.onChange("CALL")}
-                  className={`flex cursor-pointer items-center justify-center gap-2 rounded-md py-2.5 text-sm font-medium transition-colors ${
-                    field.value === "CALL"
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0">
-                    <path
-                      d="M2 12L6 6L10 9L14 3"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  {t("activity:form.option_call")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => field.onChange("PUT")}
-                  className={`flex cursor-pointer items-center justify-center gap-2 rounded-md py-2.5 text-sm font-medium transition-colors ${
-                    field.value === "PUT"
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0">
-                    <path
-                      d="M2 4L6 10L10 7L14 13"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  {t("activity:form.option_put")}
-                </button>
-              </div>
-            </FormControl>
-            <FormMessage />
-          </FormItem>
-        )}
+        render={({ field }) => {
+          const optionTypes = [
+            {
+              value: "CALL",
+              label: t("activity:form.option_call"),
+              iconPath: "M2 12L6 6L10 9L14 3",
+            },
+            {
+              value: "PUT",
+              label: t("activity:form.option_put"),
+              iconPath: "M2 4L6 10L10 7L14 13",
+            },
+          ] as const;
+          return (
+            <FormItem>
+              <FormControl>
+                <div className="bg-muted relative flex items-center gap-1 rounded-lg p-1">
+                  {optionTypes.map((option) => {
+                    const isSelected = field.value === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => field.onChange(option.value)}
+                        className={cn(
+                          "relative z-10 flex flex-1 cursor-pointer select-none items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors",
+                          "focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+                          isSelected
+                            ? "text-foreground"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {isSelected && (
+                          <motion.div
+                            layoutId={`option-type-indicator-${optionTypeId}`}
+                            className="bg-background absolute inset-0 -z-10 rounded-md shadow-sm"
+                            initial={false}
+                            transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                          />
+                        )}
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          className="shrink-0"
+                        >
+                          <path
+                            d={option.iconPath}
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                        <span>{option.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          );
+        }}
       />
 
       {/* Strike Price + Expiration Date */}
