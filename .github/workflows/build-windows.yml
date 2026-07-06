@@ -3,13 +3,12 @@ name: Build Windows Installer
 # On-demand Windows build for testing branches. Produces the NSIS installer
 # as a workflow artifact — no tag, no GitHub release.
 #
-# workflow_dispatch only becomes available once this file lands on main; the
-# push trigger lets test branches build before that (defaults to aarch64).
+# Manual only: run it from Actions → "Build Windows Installer" → "Run workflow"
+# and pick the branch to build from the ref dropdown. This requires the file to
+# be present on the default branch (workflow_dispatch is only exposed once it
+# lands on main).
 
 on:
-  push:
-    branches:
-      - fix/addon-sandbox-frame-ancestors
   workflow_dispatch:
     inputs:
       target:
