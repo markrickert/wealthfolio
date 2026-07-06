@@ -180,6 +180,14 @@ The 80 supported names, by group:
 `list-checks`, `sliders`, `wrench`, `toolbox`, `puzzle-piece`,
 `plugs-connected`, `app-window`, `squares-four`, `stack`, `kanban`
 
+> **Heads up if you're upgrading an existing addon.** The pre-3.6 icon list was
+> different — names like `blocks`, `dashboard`, `settings`, `holdings`, `goal`,
+> `fee`, and `chart` are **no longer supported** and now render the neutral
+> `caret-right` fallback (no error). Only `wallet`, `target`, `calendar`,
+> `invoice`, `receipt`, and `puzzle-piece` carried over. Re-check your `icon`
+> against the list above — typing it as `AddonIconName` turns any dropped name
+> into a compile error instead of a silent fallback.
+
 ---
 
 ## 4. Build config: externalize host dependencies (ESM)

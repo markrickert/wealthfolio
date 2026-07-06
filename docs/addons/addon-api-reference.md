@@ -175,7 +175,7 @@ const sidebarItem = ctx.sidebar.addItem({
   id: "my-addon",
   label: "My Addon",
   route: "/addon/my-addon",
-  icon: "blocks", // Optional host icon name; see the migration guide for the full list
+  icon: "puzzle-piece", // Optional host icon name; see the migration guide for the full list
   order: 100, // Lower numbers appear first
 });
 

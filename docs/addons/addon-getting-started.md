@@ -127,7 +127,7 @@ export default function enable(ctx: AddonContext) {
   const sidebarItem = ctx.sidebar.addItem({
     id: 'hello-world',
     label: 'Hello World',
-    icon: 'blocks',
+    icon: 'puzzle-piece',
     route: '/addon/hello-world',
     order: 100
   });

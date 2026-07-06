@@ -61,7 +61,7 @@ export default function enable(ctx: AddonContext) {
   // Add navigation item
   const sidebarItem = ctx.sidebar.addItem({
     id: 'my-addon',
-    icon: 'blocks',
+    icon: 'puzzle-piece',
     label: 'My Tool',
     route: '/my-addon'
   });
