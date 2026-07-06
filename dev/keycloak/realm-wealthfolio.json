@@ -15,21 +15,13 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
-      "redirectUris": [
-        "http://localhost:8088/api/v1/auth/oidc/callback"
-      ],
-      "webOrigins": [
-        "http://localhost:8088"
-      ],
+      "redirectUris": ["http://localhost:8088/api/v1/auth/oidc/callback"],
+      "webOrigins": ["http://localhost:8088"],
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "http://localhost:8088/*"
       },
-      "defaultClientScopes": [
-        "openid",
-        "email",
-        "profile"
-      ]
+      "defaultClientScopes": ["openid", "email", "profile"]
     }
   ],
   "users": [
