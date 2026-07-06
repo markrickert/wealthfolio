@@ -212,10 +212,18 @@ export function MultiSelectTaxonomy({
         const category = categoryMap.get(assignment.categoryId);
         return category ? { assignment, category } : null;
       })
-      .filter(Boolean) as {
-      assignment: AssetTaxonomyAssignment;
-      category: TaxonomyCategory;
-    }[];
+      .filter((item): item is { assignment: AssetTaxonomyAssignment; category: TaxonomyCategory } =>
+        Boolean(item),
+      )
+      .sort((a, b) => {
+        const weightComparison = b.assignment.weight - a.assignment.weight;
+        if (weightComparison !== 0) return weightComparison;
+
+        const sortOrderComparison = a.category.sortOrder - b.category.sortOrder;
+        if (sortOrderComparison !== 0) return sortOrderComparison;
+
+        return a.category.name.localeCompare(b.category.name);
+      });
   }, [assignments, categoryMap]);
 
   if (isLoading) {

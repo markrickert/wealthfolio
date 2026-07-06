@@ -1,6 +1,7 @@
 // useGlobalEventListener.ts
 import {
   isDesktop,
+  listenAssetClassificationsChanged,
   listenBrokerSyncComplete,
   listenBrokerSyncError,
   listenDatabaseRestored,
@@ -15,7 +16,11 @@ import {
 } from "@/adapters";
 import { usePortfolioSyncOptional } from "@/context/portfolio-sync-context";
 import { useIsMobileViewport } from "@/hooks/use-platform";
-import { shouldInvalidateAfterPortfolioUpdate } from "@/lib/query-invalidation";
+import {
+  invalidateAfterAssetClassificationsChanged,
+  shouldInvalidateAfterPortfolioUpdate,
+  type AssetClassificationsChangedPayload,
+} from "@/lib/query-invalidation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -163,6 +168,12 @@ const useGlobalEventListener = () => {
       });
     };
 
+    const handleAssetClassificationsChanged = (event: {
+      payload: AssetClassificationsChangedPayload | null;
+    }) => {
+      invalidateAfterAssetClassificationsChanged(queryClientRef.current, event.payload);
+    };
+
     const handleBrokerSyncComplete = (event: {
       payload: {
         success: boolean;
@@ -279,6 +290,10 @@ const useGlobalEventListener = () => {
         ["market-sync-start", listenMarketSyncStart(handleMarketSyncStart)],
         ["market-sync-complete", listenMarketSyncComplete(handleMarketSyncComplete)],
         ["market-sync-error", listenMarketSyncError(handleMarketSyncError)],
+        [
+          "asset-classifications-changed",
+          listenAssetClassificationsChanged(handleAssetClassificationsChanged),
+        ],
         ["database-restored", listenDatabaseRestored(handleDatabaseRestored)],
         ["broker-sync-complete", listenBrokerSyncComplete(handleBrokerSyncComplete)],
         ["broker-sync-error", listenBrokerSyncError(handleBrokerSyncError)],

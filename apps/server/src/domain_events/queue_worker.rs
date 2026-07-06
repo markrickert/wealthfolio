@@ -23,7 +23,8 @@ use wealthfolio_core::{
 };
 
 use super::planner::{
-    plan_asset_enrichment, plan_broker_sync, plan_categorization_job, plan_portfolio_job,
+    plan_asset_classification_change, plan_asset_enrichment, plan_broker_sync,
+    plan_categorization_job, plan_portfolio_job,
 };
 use crate::events::EventBus;
 
@@ -143,6 +144,17 @@ pub async fn event_queue_worker(
 /// Processes a batch of domain events.
 async fn process_event_batch(events: &[DomainEvent], deps: Arc<QueueWorkerDeps>) {
     tracing::info!("Processing batch of {} domain event(s)", events.len());
+
+    if let Some(plan) = plan_asset_classification_change(events) {
+        deps.event_bus
+            .publish(crate::events::ServerEvent::with_payload(
+                crate::events::ASSET_CLASSIFICATIONS_CHANGED,
+                serde_json::json!({
+                    "assetIds": plan.asset_ids,
+                    "taxonomyIds": plan.taxonomy_ids,
+                }),
+            ));
+    }
 
     // 1. Plan and run asset enrichment FIRST so that bond metadata (coupon rate,
     //    maturity date, etc.) is available before the portfolio job tries to

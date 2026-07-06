@@ -1369,13 +1369,17 @@
       "classification_suggest": {
         "label": "分类——建议",
         "description": "为审核建议金融工具分类。"
+      },
+      "classification_write": {
+        "label": "分类——应用/写入",
+        "description": "应用已审核的分类草稿。需要建议作用域。"
       }
     },
     "preset": {
       "read_only": "仅读取",
       "read_activity_draft": "读取 + 草稿",
       "read_activity_write": "读取 + 写入",
-      "read_activity_write_classification_suggest": "读取 + 写入 + 建议"
+      "read_activity_write_classification_suggest": "读取 + 写入 + 分类"
     },
     "copied_generic": "{{label}} 已复制到剪贴板。",
     "hero_aria": "AI 代理访问状态",

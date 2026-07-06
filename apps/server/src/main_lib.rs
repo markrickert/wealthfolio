@@ -391,7 +391,9 @@ pub async fn build_state(config: &Config) -> anyhow::Result<Arc<AppState>> {
 
     // Create taxonomy service for auto-classification
     let taxonomy_repository = Arc::new(TaxonomyRepository::new(pool.clone(), writer.clone()));
-    let taxonomy_service = Arc::new(TaxonomyService::new(taxonomy_repository));
+    let taxonomy_service = Arc::new(
+        TaxonomyService::new(taxonomy_repository).with_event_sink(domain_event_sink.clone()),
+    );
 
     let asset_service = Arc::new(
         AssetService::with_taxonomy_service(

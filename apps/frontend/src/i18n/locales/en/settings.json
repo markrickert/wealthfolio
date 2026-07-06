@@ -1369,13 +1369,17 @@
       "classification_suggest": {
         "label": "Classification — suggest",
         "description": "Suggest instrument classifications for review."
+      },
+      "classification_write": {
+        "label": "Classification — apply/write",
+        "description": "Apply reviewed classification drafts. Requires the suggest scope."
       }
     },
     "preset": {
       "read_only": "Read-only",
       "read_activity_draft": "Read + draft",
       "read_activity_write": "Read + write",
-      "read_activity_write_classification_suggest": "Read + write + suggest"
+      "read_activity_write_classification_suggest": "Read + write + classify"
     },
     "copied_generic": "{{label}} copied to clipboard.",
     "hero_aria": "AI Agent Access status",

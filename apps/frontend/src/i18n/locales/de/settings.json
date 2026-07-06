@@ -1369,13 +1369,17 @@
       "classification_suggest": {
         "label": "Klassifizierung — vorschlagen",
         "description": "Instrumentenklassifizierungen zur Prüfung vorschlagen."
+      },
+      "classification_write": {
+        "label": "Klassifizierung — anwenden/schreiben",
+        "description": "Geprüfte Klassifizierungsentwürfe anwenden. Erfordert die Vorschlags-Berechtigung."
       }
     },
     "preset": {
       "read_only": "Nur Lesen",
       "read_activity_draft": "Lesen + Entwurf",
       "read_activity_write": "Lesen + Schreiben",
-      "read_activity_write_classification_suggest": "Lesen + Schreiben + Vorschlag"
+      "read_activity_write_classification_suggest": "Lesen + Schreiben + Klassifizieren"
     },
     "copied_generic": "{{label}} in die Zwischenablage kopiert.",
     "hero_aria": "Status des KI-Agenten-Zugriffs",

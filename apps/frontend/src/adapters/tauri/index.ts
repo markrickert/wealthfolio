@@ -217,6 +217,7 @@ export {
   listenPortfolioUpdateComplete,
   listenDatabaseRestored,
   listenPortfolioUpdateError,
+  listenAssetClassificationsChanged,
   listenMarketSyncComplete,
   listenMarketSyncStart,
   listenMarketSyncError,

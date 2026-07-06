@@ -96,9 +96,9 @@ export function PatCreateDialog({
   };
 
   const toggleScope = (key: ScopeKey) => {
-    // Store only the user's raw selection; dependencies (e.g. write ⇒ draft)
-    // are derived in `selectedScopes`. Baking them into state here would leave
-    // `activities:draft` stuck on after `activities:write` is unchecked.
+    // Store only the user's raw selection; dependencies are derived in
+    // `selectedScopes`. Baking them into state here would leave implied scopes
+    // stuck on after their dependent write scopes are unchecked.
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(key)) {
@@ -147,8 +147,9 @@ export function PatCreateDialog({
     const checked = selectedScopes.includes(scope.key);
     const label = scopeLabel(t, scope.key);
     const description = scopeDescription(t, scope.key);
-    // `activities:draft` is implied by (and locked on while) `activities:write`.
-    const locked = scope.key === "activities:draft" && selectedScopes.includes("activities:write");
+    const locked =
+      (scope.key === "activities:draft" && selectedScopes.includes("activities:write")) ||
+      (scope.key === "classification:suggest" && selectedScopes.includes("classification:write"));
     return (
       <button
         key={scope.key}

@@ -205,6 +205,7 @@ mod tests {
         // Commit and CSV-import tools are NOT exposed to the assistant.
         assert!(!names.contains(&"commit_activity_draft"));
         assert!(!names.contains(&"commit_activity_drafts"));
+        assert!(!names.contains(&"commit_asset_classification_draft"));
         assert!(!names.contains(&"prepare_activity_import"));
         assert!(!names.contains(&"commit_activity_import"));
         assert!(!names.contains(&"get_import_mapping"));
@@ -216,6 +217,7 @@ mod tests {
         let names: Vec<&str> = catalog.iter().map(|tool| tool.name()).collect();
         assert!(names.contains(&"commit_activity_draft"));
         assert!(names.contains(&"commit_activity_drafts"));
+        assert!(names.contains(&"commit_asset_classification_draft"));
         assert!(names.contains(&"get_import_mapping"));
         assert!(names.contains(&"prepare_activity_import"));
         assert!(names.contains(&"commit_activity_import"));
@@ -227,7 +229,11 @@ mod tests {
     async fn execute_denies_commit_tools_with_empty_scopes() {
         let catalog = AgentToolCatalog::mcp_catalog();
         let granted = AgentScopeSet::new();
-        for name in ["commit_activity_draft", "commit_activity_drafts"] {
+        for name in [
+            "commit_activity_draft",
+            "commit_activity_drafts",
+            "commit_asset_classification_draft",
+        ] {
             let err = catalog
                 .execute(Arc::new(PanicEnv), &granted, name, serde_json::json!({}))
                 .await

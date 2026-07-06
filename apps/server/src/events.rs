@@ -10,6 +10,7 @@ pub const PORTFOLIO_UPDATE_COMPLETE: &str = "portfolio:update-complete";
 pub const PORTFOLIO_UPDATE_ERROR: &str = "portfolio:update-error";
 pub const ASSET_ENRICHMENT_START: &str = "asset:enrichment-start";
 pub const ASSET_ENRICHMENT_COMPLETE: &str = "asset:enrichment-complete";
+pub const ASSET_CLASSIFICATIONS_CHANGED: &str = "asset:classifications-changed";
 
 pub const ASSET_ENRICHMENT_PROGRESS: &str = "asset:enrichment-progress";
 pub const BROKER_SYNC_START: &str = "broker:sync-start";

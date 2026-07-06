@@ -13,6 +13,7 @@ pub mod asset_taxonomies;
 pub mod cash_balances;
 pub mod categorization_context;
 pub mod commit_activity;
+pub mod commit_asset_classification;
 pub mod contribution_limits;
 pub mod create_categorization_rule;
 pub mod goals;
@@ -95,6 +96,11 @@ pub use commit_activity::{
     CommitActivityDraft, CommitActivityDraftOutput, CommitActivityDrafts, CommitActivityDraftsArgs,
     CommitActivityDraftsOutput, CommitError, CommittedActivity,
 };
+pub use commit_asset_classification::{
+    CommitAssetClassificationAssignmentInput, CommitAssetClassificationDraft,
+    CommitAssetClassificationDraftArgs, CommitAssetClassificationDraftOutput,
+    CommittedAssetClassificationAssignment,
+};
 
 // MCP-only CSV import tools (validate + dedup-safe import pipeline).
 pub use activity_import::{
@@ -150,6 +156,7 @@ pub fn commit_tools() -> Vec<Arc<dyn AgentTool>> {
     vec![
         Arc::new(CommitActivityDraft),
         Arc::new(CommitActivityDrafts),
+        Arc::new(CommitAssetClassificationDraft),
     ]
 }
 

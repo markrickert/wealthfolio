@@ -12,6 +12,57 @@ use wealthfolio_core::utils::time_utils::activity_date_in_user_timezone;
 
 use crate::events::PortfolioRequestPayload;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssetClassificationChangePlan {
+    pub asset_ids: Vec<String>,
+    pub taxonomy_ids: Vec<String>,
+}
+
+/// Plans a UI cache refresh for asset classification changes.
+pub fn plan_asset_classification_change(
+    events: &[DomainEvent],
+) -> Option<AssetClassificationChangePlan> {
+    let mut asset_ids: HashSet<String> = HashSet::new();
+    let mut taxonomy_ids: HashSet<String> = HashSet::new();
+    let mut has_event = false;
+
+    for event in events {
+        if let DomainEvent::AssetClassificationsChanged {
+            asset_ids: changed_asset_ids,
+            taxonomy_ids: changed_taxonomy_ids,
+        } = event
+        {
+            has_event = true;
+            asset_ids.extend(
+                changed_asset_ids
+                    .iter()
+                    .filter(|id| !id.is_empty())
+                    .cloned(),
+            );
+            taxonomy_ids.extend(
+                changed_taxonomy_ids
+                    .iter()
+                    .filter(|id| !id.is_empty())
+                    .cloned(),
+            );
+        }
+    }
+
+    if !has_event {
+        return None;
+    }
+
+    let mut asset_ids = asset_ids.into_iter().collect::<Vec<_>>();
+    asset_ids.sort();
+    let mut taxonomy_ids = taxonomy_ids.into_iter().collect::<Vec<_>>();
+    taxonomy_ids.sort();
+
+    Some(AssetClassificationChangePlan {
+        asset_ids,
+        taxonomy_ids,
+    })
+}
+
 /// Plans a portfolio recalculation job from a batch of domain events.
 ///
 /// Merges account_ids and asset_ids from:
@@ -88,6 +139,7 @@ pub fn plan_portfolio_job(
                     }
                 }
             }
+            DomainEvent::AssetClassificationsChanged { .. } => {}
             DomainEvent::AssetsMerged { .. } => {}
             DomainEvent::TrackingModeChanged {
                 account_id,
@@ -370,6 +422,40 @@ mod tests {
         } else {
             panic!("Expected Incremental sync mode");
         }
+    }
+
+    #[test]
+    fn test_plan_portfolio_job_asset_classifications_changed_does_not_trigger_recalc() {
+        let events = vec![DomainEvent::asset_classifications_changed(
+            vec!["asset-1".to_string()],
+            vec!["asset_classes".to_string()],
+        )];
+
+        assert!(plan_portfolio_job(&events, "UTC").is_none());
+    }
+
+    #[test]
+    fn test_plan_asset_classification_change_deduplicates_ids() {
+        let events = vec![
+            DomainEvent::asset_classifications_changed(
+                vec!["asset-2".to_string(), "asset-1".to_string()],
+                vec!["regions".to_string()],
+            ),
+            DomainEvent::asset_classifications_changed(
+                vec!["asset-1".to_string(), "".to_string()],
+                vec!["regions".to_string(), "asset_classes".to_string()],
+            ),
+        ];
+
+        let plan = plan_asset_classification_change(&events).unwrap();
+        assert_eq!(
+            plan.asset_ids,
+            vec!["asset-1".to_string(), "asset-2".to_string()]
+        );
+        assert_eq!(
+            plan.taxonomy_ids,
+            vec!["asset_classes".to_string(), "regions".to_string()]
+        );
     }
 
     #[test]

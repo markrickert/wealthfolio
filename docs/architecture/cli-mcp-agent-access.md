@@ -61,7 +61,7 @@ audit logging it currently lacks.
 - No raw SQL tools.
 - No tools for secrets, addon installation, backups, updater, device pairing, or
   arbitrary file access.
-- No automatic classification writes.
+- No unreviewed automatic classification writes.
 - No separate user-facing MCP binary.
 
 ## Current Repository Context
@@ -448,6 +448,7 @@ prepare_asset_classification
 ```text
 commit_activity_draft              -- persist one reviewed draft
 commit_activity_drafts             -- persist a batch
+commit_asset_classification_draft  -- persist one reviewed classification draft
 ```
 
 ### MCP-only CSV Import Tools
@@ -463,8 +464,10 @@ agent-facing CSV path is the three import tools above.
 
 Rules:
 
-- Draft and import-preview tools never mutate data; committing requires the
-  `activities:write` scope (which itself requires `activities:draft`).
+- Draft and import-preview tools never mutate data; activity commits require
+  `activities:write` (which itself requires `activities:draft`), and
+  classification commits require `classification:write` (which itself requires
+  `classification:suggest`).
 - CSV / activity-row content must not be persisted in raw audit logs: the
   write/import tools redact their `activities`/row arguments to a count
   (`"[N rows]"`) via per-tool audit sanitization.
@@ -518,10 +521,13 @@ activities:write         commit_activity_draft / commit_activity_drafts,
 classification:suggest   propose_transaction_categories,
                          create_categorization_rule,
                          prepare_asset_classification
+classification:write     commit_asset_classification_draft
+                         (also requires classification:suggest)
 ```
 
-Dependency rule: `activities:write` requires `activities:draft` (you cannot
-commit without the ability to draft). Token creation validates this.
+Dependency rules: `activities:write` requires `activities:draft`, and
+`classification:write` requires `classification:suggest` (you cannot commit
+without the matching draft/suggest capability). Token creation validates this.
 
 Presets (`AgentScopeSet` constructors):
 
@@ -529,7 +535,7 @@ Presets (`AgentScopeSet` constructors):
 - `read-activity-draft` — read + `activities:draft`.
 - `read-activity-write` — read + `activities:draft` + `activities:write`.
 - `read-activity-write-classification-suggest` — the above plus
-  `classification:suggest`.
+  `classification:suggest` and `classification:write`.
 
 Scope strings are parsed with `AgentScope::parse`, which rejects unknown scopes
 (including the removed `portfolio:read`). Token creation rejects unknown scopes;
@@ -719,7 +725,8 @@ calls unchanged; no direct SQLite access introduced by MCP.
 - PAT creation UX: name + fixed expiry options (30/90 days, 1 year, none) +
   **selectable scopes** (presets: read-only, read-activity-draft,
   read-activity-write, read-activity-write-classification-suggest); token shown
-  once. Dependency rule enforced (`activities:write` ⇒ `activities:draft`).
+  once. Dependency rules enforced (`activities:write` ⇒ `activities:draft`,
+  `classification:write` ⇒ `classification:suggest`).
 - Server MCP fail-closed: `WF_MCP_ENABLED=true` on a non-loopback address
   requires auth configured, with no `WF_AUTH_REQUIRED=false` escape hatch
   (otherwise anyone could mint PATs).
@@ -743,5 +750,4 @@ calls unchanged; no direct SQLite access introduced by MCP.
 - Auth is PAT-only on both hosts; lock file never contains secrets.
 - Audit log stored in SQLite with `session_id`.
 - Selectable scopes from the start: read, activity draft/commit, and
-  classification suggest all ship behind explicit scopes; classification stays
-  read/suggest-only (no classification writes).
+  classification suggest/write all ship behind explicit scopes.

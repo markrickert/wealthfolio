@@ -275,6 +275,15 @@ async fn mcp_pat_lifecycle() {
     .await;
     assert_eq!(status, 400);
 
+    // classification:write without classification:suggest is rejected (dependency).
+    let (status, _) = create_pat(
+        &server,
+        &cookie,
+        serde_json::json!({ "name": "classification write only", "scopes": ["classification:write"] }),
+    )
+    .await;
+    assert_eq!(status, 400);
+
     let session = mcp_initialize(&server, &pat).await;
 
     // tools/list -> the read-only catalog: 16 read tools + get_import_mapping
@@ -440,7 +449,7 @@ async fn mcp_pat_lifecycle() {
 /// A write/suggest-scoped token sees the draft, suggest, commit, AND import
 /// tools via `tools/list` — proving scope-gated visibility extends past the
 /// read-only catalog. (Read-only tokens see 17; the full MCP catalog is
-/// 16 read + get_import_mapping + 5 draft/suggest + 2 commit + 2 import = 26.)
+/// 16 read + get_import_mapping + 5 draft/suggest + 3 commit + 2 import = 27.)
 #[tokio::test]
 async fn mcp_write_scoped_token_sees_write_tools() {
     let server = spawn_server(true, false).await;
@@ -453,6 +462,7 @@ async fn mcp_write_scoped_token_sees_write_tools() {
             "activities:draft",
             "activities:write",
             "classification:suggest",
+            "classification:write",
         ])
         .collect();
     let (status, created) = create_pat(
@@ -462,7 +472,7 @@ async fn mcp_write_scoped_token_sees_write_tools() {
     )
     .await;
     assert_eq!(status, 201);
-    assert_eq!(created["scopes"].as_array().unwrap().len(), 10);
+    assert_eq!(created["scopes"].as_array().unwrap().len(), 11);
     let pat = created["token"].as_str().unwrap().to_string();
 
     let session = mcp_initialize(&server, &pat).await;
@@ -479,8 +489,8 @@ async fn mcp_write_scoped_token_sees_write_tools() {
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert_eq!(
         tools.len(),
-        26,
-        "full-scope token must see all 26 tools: {names:?}"
+        27,
+        "full-scope token must see all 27 tools: {names:?}"
     );
     assert!(
         names.contains(&"commit_activity_import"),
@@ -498,6 +508,10 @@ async fn mcp_write_scoped_token_sees_write_tools() {
     assert!(
         names.contains(&"commit_activity_drafts"),
         "batch commit tool visible"
+    );
+    assert!(
+        names.contains(&"commit_asset_classification_draft"),
+        "classification commit tool visible"
     );
 }
 

@@ -1369,13 +1369,17 @@
       "classification_suggest": {
         "label": "Clasificación: sugerir",
         "description": "Sugerir clasificaciones de instrumentos para su revisión."
+      },
+      "classification_write": {
+        "label": "Clasificación: aplicar/escribir",
+        "description": "Aplicar borradores de clasificación revisados. Requiere el ámbito de sugerencia."
       }
     },
     "preset": {
       "read_only": "Solo lectura",
       "read_activity_draft": "Lectura + borrador",
       "read_activity_write": "Lectura + escritura",
-      "read_activity_write_classification_suggest": "Lectura + escritura + sugerir"
+      "read_activity_write_classification_suggest": "Lectura + escritura + clasificar"
     },
     "copied_generic": "{{label}} copiado al portapapeles.",
     "hero_aria": "Estado del acceso de agentes de IA",

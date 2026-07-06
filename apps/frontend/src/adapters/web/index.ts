@@ -395,6 +395,7 @@ export { streamAiChat } from "./ai-streaming";
 
 // Event Listeners (web-specific SSE implementation)
 export {
+  listenAssetClassificationsChanged,
   listenBrokerSyncComplete,
   listenBrokerSyncError,
   listenBrokerSyncStart,

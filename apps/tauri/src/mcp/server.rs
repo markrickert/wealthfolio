@@ -24,7 +24,7 @@ pub const DEFAULT_PORT: u16 = 8639;
 
 const INSTRUCTIONS: &str = "Read and write access to the user's Wealthfolio portfolio: accounts, \
 holdings, valuations, performance, activities, income, goals, health, and classifications. \
-Write capabilities (drafting and committing activities, classification suggestions) depend on the \
+Write capabilities (drafting and committing activities, classification suggestions and commits) depend on the \
 scopes granted to the access token in use.";
 
 async fn health() -> Json<serde_json::Value> {

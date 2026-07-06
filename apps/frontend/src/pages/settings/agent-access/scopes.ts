@@ -1,7 +1,7 @@
 // Canonical agent-access token scopes shared by the web (server PAT) and
 // desktop (Tauri) surfaces. The backend rejects unknown scopes, empty scope
-// sets, and `activities:write` without `activities:draft`; this module keeps
-// the UI in sync with that contract.
+// sets, and write scopes without their draft/suggest prerequisites; this
+// module keeps the UI in sync with that contract.
 
 import type { TFunction } from "i18next";
 
@@ -15,7 +15,8 @@ export type ScopeKey =
   | "classification:read"
   | "activities:draft"
   | "activities:write"
-  | "classification:suggest";
+  | "classification:suggest"
+  | "classification:write";
 
 export type ScopeGroup = "read" | "write";
 
@@ -26,7 +27,7 @@ export interface ScopeMeta {
   group: ScopeGroup;
 }
 
-/** Ordered list of all 10 scopes, grouped reads first then write/suggest. */
+/** Ordered list of all 11 scopes, grouped reads first then write/suggest. */
 export const SCOPES: ScopeMeta[] = [
   { key: "accounts:read", i18n: "accounts_read", group: "read" },
   { key: "holdings:read", i18n: "holdings_read", group: "read" },
@@ -38,6 +39,7 @@ export const SCOPES: ScopeMeta[] = [
   { key: "activities:draft", i18n: "activities_draft", group: "write" },
   { key: "activities:write", i18n: "activities_write", group: "write" },
   { key: "classification:suggest", i18n: "classification_suggest", group: "write" },
+  { key: "classification:write", i18n: "classification_write", group: "write" },
 ];
 
 /** The 7 read scopes, in canonical order. */
@@ -72,7 +74,13 @@ export const SCOPE_PRESETS: ScopePreset[] = [
   {
     key: "read-activity-write-classification-suggest",
     i18n: "read_activity_write_classification_suggest",
-    scopes: [...READ_SCOPES, "activities:draft", "activities:write", "classification:suggest"],
+    scopes: [
+      ...READ_SCOPES,
+      "activities:draft",
+      "activities:write",
+      "classification:suggest",
+      "classification:write",
+    ],
   },
 ];
 
@@ -96,13 +104,15 @@ export function presetLabel(t: TFunction, preset: ScopePreset): string {
 }
 
 /**
- * Apply the dependency rule: selecting `activities:write` also selects
- * `activities:draft`. Returns scopes in canonical order with duplicates removed.
+ * Apply dependency rules. Returns scopes in canonical order with duplicates removed.
  */
 export function applyScopeDependencies(scopes: Iterable<string>): ScopeKey[] {
   const set = new Set<string>(scopes);
   if (set.has("activities:write")) {
     set.add("activities:draft");
+  }
+  if (set.has("classification:write")) {
+    set.add("classification:suggest");
   }
   return SCOPES.filter((scope) => set.has(scope.key)).map((scope) => scope.key);
 }

@@ -43,6 +43,12 @@ pub enum DomainEvent {
     /// Existing assets were updated and require quote sync/recalculation.
     AssetsUpdated { asset_ids: Vec<String> },
 
+    /// Asset taxonomy assignments changed.
+    AssetClassificationsChanged {
+        asset_ids: Vec<String>,
+        taxonomy_ids: Vec<String>,
+    },
+
     /// UNKNOWN asset was merged into a resolved asset.
     AssetsMerged {
         /// The UNKNOWN asset ID being merged (source)
@@ -122,6 +128,17 @@ impl DomainEvent {
     /// Creates an AssetsUpdated event.
     pub fn assets_updated(asset_ids: Vec<String>) -> Self {
         Self::AssetsUpdated { asset_ids }
+    }
+
+    /// Creates an AssetClassificationsChanged event.
+    pub fn asset_classifications_changed(
+        asset_ids: Vec<String>,
+        taxonomy_ids: Vec<String>,
+    ) -> Self {
+        Self::AssetClassificationsChanged {
+            asset_ids,
+            taxonomy_ids,
+        }
     }
 
     /// Creates an AssetsMerged event.
@@ -235,6 +252,28 @@ mod tests {
                 assert_eq!(asset_ids, vec!["asset-1".to_string()]);
             }
             _ => panic!("Expected AssetsUpdated"),
+        }
+    }
+
+    #[test]
+    fn test_asset_classifications_changed_serialization() {
+        let event = DomainEvent::asset_classifications_changed(
+            vec!["asset-1".to_string()],
+            vec!["asset_classes".to_string()],
+        );
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("asset_classifications_changed"));
+
+        let deserialized: DomainEvent = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            DomainEvent::AssetClassificationsChanged {
+                asset_ids,
+                taxonomy_ids,
+            } => {
+                assert_eq!(asset_ids, vec!["asset-1".to_string()]);
+                assert_eq!(taxonomy_ids, vec!["asset_classes".to_string()]);
+            }
+            _ => panic!("Expected AssetClassificationsChanged"),
         }
     }
 

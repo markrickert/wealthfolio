@@ -22,6 +22,7 @@ pub enum AgentScope {
     ActivitiesDraft,
     ActivitiesWrite,
     ClassificationSuggest,
+    ClassificationWrite,
 }
 
 impl AgentScope {
@@ -38,6 +39,7 @@ impl AgentScope {
         AgentScope::ActivitiesDraft,
         AgentScope::ActivitiesWrite,
         AgentScope::ClassificationSuggest,
+        AgentScope::ClassificationWrite,
     ];
 
     /// The read-only scopes — what the `read-only` preset grants. Kept
@@ -66,6 +68,7 @@ impl AgentScope {
             AgentScope::ActivitiesDraft => "activities:draft",
             AgentScope::ActivitiesWrite => "activities:write",
             AgentScope::ClassificationSuggest => "classification:suggest",
+            AgentScope::ClassificationWrite => "classification:write",
         }
     }
 
@@ -126,10 +129,11 @@ impl AgentScopeSet {
         set
     }
 
-    /// Read-only + activity writes + classification suggestions.
+    /// Read-only + activity writes + classification suggestions/writes.
     pub fn read_activity_write_classification_suggest() -> Self {
         let mut set = Self::read_activity_write();
         set.insert(AgentScope::ClassificationSuggest);
+        set.insert(AgentScope::ClassificationWrite);
         set
     }
 
@@ -162,14 +166,21 @@ impl AgentScopeSet {
     }
 
     /// Validate scope dependencies. Returns a human-readable error when a
-    /// granted scope is missing a prerequisite: committing activities
-    /// (`activities:write`) requires the ability to draft them
-    /// (`activities:draft`).
+    /// granted scope is missing a prerequisite: committing requires the
+    /// matching draft/suggest scope.
     pub fn dependency_error(&self) -> Option<String> {
         if self.contains(AgentScope::ActivitiesWrite) && !self.contains(AgentScope::ActivitiesDraft)
         {
             return Some(
                 "activities:write requires activities:draft (commit needs a draft)".to_string(),
+            );
+        }
+        if self.contains(AgentScope::ClassificationWrite)
+            && !self.contains(AgentScope::ClassificationSuggest)
+        {
+            return Some(
+                "classification:write requires classification:suggest (commit needs a draft)"
+                    .to_string(),
             );
         }
         None
@@ -214,6 +225,7 @@ mod tests {
         assert!(!set.contains(AgentScope::ActivitiesDraft));
         assert!(!set.contains(AgentScope::ActivitiesWrite));
         assert!(!set.contains(AgentScope::ClassificationSuggest));
+        assert!(!set.contains(AgentScope::ClassificationWrite));
     }
 
     #[test]
@@ -225,9 +237,11 @@ mod tests {
         assert!(write.contains(AgentScope::ActivitiesDraft));
         assert!(write.contains(AgentScope::ActivitiesWrite));
         assert!(!write.contains(AgentScope::ClassificationSuggest));
+        assert!(!write.contains(AgentScope::ClassificationWrite));
 
         let full = AgentScopeSet::read_activity_write_classification_suggest();
         assert!(full.contains(AgentScope::ClassificationSuggest));
+        assert!(full.contains(AgentScope::ClassificationWrite));
     }
 
     #[test]
@@ -239,12 +253,18 @@ mod tests {
     }
 
     #[test]
-    fn dependency_error_flags_write_without_draft() {
+    fn dependency_error_flags_write_without_matching_draft_scope() {
         let mut set = AgentScopeSet::read_only();
         set.insert(AgentScope::ActivitiesWrite);
         assert!(set.dependency_error().is_some());
 
         set.insert(AgentScope::ActivitiesDraft);
+        assert!(set.dependency_error().is_none());
+
+        set.insert(AgentScope::ClassificationWrite);
+        assert!(set.dependency_error().is_some());
+
+        set.insert(AgentScope::ClassificationSuggest);
         assert!(set.dependency_error().is_none());
     }
 }

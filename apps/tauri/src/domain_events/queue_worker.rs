@@ -21,14 +21,18 @@ use wealthfolio_core::utils::time_utils::{parse_user_timezone_or_default, user_t
 
 #[cfg(feature = "connect-sync")]
 use super::planner::plan_broker_sync;
-use super::planner::{plan_asset_enrichment, plan_categorization_job, plan_portfolio_job};
+use super::planner::{
+    plan_asset_classification_change, plan_asset_enrichment, plan_categorization_job,
+    plan_portfolio_job,
+};
 #[cfg(feature = "connect-sync")]
 use crate::commands::brokers_sync::perform_broker_sync;
 use crate::context::ServiceContext;
 use crate::events::{
-    MarketSyncResult, PortfolioRequestPayload, ASSET_ENRICHMENT_COMPLETE,
-    ASSET_ENRICHMENT_PROGRESS, ASSET_ENRICHMENT_START, MARKET_SYNC_COMPLETE, MARKET_SYNC_ERROR,
-    MARKET_SYNC_START, PORTFOLIO_UPDATE_COMPLETE, PORTFOLIO_UPDATE_ERROR, PORTFOLIO_UPDATE_START,
+    MarketSyncResult, PortfolioRequestPayload, ASSET_CLASSIFICATIONS_CHANGED,
+    ASSET_ENRICHMENT_COMPLETE, ASSET_ENRICHMENT_PROGRESS, ASSET_ENRICHMENT_START,
+    MARKET_SYNC_COMPLETE, MARKET_SYNC_ERROR, MARKET_SYNC_START, PORTFOLIO_UPDATE_COMPLETE,
+    PORTFOLIO_UPDATE_ERROR, PORTFOLIO_UPDATE_START,
 };
 
 /// Debounce window duration in milliseconds.
@@ -115,6 +119,16 @@ async fn process_event_batch(
     }
 
     info!("Processing batch of {} domain events", events.len());
+
+    if let Some(plan) = plan_asset_classification_change(events) {
+        let _ = app_handle.emit(
+            ASSET_CLASSIFICATIONS_CHANGED,
+            serde_json::json!({
+                "assetIds": plan.asset_ids,
+                "taxonomyIds": plan.taxonomy_ids,
+            }),
+        );
+    }
 
     // 1. Plan and run asset enrichment FIRST so that bond metadata (coupon rate,
     //    maturity date, etc.) is available before the portfolio job tries to

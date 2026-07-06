@@ -1369,13 +1369,17 @@
       "classification_suggest": {
         "label": "Classification — suggérer",
         "description": "Suggérer des classifications d'instruments pour révision."
+      },
+      "classification_write": {
+        "label": "Classification — appliquer/écrire",
+        "description": "Appliquer des brouillons de classification révisés. Nécessite la portée suggestion."
       }
     },
     "preset": {
       "read_only": "Lecture seule",
       "read_activity_draft": "Lecture + brouillon",
       "read_activity_write": "Lecture + écriture",
-      "read_activity_write_classification_suggest": "Lecture + écriture + suggestion"
+      "read_activity_write_classification_suggest": "Lecture + écriture + classification"
     },
     "copied_generic": "{{label}} copié dans le presse-papiers.",
     "hero_aria": "État de l'accès des agents IA",

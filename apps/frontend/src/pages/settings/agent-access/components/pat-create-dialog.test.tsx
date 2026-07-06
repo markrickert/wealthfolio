@@ -64,4 +64,30 @@ describe("PatCreateDialog scope dependencies", () => {
     expect(write).toHaveAttribute("aria-checked", "false");
     expect(draft).toHaveAttribute("aria-checked", "true");
   });
+
+  it("derives classification suggest from classification write", () => {
+    render(
+      <PatCreateDialog
+        open
+        onOpenChange={vi.fn()}
+        onCreate={vi.fn().mockResolvedValue("wfp_secret")}
+        isCreating={false}
+      />,
+    );
+
+    const write = scopeCheckbox("Classification — apply/write");
+    const suggest = scopeCheckbox("Classification — suggest");
+
+    expect(suggest).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(write);
+    expect(write).toHaveAttribute("aria-checked", "true");
+    expect(suggest).toHaveAttribute("aria-checked", "true");
+    expect(suggest).toBeDisabled();
+
+    fireEvent.click(write);
+    expect(write).toHaveAttribute("aria-checked", "false");
+    expect(suggest).toHaveAttribute("aria-checked", "false");
+    expect(suggest).not.toBeDisabled();
+  });
 });
