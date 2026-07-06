@@ -21,6 +21,7 @@ export const ADDON_ICON_NAMES = [
   'receipt',
   'invoice',
   'hand-coins',
+  'hand-deposit',
   'vault',
   'chart-line-up',
   'chart-line',

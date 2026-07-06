@@ -13,6 +13,7 @@ import { PiggyBankIcon } from "@phosphor-icons/react/dist/csr/PiggyBank";
 import { ReceiptIcon } from "@phosphor-icons/react/dist/csr/Receipt";
 import { InvoiceIcon } from "@phosphor-icons/react/dist/csr/Invoice";
 import { HandCoinsIcon } from "@phosphor-icons/react/dist/csr/HandCoins";
+import { HandDepositIcon } from "@phosphor-icons/react/dist/csr/HandDeposit";
 import { VaultIcon } from "@phosphor-icons/react/dist/csr/Vault";
 import { ChartLineUpIcon } from "@phosphor-icons/react/dist/csr/ChartLineUp";
 import { ChartLineIcon } from "@phosphor-icons/react/dist/csr/ChartLine";
@@ -107,6 +108,7 @@ export const addonIcons: Record<string, AddonIconComponent> = {
   receipt: duotone(ReceiptIcon),
   invoice: duotone(InvoiceIcon),
   "hand-coins": duotone(HandCoinsIcon),
+  "hand-deposit": duotone(HandDepositIcon),
   vault: duotone(VaultIcon),
   "chart-line-up": duotone(ChartLineUpIcon),
   "chart-line": duotone(ChartLineIcon),
