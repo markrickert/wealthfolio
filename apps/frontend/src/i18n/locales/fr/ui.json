@@ -142,15 +142,15 @@
     "5Y": "5 dernières années",
     "ALL": "Tout l'historique",
     "label": {
-      "1D": "1D",
-      "1W": "1W",
+      "1D": "1J",
+      "1W": "1S",
       "1M": "1M",
       "3M": "3M",
       "6M": "6M",
       "YTD": "YTD",
-      "1Y": "1Y",
-      "5Y": "5Y",
-      "ALL": "ALL"
+      "1Y": "1A",
+      "5Y": "5A",
+      "ALL": "Max"
     }
   },
   "search": {
