@@ -33,7 +33,7 @@
   "subtype_dividend_in_kind": "Dividendo en especie",
   "subtype_staking_reward": "Recompensa de staking",
   "subtype_bonus": "Bonificación",
-  "subtype_rebate": "Bonificación por operación",
+  "subtype_rebate": "Devolución por operación",
   "subtype_refund": "Reembolso de comisión",
   "subtype_reimbursement": "Reembolso",
   "subtype_option_expiry": "Vencimiento de opción",
