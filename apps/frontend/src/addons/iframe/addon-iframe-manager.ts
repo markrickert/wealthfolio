@@ -475,6 +475,11 @@ export class AddonIframeManager {
     });
   }
 
+  /** Whether an addon's iframe runtime has been booted (used by the activation coordinator). */
+  hasRuntime(addonId: string): boolean {
+    return this.runtimes.has(addonId);
+  }
+
   getRouteStatus(
     addonId: string,
     routeId: string,

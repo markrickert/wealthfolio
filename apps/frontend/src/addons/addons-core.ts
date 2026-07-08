@@ -8,6 +8,11 @@ import {
   clearAllContributions,
   ingestAddonContributions,
 } from "@/addons/contribution-registry";
+import {
+  isPinned,
+  registerActivatable,
+  resetActivations,
+} from "@/addons/activation-coordinator";
 import { addonIframeManager, type AddonRuntimeHandle } from "@/addons/iframe/addon-iframe-manager";
 import { toast } from "sonner";
 import type { AddonManifest } from "@wealthfolio/addon-sdk";
@@ -186,6 +191,8 @@ export async function loadInstalledAddons(): Promise<void> {
   // addon code or booting an iframe — it only populates the durable nav/route
   // layer. A disabled addon shows no nav, so ingest only the enabled ones.
   clearAllContributions();
+  // Reset lazy-activation state so a (re)load re-registers every addon cleanly.
+  resetActivations();
   for (const addonFile of enabledAddonFiles) {
     ingestAddonContributions(addonFile.manifest.id, addonFile.manifest);
   }
@@ -195,8 +202,26 @@ export async function loadInstalledAddons(): Promise<void> {
     return;
   }
 
+  // Register every enabled addon with the activation coordinator. Addons that
+  // contribute views boot lazily on first visit to a contributed route; addons
+  // WITHOUT contributed views must eager-boot ("pinned") so their runtime's
+  // sidebar.addItem/router.add still registers navigation at startup. (Dev-mode
+  // addons take the separate dev path and are always pinned there; this function
+  // only sees installed addons.)
+  for (const addonFile of enabledAddonFiles) {
+    const pinned = !addonFile.manifest.contributes?.views?.length;
+    registerActivatable(addonFile.manifest.id, () => loadAddon(addonFile), { pinned });
+  }
+
+  // Eager-boot ONLY pinned addons at startup. Lazy addons boot later, on first
+  // visit to a contributed route (see AddonIframeRoute).
+  const pinnedAddonFiles = enabledAddonFiles.filter((addonFile) =>
+    isPinned(addonFile.manifest.id),
+  );
+  const lazyCount = enabledAddonFiles.length - pinnedAddonFiles.length;
+
   let loadedCount = 0;
-  const loadPromises = enabledAddonFiles.map(async (addonFile) => {
+  const loadPromises = pinnedAddonFiles.map(async (addonFile) => {
     // Each addon gets its own context, but loadAddon creates its own internally
     const success = await loadAddon(addonFile);
     if (success) {
@@ -206,11 +231,12 @@ export async function loadInstalledAddons(): Promise<void> {
     }
   });
 
-  // Load all enabled addons concurrently
+  // Boot all pinned addons concurrently
   await Promise.all(loadPromises);
 
   logger.info(
-    `🎉 Successfully loaded ${loadedCount} out of ${enabledAddonFiles.length} enabled addons`,
+    `🎉 Eager-loaded ${loadedCount} out of ${pinnedAddonFiles.length} pinned addons ` +
+      `(${lazyCount} lazy addon(s) will boot on first visit)`,
   );
 
   // Debug: Show current navigation state
