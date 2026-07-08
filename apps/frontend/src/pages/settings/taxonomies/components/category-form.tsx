@@ -46,10 +46,14 @@ interface CategoryFormProps {
 }
 
 function generateKey(name: string): string {
-  return name
+  const key = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_|_$/g, "");
+  // Names without any Latin letters or digits (e.g. Chinese, Japanese, Arabic)
+  // slugify to an empty string; fall back so the hidden key field doesn't fail
+  // validation and silently block category creation.
+  return key || `cat_${Date.now()}`;
 }
 
 export function CategoryForm({
