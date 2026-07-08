@@ -98,8 +98,17 @@ export default function enable(ctx: AddonContext) {
   `component` wins; if neither, the host rejects the route.
 - With `component`, do **not** call `createRoot` yourself and you don't need an
   `onDisable` unmount for the route — the host manages the lifecycle.
-- Read the current route/location with react-router hooks inside the component.
+- The sandbox has **no react-router provider**, so do not call `useLocation()` /
+  `useParams()` inside a `component` route — they throw. The host passes the
+  current location as a **prop** (`{ location }`, an `AddonRouteLocation` with
+  `pathname/search/hash/params`), re-passed on each navigation.
 - Prefer `component`; keep `render` only for non-React or imperative rendering.
+
+> **`contributes.views` + `component`:** if you declare a view in your manifest
+> (`contributes.views[].id`) and also register its route/renderer at runtime,
+> the runtime `router.add({ id })` **must use the same id** as the view. A
+> mismatch renders a blank view ("route is not available"). Only relevant for
+> addons using the new declarative `contributes.views`.
 
 ---
 

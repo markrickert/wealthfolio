@@ -197,17 +197,25 @@ export function classifyAddonErrorHint(rawMessage: string | undefined): string |
     return undefined;
   }
   const message = rawMessage.toLowerCase();
+  // Opaque-origin Web Storage access. Match storage-specific signals, not a
+  // bare "securityerror" — a cross-origin frame/cookie access also throws
+  // SecurityError and must not be mislabelled as a storage problem.
   if (
-    message.includes("securityerror") ||
     message.includes("localstorage") ||
     message.includes("sessionstorage") ||
     message.includes("allow-same-origin") ||
+    (message.includes("securityerror") && message.includes("storage")) ||
     (message.includes("sandbox") && message.includes("storage"))
   ) {
     return "This add-on uses browser storage (localStorage/sessionStorage), which is unavailable in the add-on sandbox. Update the add-on to use the storage API.";
   }
   if (message.includes("unknown addon host api method")) {
     return "This add-on called an API this version of Wealthfolio does not provide. Update the add-on, or update Wealthfolio.";
+  }
+  // A contributed view whose id does not match a route the add-on registers at
+  // runtime (contributes.views[].id must equal router.add({ id })).
+  if (message.includes("route") && message.includes("is not available")) {
+    return "This add-on could not render this view — a declared view id may not match a route the add-on registers. The add-on may need updating.";
   }
   return undefined;
 }

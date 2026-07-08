@@ -55,14 +55,21 @@ export type AddonRouteRenderer = (
   context: AddonRouteRenderContext,
 ) => void | Promise<void>;
 
+/** Props the host passes to a route `component`. */
+export interface AddonRouteComponentProps {
+  location: AddonRouteLocation;
+}
+
 /**
  * A React component the host mounts for a route. The host owns a single React
  * root per addon and swaps the mounted component on navigation, so addons must
  * NOT call `createRoot` themselves — doing so leaves orphaned trees whose
- * re-renders never reach the DOM (the 3.6 "buttons do nothing" bug). Read the
- * current route/location with react-router hooks inside the component.
+ * re-renders never reach the DOM (the 3.6 "buttons do nothing" bug). The sandbox
+ * has no react-router provider, so the component receives the current
+ * `location` as a prop (re-passed on each navigation) — do not call
+ * `useLocation()`/`useParams()`.
  */
-export type AddonRouteComponent = ComponentType;
+export type AddonRouteComponent = ComponentType<AddonRouteComponentProps>;
 
 /**
  * Configuration for adding a route.

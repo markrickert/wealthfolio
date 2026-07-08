@@ -457,7 +457,7 @@ export function RouteRenderCommit({ onRendered }: { onRendered?: () => void }) {
 }
 
 function createReactRouteRenderer(component: unknown): RouteRenderer {
-  return ({ root: routeRoot, onRendered }) => {
+  return ({ root: routeRoot, location, onRendered }) => {
     const Component = component as React.ElementType;
     if (!reactRouteRoot) {
       routeRoot.replaceChildren();
@@ -474,7 +474,9 @@ function createReactRouteRenderer(component: unknown): RouteRenderer {
           React.createElement(
             React.Suspense,
             { fallback: null },
-            React.createElement(Component),
+            // The sandbox has no react-router provider, so the component gets
+            // the host location as a prop (re-passed on each navigation).
+            React.createElement(Component, { location }),
             React.createElement(RouteRenderCommit, { onRendered: handleRendered }),
           ),
         );

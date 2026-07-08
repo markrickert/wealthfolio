@@ -13,9 +13,25 @@ describe("classifyAddonErrorHint", () => {
     );
   });
 
+  it("does NOT classify a non-storage SecurityError as a storage problem", () => {
+    // Cross-origin frame access also throws SecurityError — must not be
+    // mislabelled as "use the storage API".
+    expect(
+      classifyAddonErrorHint(
+        'SecurityError: Blocked a frame with origin "null" from accessing a cross-origin frame.',
+      ),
+    ).toBeUndefined();
+  });
+
   it("classifies unknown host API calls as a version-mismatch hint", () => {
     expect(classifyAddonErrorHint("Unknown addon host API method 'foo.bar'")).toContain(
       "Update the add-on",
+    );
+  });
+
+  it("classifies an unavailable route (view-id mismatch) as an update hint", () => {
+    expect(classifyAddonErrorHint("Addon route 'dashboard' is not available")).toContain(
+      "may need updating",
     );
   });
 
