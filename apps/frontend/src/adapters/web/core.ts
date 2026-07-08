@@ -260,7 +260,12 @@ export const COMMANDS: CommandMap = {
   update_addon_from_store_by_id: { method: "POST", path: "/addons/store/update" },
   download_addon_to_staging: { method: "POST", path: "/addons/store/staging/download" },
   install_addon_from_staging: { method: "POST", path: "/addons/store/install-from-staging" },
+  update_addon_network_approvals: { method: "POST", path: "/addons/network-approvals" },
   clear_addon_staging: { method: "DELETE", path: "/addons/store/staging" },
+  // Addon key-value storage
+  get_addon_storage_item: { method: "GET", path: "/addons/storage" },
+  set_addon_storage_item: { method: "PUT", path: "/addons/storage" },
+  delete_addon_storage_item: { method: "DELETE", path: "/addons/storage" },
   // Device Sync - Device management
   register_device: { method: "POST", path: "/sync/device/register" },
   get_device: { method: "GET", path: "/sync/device" },
@@ -1552,6 +1557,18 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
       url += `/${encodeURIComponent(addonId)}`;
       break;
     }
+    case "get_addon_storage_item":
+    case "delete_addon_storage_item": {
+      const { addonId, key } = payload as { addonId: string; key: string };
+      url += `/${encodeURIComponent(addonId)}/${encodeURIComponent(key)}`;
+      break;
+    }
+    case "set_addon_storage_item": {
+      const { addonId, key, value } = payload as { addonId: string; key: string; value: string };
+      url += `/${encodeURIComponent(addonId)}/${encodeURIComponent(key)}`;
+      body = JSON.stringify({ value });
+      break;
+    }
     case "extract_addon_zip": {
       const { zipData } = payload as { zipData: Uint8Array | number[] };
       const zipDataB64 = toBase64(zipData);
@@ -1578,6 +1595,14 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
         approvedNetworkHosts?: string[];
       };
       body = JSON.stringify({ addonId, enableAfterInstall, approvedNetworkHosts });
+      break;
+    }
+    case "update_addon_network_approvals": {
+      const { addonId, approvedNetworkHosts } = payload as {
+        addonId: string;
+        approvedNetworkHosts: string[];
+      };
+      body = JSON.stringify({ addonId, approvedNetworkHosts });
       break;
     }
     case "clear_addon_staging": {

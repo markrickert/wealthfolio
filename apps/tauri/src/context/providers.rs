@@ -38,6 +38,7 @@ use wealthfolio_device_sync::{engine::DeviceSyncRuntimeState, DeviceEnrollServic
 use wealthfolio_storage_sqlite::{
     accounts::AccountRepository,
     activities::ActivityRepository,
+    addons::AddonStorageRepository,
     agent::{McpAuditRepository, PatRepository},
     ai_chat::AiChatRepository,
     assets::{AlternativeAssetRepository, AssetRepository},
@@ -564,6 +565,10 @@ pub async fn initialize_context(
     // Personal Access Token repository (per-client scoped MCP auth)
     let pat_repository = Arc::new(PatRepository::new(pool.clone(), writer.clone()));
 
+    // Durable per-addon key-value storage repository
+    let addon_storage_repository: Arc<dyn wealthfolio_core::addons::AddonStorageRepositoryTrait> =
+        Arc::new(AddonStorageRepository::new(pool.clone(), writer.clone()));
+
     // Device enroll service for E2EE sync
     let cloud_api_url = crate::services::cloud_api_base_url().unwrap_or_default();
     let device_display_name = get_device_display_name();
@@ -623,6 +628,7 @@ pub async fn initialize_context(
             agent_environment,
             mcp_audit_repository,
             pat_repository,
+            addon_storage_repository,
             device_enroll_service,
             device_sync_runtime,
             broker_sync_running,

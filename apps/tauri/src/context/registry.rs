@@ -3,6 +3,7 @@ use wealthfolio_ai::{AiProviderServiceTrait, ChatService};
 use wealthfolio_connect::BrokerSyncServiceTrait;
 use wealthfolio_core::{
     self, accounts, activities,
+    addons::AddonStorageRepositoryTrait,
     assets::{self, AlternativeAssetServiceTrait},
     events::DomainEventSink,
     fx, goals, health, limits,
@@ -71,6 +72,7 @@ pub struct ServiceContext {
     pub agent_environment: Arc<dyn wealthfolio_agent_tools::AgentEnvironment>,
     pub mcp_audit_repository: Arc<McpAuditRepository>,
     pub pat_repository: Arc<PatRepository>,
+    pub addon_storage_repository: Arc<dyn AddonStorageRepositoryTrait>,
     pub device_enroll_service: Arc<DeviceEnrollService>,
     pub device_sync_runtime: Arc<DeviceSyncRuntimeState>,
     pub broker_sync_running: Arc<AtomicBool>,

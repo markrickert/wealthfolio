@@ -75,6 +75,9 @@ import {
   deleteAddonSecret,
   getAddonSecret,
   setAddonSecret,
+  deleteAddonStorageItem,
+  getAddonStorageItem,
+  setAddonStorageItem,
   backupDatabase,
   getSettings,
   updateSettings,
@@ -403,6 +406,17 @@ function createAddonScopedSecrets(addonId: string, guard: PermissionGuard) {
   };
 }
 
+// Storage is a baseline (implicit) capability — no permission guard, mirroring
+// the way secrets is scoped per addon but without a consent category.
+function createAddonScopedStorage(addonId: string) {
+  return {
+    get: async (key: string): Promise<string | null> => getAddonStorageItem(addonId, key),
+    set: async (key: string, value: string): Promise<void> =>
+      setAddonStorageItem(addonId, key, value),
+    delete: async (key: string): Promise<void> => deleteAddonStorageItem(addonId, key),
+  };
+}
+
 export function createAddonHostAPI(
   addonId: string,
   permissions?: Permission[],
@@ -534,6 +548,7 @@ export function createAddonHostAPI(
   return {
     ...baseAPI,
     secrets: createAddonScopedSecrets(addonId, permissionGuard),
+    storage: createAddonScopedStorage(addonId),
   };
 }
 

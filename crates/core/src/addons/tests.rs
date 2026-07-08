@@ -996,7 +996,19 @@ fn test_extract_addon_zip_skips_large_source_map() {
 mod service_tests {
     use super::*;
     use crate::addons::addon_traits::AddonServiceTrait;
+    use crate::addons::storage_repository::InMemoryAddonStorageRepository;
     use std::env;
+    use std::sync::Arc;
+
+    /// Build an `AddonService` for tests with a test-only in-memory storage
+    /// repository (no DB required).
+    fn test_addon_service(addons_root: impl Into<std::path::PathBuf>) -> AddonService {
+        AddonService::new(
+            addons_root,
+            "test-instance",
+            Arc::new(InMemoryAddonStorageRepository::default()),
+        )
+    }
 
     #[test]
     fn test_ensure_addons_directory_service() {
@@ -1056,7 +1068,7 @@ mod service_tests {
             std::fs::remove_dir_all(&temp_dir).ok();
         }
 
-        let service = AddonService::new(app_data_path, "test-instance");
+        let service = test_addon_service(app_data_path);
 
         // Create addon directory structure manually
         let addon_dir = temp_dir.join("addons").join("addon");
@@ -1102,7 +1114,7 @@ mod service_tests {
             std::fs::remove_dir_all(&temp_dir).ok();
         }
 
-        let service = AddonService::new(&temp_dir, "test-instance");
+        let service = test_addon_service(&temp_dir);
         let addons_dir = temp_dir.join("addons");
         let addon_dir = addons_dir.join("artifact-addon");
         let backup_dir = addons_dir.join(".artifact-addon.backup-test");
@@ -1150,7 +1162,7 @@ mod service_tests {
             std::fs::remove_dir_all(&temp_dir).ok();
         }
 
-        let service = AddonService::new(&temp_dir, "test-instance");
+        let service = test_addon_service(&temp_dir);
         let addons_dir = temp_dir.join("addons");
         let addon_dir = addons_dir.join("recover-addon");
         let backup_dir = addons_dir.join(".recover-addon.backup-test");
@@ -1198,7 +1210,7 @@ mod service_tests {
             std::fs::remove_dir_all(&temp_dir).ok();
         }
 
-        let service = AddonService::new(&temp_dir, "test-instance");
+        let service = test_addon_service(&temp_dir);
         let addon_dir = temp_dir.join("addons").join("LegacyAddon");
         std::fs::create_dir_all(&addon_dir).expect("addon dir should be created");
         std::fs::write(
@@ -1261,7 +1273,7 @@ mod service_tests {
             ("../evil.js", "console.log('bad');"),
         ]);
 
-        let service = AddonService::new(&temp_dir, "test-instance");
+        let service = test_addon_service(&temp_dir);
         let result = service.install_addon_zip(zip_data, true, vec![]).await;
         let addon_dir = temp_dir.join("addons").join("test-addon");
 
@@ -1296,7 +1308,7 @@ mod service_tests {
             ("addon.js", "console.log('bad');"),
         ]);
 
-        let service = AddonService::new(&temp_dir, "test-instance");
+        let service = test_addon_service(&temp_dir);
         let result = service.install_addon_zip(zip_data, true, vec![]).await;
 
         assert!(result.is_err(), "malicious manifest id should fail install");
@@ -1331,7 +1343,7 @@ mod service_tests {
             ("addon.js", "console.log('ok');"),
         ]);
 
-        let service = AddonService::new(&temp_dir, "test-instance");
+        let service = test_addon_service(&temp_dir);
         let manifest = service
             .install_addon_zip(
                 zip_data,
@@ -1349,6 +1361,70 @@ mod service_tests {
             .expect("network policy should be preserved");
         assert_eq!(network.allowed_hosts.len(), 2);
         assert_eq!(network.approved_hosts, vec!["api.example.com".to_string()]);
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_update_addon_network_approvals_persists_only_allowed_hosts() {
+        let temp_dir = env::temp_dir().join("wealthfolio_test_update_addon_network_approvals");
+        if temp_dir.exists() {
+            std::fs::remove_dir_all(&temp_dir).ok();
+        }
+
+        let zip_data = build_test_addon_zip(&[
+            (
+                "manifest.json",
+                r#"{
+                    "id":"network-addon",
+                    "name":"Network Addon",
+                    "version":"1.0.0",
+                    "main":"addon.js",
+                    "network": {
+                        "allowedHosts": ["api.example.com", "quotes.example.com"]
+                    }
+                }"#,
+            ),
+            ("addon.js", "console.log('ok');"),
+        ]);
+
+        let service = test_addon_service(&temp_dir);
+        service
+            .install_addon_zip(zip_data, true, vec![])
+            .await
+            .expect("network addon should install");
+
+        let manifest = service
+            .update_addon_network_approvals(
+                "network-addon",
+                vec![
+                    "QUOTES.EXAMPLE.COM.".to_string(),
+                    "api.example.com".to_string(),
+                    "unrequested.example.com".to_string(),
+                ],
+            )
+            .expect("network approvals should update");
+
+        let network = manifest
+            .network
+            .expect("network policy should be preserved");
+        assert_eq!(
+            network.approved_hosts,
+            vec![
+                "api.example.com".to_string(),
+                "quotes.example.com".to_string(),
+            ]
+        );
+
+        let installed = service
+            .list_installed_addons()
+            .expect("installed addons should list");
+        let persisted_network = installed[0]
+            .metadata
+            .network
+            .as_ref()
+            .expect("persisted network policy should exist");
+        assert_eq!(persisted_network.approved_hosts, network.approved_hosts);
 
         std::fs::remove_dir_all(&temp_dir).ok();
     }
@@ -1387,7 +1463,7 @@ mod service_tests {
         std::fs::write(addon_dir.join("addon.js"), "console.log('ok');")
             .expect("addon should be written");
 
-        let service = AddonService::new(&temp_dir, "test-instance");
+        let service = test_addon_service(&temp_dir);
         let result = service
             .addon_network_request(
                 "network-addon",
@@ -1453,7 +1529,7 @@ mod service_tests {
         std::fs::write(addon_dir.join("addon.js"), "console.log('ok');")
             .expect("addon should be written");
 
-        let service = AddonService::new(&temp_dir, "test-instance");
+        let service = test_addon_service(&temp_dir);
         let result = service
             .addon_network_request(
                 "network-addon",
@@ -1500,7 +1576,7 @@ mod service_tests {
             ("assets/icon.bin".to_string(), vec![0, 159, 146, 150]),
         ]);
 
-        let service = AddonService::new(&temp_dir, "test-instance");
+        let service = test_addon_service(&temp_dir);
         service
             .install_addon_zip(zip_data, true, vec![])
             .await
@@ -1548,7 +1624,7 @@ mod service_tests {
         save_addon_to_staging("requested-addon", &temp_dir, &zip_data)
             .expect("staging should save requested id");
 
-        let service = AddonService::new(&temp_dir, "test-instance");
+        let service = test_addon_service(&temp_dir);
         let result = service
             .install_addon_from_staging("requested-addon", true, vec![])
             .await;
@@ -1565,6 +1641,193 @@ mod service_tests {
         assert!(
             !temp_dir.join("addons").join("actual-addon").exists(),
             "mismatched addon should not be installed"
+        );
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_addon_storage_set_get_delete_roundtrip() {
+        let temp_dir = env::temp_dir().join("wealthfolio_test_addon_storage_roundtrip");
+        if temp_dir.exists() {
+            std::fs::remove_dir_all(&temp_dir).ok();
+        }
+
+        let service = test_addon_service(&temp_dir);
+
+        assert_eq!(
+            service
+                .get_addon_storage_item("storage-addon", "prefs")
+                .await
+                .expect("get on empty storage should succeed"),
+            None
+        );
+
+        service
+            .set_addon_storage_item("storage-addon", "prefs", "{\"theme\":\"dark\"}")
+            .await
+            .expect("set should succeed");
+        assert_eq!(
+            service
+                .get_addon_storage_item("storage-addon", "prefs")
+                .await
+                .expect("get should succeed")
+                .as_deref(),
+            Some("{\"theme\":\"dark\"}")
+        );
+
+        service
+            .set_addon_storage_item("storage-addon", "prefs", "v2")
+            .await
+            .expect("overwrite should succeed");
+        assert_eq!(
+            service
+                .get_addon_storage_item("storage-addon", "prefs")
+                .await
+                .expect("get should succeed")
+                .as_deref(),
+            Some("v2")
+        );
+
+        service
+            .set_addon_storage_item("storage-addon", "other", "x")
+            .await
+            .expect("set should succeed");
+        assert_eq!(
+            service
+                .get_addon_storage_item("another-addon", "prefs")
+                .await
+                .expect("get for other addon should succeed"),
+            None,
+            "storage must be namespaced per addon"
+        );
+
+        service
+            .delete_addon_storage_item("storage-addon", "prefs")
+            .await
+            .expect("delete should succeed");
+        assert_eq!(
+            service
+                .get_addon_storage_item("storage-addon", "prefs")
+                .await
+                .expect("get should succeed"),
+            None
+        );
+
+        service
+            .clear_addon_storage("storage-addon")
+            .await
+            .expect("clear should succeed");
+        assert_eq!(
+            service
+                .get_addon_storage_item("storage-addon", "other")
+                .await
+                .expect("get should succeed"),
+            None
+        );
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_addon_storage_rejects_invalid_ids_and_keys() {
+        let temp_dir = env::temp_dir().join("wealthfolio_test_addon_storage_validation");
+        if temp_dir.exists() {
+            std::fs::remove_dir_all(&temp_dir).ok();
+        }
+
+        let service = test_addon_service(&temp_dir);
+
+        assert!(
+            service
+                .set_addon_storage_item("../escape", "key", "value")
+                .await
+                .is_err(),
+            "path-traversal addon ids must be rejected"
+        );
+        assert!(
+            service
+                .set_addon_storage_item("addon", "", "value")
+                .await
+                .is_err(),
+            "empty keys must be rejected"
+        );
+        assert!(
+            service
+                .set_addon_storage_item("addon", &"k".repeat(200), "value")
+                .await
+                .is_err(),
+            "oversized keys must be rejected"
+        );
+        assert!(
+            service
+                .set_addon_storage_item("addon", "key", &"v".repeat(2 * 1024 * 1024))
+                .await
+                .is_err(),
+            "oversized value must be rejected"
+        );
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_addon_storage_survives_reinstall_and_removed_on_uninstall() {
+        let temp_dir = env::temp_dir().join("wealthfolio_test_addon_storage_lifecycle");
+        if temp_dir.exists() {
+            std::fs::remove_dir_all(&temp_dir).ok();
+        }
+
+        let service = test_addon_service(&temp_dir);
+
+        let manifest =
+            r#"{"id":"lifecycle-addon","name":"Lifecycle","version":"1.0.0","main":"addon.js"}"#;
+        let zip_data =
+            build_test_addon_zip(&[("manifest.json", manifest), ("addon.js", "console.log(1);")]);
+
+        service
+            .install_addon_zip(zip_data.clone(), true, vec![])
+            .await
+            .expect("install should succeed");
+
+        service
+            .set_addon_storage_item("lifecycle-addon", "prefs", "keep-me")
+            .await
+            .expect("set should succeed");
+        assert!(
+            !temp_dir
+                .join("addons")
+                .join("lifecycle-addon")
+                .join(".storage")
+                .exists(),
+            "storage must not live inside the addon directory"
+        );
+
+        // Reinstall (what an update does: the addon dir is replaced).
+        service
+            .install_addon_zip(zip_data, true, vec![])
+            .await
+            .expect("reinstall should succeed");
+        assert_eq!(
+            service
+                .get_addon_storage_item("lifecycle-addon", "prefs")
+                .await
+                .expect("get should succeed")
+                .as_deref(),
+            Some("keep-me"),
+            "storage must survive addon reinstall/update"
+        );
+
+        service
+            .uninstall_addon("lifecycle-addon")
+            .await
+            .expect("uninstall should succeed");
+        assert_eq!(
+            service
+                .get_addon_storage_item("lifecycle-addon", "prefs")
+                .await
+                .expect("get should succeed"),
+            None,
+            "uninstall must clear addon storage"
         );
 
         std::fs::remove_dir_all(&temp_dir).ok();

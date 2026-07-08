@@ -23,7 +23,11 @@ pub async fn addon_network_request(
     let injected_authorization =
         resolve_addon_network_auth_header(&addon_id, request.auth.as_ref(), &KeyringSecretStore)?;
     request.injected_authorization = injected_authorization;
-    AddonService::new(app_data_dir, state.instance_id.as_str())
-        .addon_network_request(&addon_id, request)
-        .await
+    AddonService::new(
+        app_data_dir,
+        state.instance_id.as_str(),
+        state.addon_storage_repository.clone(),
+    )
+    .addon_network_request(&addon_id, request)
+    .await
 }

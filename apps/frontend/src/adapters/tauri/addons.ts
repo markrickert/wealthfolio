@@ -107,6 +107,16 @@ export const installFromStaging = async (
   });
 };
 
+export const updateAddonNetworkApprovals = async (
+  addonId: string,
+  approvedNetworkHosts: string[],
+): Promise<AddonManifest> => {
+  return tauriInvoke<AddonManifest>("update_addon_network_approvals", {
+    addonId,
+    approvedNetworkHosts,
+  });
+};
+
 export const clearAddonStaging = async (addonId?: string): Promise<void> => {
   return tauriInvoke<void>("clear_addon_staging", { addonId });
 };
@@ -132,4 +142,27 @@ export const submitAddonRating = async (
 
 export const fetchAddonStoreListings = async (): Promise<AddonStoreListing[]> => {
   return tauriInvoke<AddonStoreListing[]>("fetch_addon_store_listings");
+};
+
+// ============================================================================
+// Addon Key-Value Storage
+// ============================================================================
+
+export const getAddonStorageItem = async (
+  addonId: string,
+  key: string,
+): Promise<string | null> => {
+  return tauriInvoke<string | null>("get_addon_storage_item", { addonId, key });
+};
+
+export const setAddonStorageItem = async (
+  addonId: string,
+  key: string,
+  value: string,
+): Promise<void> => {
+  return tauriInvoke<void>("set_addon_storage_item", { addonId, key, value });
+};
+
+export const deleteAddonStorageItem = async (addonId: string, key: string): Promise<void> => {
+  return tauriInvoke<void>("delete_addon_storage_item", { addonId, key });
 };

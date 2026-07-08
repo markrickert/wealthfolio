@@ -707,8 +707,12 @@ pub fn run() {
             commands::addon::fetch_addon_store_listings,
             commands::addon::download_addon_to_staging,
             commands::addon::install_addon_from_staging,
+            commands::addon::update_addon_network_approvals,
             commands::addon::clear_addon_staging,
             commands::addon::submit_addon_rating,
+            commands::addon::get_addon_storage_item,
+            commands::addon::set_addon_storage_item,
+            commands::addon::delete_addon_storage_item,
             // Sync commands
             #[cfg(any(feature = "connect-sync", feature = "device-sync"))]
             commands::wealthfolio_connect::store_sync_session,

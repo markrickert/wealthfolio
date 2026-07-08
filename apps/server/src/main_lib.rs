@@ -48,6 +48,7 @@ use wealthfolio_device_sync::{engine::DeviceSyncRuntimeState, DeviceEnrollServic
 use wealthfolio_storage_sqlite::{
     accounts::AccountRepository,
     activities::ActivityRepository,
+    addons::AddonStorageRepository,
     agent::{McpAuditRepository, PatRepository},
     ai_chat::AiChatRepository,
     assets::{AlternativeAssetRepository, AssetRepository},
@@ -804,9 +805,14 @@ pub async fn build_state(config: &Config) -> anyhow::Result<Arc<AppState>> {
         categorization_rules_service.clone(),
     );
 
+    let addon_storage_repository = Arc::new(AddonStorageRepository::new(
+        pool.clone(),
+        writer.clone(),
+    ));
     let addon_service: Arc<dyn AddonServiceTrait + Send + Sync> = Arc::new(AddonService::new(
         &config.addons_root,
         &settings.instance_id,
+        addon_storage_repository,
     ));
 
     let auth_manager = config

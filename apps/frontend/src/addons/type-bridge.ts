@@ -218,7 +218,9 @@ export interface InternalHostAPI {
   toastInfo(message: string): void;
 }
 
-type SDKApiWithoutSecrets = Omit<SDKHostAPI, "secrets">;
+// `secrets` and `storage` are attached separately in createAddonHostAPI (both
+// are addon-scoped and wired directly to adapters, not through this bridge).
+type SDKApiWithoutSecrets = Omit<SDKHostAPI, "secrets" | "storage">;
 type PermissionFunctionInput = Permission["functions"][number] | string;
 
 export interface PermissionGuard {

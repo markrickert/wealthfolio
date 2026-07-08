@@ -11,14 +11,18 @@ use wealthfolio_core::addons::{
 
 fn addon_service(
     app_handle: &AppHandle,
-    instance_id: impl Into<String>,
+    state: &ServiceContext,
 ) -> Result<AddonService, String> {
     let app_data_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
 
-    Ok(AddonService::new(app_data_dir, instance_id))
+    Ok(AddonService::new(
+        app_data_dir,
+        state.instance_id.as_str(),
+        state.addon_storage_repository.clone(),
+    ))
 }
 
 #[tauri::command]
@@ -29,7 +33,7 @@ pub async fn install_addon_zip(
     approved_network_hosts: Option<Vec<String>>,
     state: State<'_, Arc<ServiceContext>>,
 ) -> Result<AddonManifest, String> {
-    addon_service(&app_handle, state.instance_id.as_str())?
+    addon_service(&app_handle, &state)?
         .install_addon_zip(
             zip_data,
             enable_after_install.unwrap_or(true),
@@ -43,7 +47,7 @@ pub async fn list_installed_addons(
     app_handle: AppHandle,
     state: State<'_, Arc<ServiceContext>>,
 ) -> Result<Vec<InstalledAddon>, String> {
-    addon_service(&app_handle, state.instance_id.as_str())?.list_installed_addons()
+    addon_service(&app_handle, &state)?.list_installed_addons()
 }
 
 #[tauri::command]
@@ -53,7 +57,7 @@ pub async fn toggle_addon(
     enabled: bool,
     state: State<'_, Arc<ServiceContext>>,
 ) -> Result<(), String> {
-    addon_service(&app_handle, state.instance_id.as_str())?.toggle_addon(&addon_id, enabled)
+    addon_service(&app_handle, &state)?.toggle_addon(&addon_id, enabled)
 }
 
 #[tauri::command]
@@ -62,7 +66,7 @@ pub async fn uninstall_addon(
     addon_id: String,
     state: State<'_, Arc<ServiceContext>>,
 ) -> Result<(), String> {
-    addon_service(&app_handle, state.instance_id.as_str())?
+    addon_service(&app_handle, &state)?
         .uninstall_addon(&addon_id)
         .await
 }
@@ -73,7 +77,7 @@ pub async fn load_addon_for_runtime(
     addon_id: String,
     state: State<'_, Arc<ServiceContext>>,
 ) -> Result<ExtractedAddon, String> {
-    addon_service(&app_handle, state.instance_id.as_str())?.load_addon_for_runtime(&addon_id)
+    addon_service(&app_handle, &state)?.load_addon_for_runtime(&addon_id)
 }
 
 #[tauri::command]
@@ -81,7 +85,7 @@ pub async fn get_enabled_addons_on_startup(
     app_handle: AppHandle,
     state: State<'_, Arc<ServiceContext>>,
 ) -> Result<Vec<ExtractedAddon>, String> {
-    addon_service(&app_handle, state.instance_id.as_str())?.get_enabled_addons_on_startup()
+    addon_service(&app_handle, &state)?.get_enabled_addons_on_startup()
 }
 
 // Legacy function for backward compatibility
@@ -143,7 +147,7 @@ pub async fn check_all_addon_updates(
 ) -> Result<Vec<AddonUpdateCheckResult>, String> {
     let mut results = Vec::new();
     let instance_id = state.instance_id.as_str();
-    let installed_addons = addon_service(&app_handle, instance_id)?.list_installed_addons()?;
+    let installed_addons = addon_service(&app_handle, &state)?.list_installed_addons()?;
 
     for addon in installed_addons {
         match addons::check_addon_update_from_api(
@@ -192,8 +196,7 @@ pub async fn update_addon_from_store_by_id(
     addon_id: String,
     state: State<'_, Arc<ServiceContext>>,
 ) -> Result<AddonManifest, String> {
-    let instance_id = state.instance_id.as_str();
-    addon_service(&app_handle, instance_id.to_string())?
+    addon_service(&app_handle, &state)?
         .update_addon_from_store(&addon_id)
         .await
 }
@@ -214,8 +217,7 @@ pub async fn download_addon_to_staging(
     addon_id: String,
     state: State<'_, Arc<ServiceContext>>,
 ) -> Result<ExtractedAddon, String> {
-    let instance_id = state.instance_id.as_str();
-    addon_service(&app_handle, instance_id.to_string())?
+    addon_service(&app_handle, &state)?
         .download_addon_to_staging(&addon_id)
         .await
 }
@@ -229,13 +231,24 @@ pub async fn install_addon_from_staging(
     approved_network_hosts: Option<Vec<String>>,
     state: State<'_, Arc<ServiceContext>>,
 ) -> Result<AddonManifest, String> {
-    addon_service(&app_handle, state.instance_id.as_str())?
+    addon_service(&app_handle, &state)?
         .install_addon_from_staging(
             &addon_id,
             enable_after_install.unwrap_or(true),
             approved_network_hosts.unwrap_or_default(),
         )
         .await
+}
+
+#[tauri::command]
+pub async fn update_addon_network_approvals(
+    app_handle: AppHandle,
+    addon_id: String,
+    approved_network_hosts: Vec<String>,
+    state: State<'_, Arc<ServiceContext>>,
+) -> Result<AddonManifest, String> {
+    addon_service(&app_handle, &state)?
+        .update_addon_network_approvals(&addon_id, approved_network_hosts)
 }
 
 /// Clear specific addon from staging or entire staging directory
@@ -245,7 +258,7 @@ pub async fn clear_addon_staging(
     addon_id: Option<String>,
     state: State<'_, Arc<ServiceContext>>,
 ) -> Result<(), String> {
-    addon_service(&app_handle, state.instance_id.as_str())?.clear_staging(addon_id.as_deref())
+    addon_service(&app_handle, &state)?.clear_staging(addon_id.as_deref())
 }
 
 /// Submit or update a rating for an addon
@@ -258,4 +271,44 @@ pub async fn submit_addon_rating(
 ) -> Result<serde_json::Value, String> {
     let instance_id = state.instance_id.as_str();
     addons::submit_addon_rating(&addon_id, rating, review, instance_id).await
+}
+
+/// Get a value from the addon's persistent key-value storage
+#[tauri::command]
+pub async fn get_addon_storage_item(
+    app_handle: AppHandle,
+    addon_id: String,
+    key: String,
+    state: State<'_, Arc<ServiceContext>>,
+) -> Result<Option<String>, String> {
+    addon_service(&app_handle, &state)?
+        .get_addon_storage_item(&addon_id, &key)
+        .await
+}
+
+/// Set a value in the addon's persistent key-value storage
+#[tauri::command]
+pub async fn set_addon_storage_item(
+    app_handle: AppHandle,
+    addon_id: String,
+    key: String,
+    value: String,
+    state: State<'_, Arc<ServiceContext>>,
+) -> Result<(), String> {
+    addon_service(&app_handle, &state)?
+        .set_addon_storage_item(&addon_id, &key, &value)
+        .await
+}
+
+/// Delete a value from the addon's persistent key-value storage
+#[tauri::command]
+pub async fn delete_addon_storage_item(
+    app_handle: AppHandle,
+    addon_id: String,
+    key: String,
+    state: State<'_, Arc<ServiceContext>>,
+) -> Result<(), String> {
+    addon_service(&app_handle, &state)?
+        .delete_addon_storage_item(&addon_id, &key)
+        .await
 }

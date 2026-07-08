@@ -35,6 +35,7 @@ export type {
   NetworkRequest,
   NetworkResponse,
   SnapshotsAPI,
+  StorageAPI,
   ToastAPI,
   DividendEvent,
   FetchDividendsOptions,

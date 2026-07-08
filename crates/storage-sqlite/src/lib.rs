@@ -32,6 +32,7 @@ pub mod utils;
 // Repository implementations
 pub mod accounts;
 pub mod activities;
+pub mod addons;
 pub mod agent;
 pub mod ai_chat;
 pub mod assets;

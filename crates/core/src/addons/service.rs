@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::json;
@@ -9,6 +10,7 @@ use serde_json::json;
 use super::addon_traits::AddonServiceTrait;
 use super::models::*;
 use super::network::{perform_addon_network_request, AddonNetworkRequest, AddonNetworkResponse};
+use super::storage_repository::AddonStorageRepositoryTrait;
 
 // Constants
 pub const ADDON_STORE_API_BASE_URL: &str = "https://wealthfolio.app/api/addons";
@@ -16,6 +18,8 @@ const MAX_ADDON_ARCHIVE_ENTRIES: usize = 256;
 const MAX_ADDON_ARCHIVE_FILE_SIZE: u64 = 5 * 1024 * 1024;
 const MAX_ADDON_ARCHIVE_TOTAL_SIZE: u64 = 25 * 1024 * 1024;
 const MAX_ADDON_ARCHIVE_COMPRESSED_SIZE: usize = 50 * 1024 * 1024;
+const MAX_ADDON_STORAGE_KEY_LEN: usize = 128;
+const MAX_ADDON_STORAGE_VALUE_LEN: usize = 1024 * 1024;
 
 #[derive(Clone)]
 struct AddonArchiveFile {
@@ -1719,14 +1723,33 @@ pub async fn submit_addon_rating(
 pub struct AddonService {
     addons_root: PathBuf,
     instance_id: String,
+    storage_repo: Arc<dyn AddonStorageRepositoryTrait>,
 }
 
 impl AddonService {
-    pub fn new(addons_root: impl Into<PathBuf>, instance_id: impl Into<String>) -> Self {
+    pub fn new(
+        addons_root: impl Into<PathBuf>,
+        instance_id: impl Into<String>,
+        storage_repo: Arc<dyn AddonStorageRepositoryTrait>,
+    ) -> Self {
         Self {
             addons_root: addons_root.into(),
             instance_id: instance_id.into(),
+            storage_repo,
         }
+    }
+
+    fn validate_storage_key(key: &str) -> Result<(), String> {
+        if key.is_empty() {
+            return Err("Invalid storage key: key is empty".to_string());
+        }
+        if key.len() > MAX_ADDON_STORAGE_KEY_LEN {
+            return Err(format!(
+                "Invalid storage key: key must be {} characters or fewer",
+                MAX_ADDON_STORAGE_KEY_LEN
+            ));
+        }
+        Ok(())
     }
 
     fn read_manifest_if_exists(&self, addon_dir: &Path) -> Result<Option<AddonManifest>, String> {
@@ -2260,6 +2283,9 @@ impl AddonServiceTrait for AddonService {
             return Err("Addon not found".to_string());
         }
         fs::remove_dir_all(&addon_dir).map_err(|e| format!("Failed to remove addon: {}", e))?;
+        if let Err(error) = self.clear_addon_storage(addon_id).await {
+            log::warn!("Failed to remove storage for addon '{addon_id}': {error}");
+        }
         Ok(())
     }
 
@@ -2467,12 +2493,62 @@ impl AddonServiceTrait for AddonService {
         result
     }
 
+    fn update_addon_network_approvals(
+        &self,
+        addon_id: &str,
+        approved_network_hosts: Vec<String>,
+    ) -> Result<AddonManifest, String> {
+        let addon_dir = self.existing_addon_dir(addon_id)?;
+        let manifest = self.read_manifest_or_error(&addon_dir)?;
+        let manifest = Self::apply_network_approvals(manifest, &approved_network_hosts);
+        self.write_manifest(&addon_dir, &manifest)?;
+        Ok(manifest)
+    }
+
     fn toggle_addon(&self, addon_id: &str, enabled: bool) -> Result<(), String> {
         let addon_dir = self.existing_addon_dir(addon_id)?;
         let mut manifest = self.read_manifest_or_error(&addon_dir)?;
         manifest.enabled = Some(enabled);
         self.write_manifest(&addon_dir, &manifest)?;
         Ok(())
+    }
+
+    async fn get_addon_storage_item(
+        &self,
+        addon_id: &str,
+        key: &str,
+    ) -> Result<Option<String>, String> {
+        validate_addon_id(addon_id)?;
+        Self::validate_storage_key(key)?;
+        self.storage_repo.get(addon_id, key).await
+    }
+
+    async fn set_addon_storage_item(
+        &self,
+        addon_id: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<(), String> {
+        validate_addon_id(addon_id)?;
+        Self::validate_storage_key(key)?;
+        if value.len() > MAX_ADDON_STORAGE_VALUE_LEN {
+            return Err(format!(
+                "Invalid storage value: value must be {} bytes or fewer",
+                MAX_ADDON_STORAGE_VALUE_LEN
+            ));
+        }
+        self.storage_repo.set(addon_id, key, value).await
+    }
+
+    async fn delete_addon_storage_item(&self, addon_id: &str, key: &str) -> Result<(), String> {
+        validate_addon_id(addon_id)?;
+        Self::validate_storage_key(key)?;
+        self.storage_repo.delete(addon_id, key).await
+    }
+
+    async fn clear_addon_storage(&self, addon_id: &str) -> Result<(), String> {
+        validate_addon_id(addon_id)?;
+        self.storage_repo.delete_all(addon_id).await
     }
 
     async fn download_addon_to_staging(&self, addon_id: &str) -> Result<ExtractedAddon, String> {

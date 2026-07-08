@@ -772,6 +772,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    addon_storage (addon_id, key) {
+        addon_id -> Text,
+        key -> Text,
+        value -> Text,
+    }
+}
+
+diesel::table! {
     personal_access_tokens (id) {
         id -> Text,
         name -> Text,

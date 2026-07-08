@@ -448,11 +448,13 @@ export {
   checkAddonUpdate,
   checkAllAddonUpdates,
   clearAddonStaging,
+  deleteAddonStorageItem,
   downloadAddonForReview,
   extractAddon,
   extractAddonZip,
   fetchAddonStoreListings,
   getAddonRatings,
+  getAddonStorageItem,
   getEnabledAddons,
   getEnabledAddonsOnStartup,
   getInstalledAddons,
@@ -463,10 +465,12 @@ export {
   listInstalledAddons,
   loadAddon,
   loadAddonForRuntime,
+  setAddonStorageItem,
   submitAddonRating,
   toggleAddon,
   uninstallAddon,
   updateAddon,
+  updateAddonNetworkApprovals,
 } from "./addons";
 
 // FIRE Planner (desktop-only — stubs throw at runtime)

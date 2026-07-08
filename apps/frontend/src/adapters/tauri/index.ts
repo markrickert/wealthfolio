@@ -183,10 +183,14 @@ export {
   updateAddon,
   downloadAddonForReview,
   installFromStaging,
+  updateAddonNetworkApprovals,
   clearAddonStaging,
   getAddonRatings,
   submitAddonRating,
   fetchAddonStoreListings,
+  getAddonStorageItem,
+  setAddonStorageItem,
+  deleteAddonStorageItem,
 } from "./addons";
 
 // Agent Access Commands (embedded MCP server; PATs are web-only stubs)
