@@ -13,29 +13,46 @@ export interface AddonNetworkAccess {
 export type AddonHostDependencies = Record<string, string>;
 
 /**
- * A view an addon contributes declaratively via `contributes.views`. The host
- * ingests these at boot without executing addon code, so navigation entries and
- * routes exist before (and independently of) the addon's runtime activation.
+ * A durable addon page declared via `contributes.routes`. The host ingests
+ * these at boot without executing addon code, so the route exists before (and
+ * independently of) the addon's runtime activation — it is the lazy-activation
+ * surface.
  */
-export interface AddonContributedView {
-  /** Stable view id. MUST equal the route id the addon registers at runtime. */
+export interface AddonContributedRoute {
+  /** Stable route id. MUST equal the route id the addon registers at runtime. */
   id: string;
-  /** Human-readable navigation label */
+  /** Route path the page is mounted at (inside the addon's route namespace) */
+  path: string;
+}
+
+/**
+ * A placement in a host slot (e.g. `"sidebar"`) declared via
+ * `contributes.links`, pointing at a route declared in `contributes.routes`
+ * of the same addon.
+ */
+export interface AddonContributedLink {
+  /** Optional stable link id; defaults to the referenced route id */
+  id?: string;
+  /** Id of a route declared in this addon's `contributes.routes` */
+  route: string;
+  /** Human-readable label shown in the host slot */
   label: string;
   /** Optional host-supported icon name (see {@link AddonIconName}) */
   icon?: AddonIconName | string;
-  /** Route path the view is mounted at */
-  path: string;
-  /** Optional sort order within the navigation */
+  /** Optional sort order within the slot */
   order?: number;
 }
 
 /**
- * Declarative contributions an addon makes to the host (currently just views).
+ * Declarative contributions an addon makes to the host: durable routes plus
+ * links placed in host slots, keyed by slot id. Only the `"sidebar"` slot is
+ * consumed today; unknown slot keys are preserved for future host surfaces.
  */
 export interface AddonContributes {
-  /** Views contributed to the host navigation/routing */
-  views?: AddonContributedView[];
+  /** Durable addon pages, host-renderable before the addon boots */
+  routes?: AddonContributedRoute[];
+  /** Slot placements pointing at declared routes, keyed by slot id */
+  links?: Record<string, AddonContributedLink[]>;
 }
 
 /**
@@ -78,7 +95,7 @@ export interface AddonManifest {
   network?: AddonNetworkAccess;
   /** Host-provided packages this addon imports instead of bundling */
   hostDependencies?: AddonHostDependencies;
-  /** Declarative contributions to the host (e.g. navigation views) */
+  /** Declarative contributions to the host (routes + slot links) */
   contributes?: AddonContributes;
 
   // Runtime fields (only present after installation)

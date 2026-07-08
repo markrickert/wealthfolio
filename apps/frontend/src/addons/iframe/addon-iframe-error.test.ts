@@ -34,7 +34,7 @@ describe("classifyAddonErrorHint", () => {
     );
   });
 
-  it("classifies an unavailable route (view-id mismatch) as an update hint", () => {
+  it("classifies an unavailable route (route-id mismatch) as an update hint", () => {
     expect(classifyAddonErrorHint("Addon route 'dashboard' is not available")).toContain(
       "may need updating",
     );

@@ -51,7 +51,8 @@ export type * from './data-types';
 // Manifest and metadata types
 export type {
   AddonFile,
-  AddonContributedView,
+  AddonContributedLink,
+  AddonContributedRoute,
   AddonContributes,
   AddonHostDependencies,
   AddonInstallResult,

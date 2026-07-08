@@ -30,26 +30,41 @@ pub struct AddonPermission {
     pub purpose: String,
 }
 
-/// A view contributed declaratively by an addon via `contributes.views`.
-/// Ingested at boot without executing addon code.
+/// A durable addon page declared via `contributes.routes`. Ingested at boot
+/// without executing addon code — the lazy-activation surface.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct AddonContributedView {
+pub struct AddonContributedRoute {
     pub id: String,
+    pub path: String,
+}
+
+/// A placement in a host slot (e.g. `"sidebar"`) declared via
+/// `contributes.links`, pointing at a declared route of the same addon.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AddonContributedLink {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub route: String,
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
-    pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub order: Option<i32>,
 }
 
-/// Declarative contributions an addon makes to the host (currently just views).
+/// Declarative contributions an addon makes to the host: durable routes plus
+/// links placed in host slots (map keyed by slot id; BTreeMap keeps
+/// serialization deterministic). Unknown slot keys round-trip untouched —
+/// they're future host surfaces.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AddonContributes {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub views: Vec<AddonContributedView>,
+    pub routes: Vec<AddonContributedRoute>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub links: BTreeMap<String, Vec<AddonContributedLink>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]

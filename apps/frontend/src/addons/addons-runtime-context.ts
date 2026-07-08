@@ -368,9 +368,10 @@ export function clearAddonRegistrations(addonId: string) {
 
 export function getDynamicNavItems() {
   // Merge durable (manifest-contributed) items with transient runtime
-  // registrations. Both are keyed by the scoped id (`addonId:viewId`); per RFC
-  // A2 a runtime registration whose view id duplicates a durable contribution is
-  // ignored (durable wins), so we seed transient first and let durable override.
+  // registrations. Both are keyed by the scoped id (`addonId:linkId`, where a
+  // link id defaults to its route id); per RFC A2 a runtime registration whose
+  // id duplicates a durable contribution is ignored (durable wins), so we seed
+  // transient first and let durable override.
   const merged = new Map<string, DynamicNavItem>();
   for (const item of dynamicNavItems.values()) {
     merged.set(item.id, item);
@@ -383,7 +384,7 @@ export function getDynamicNavItems() {
 
 export function getDynamicRoutes() {
   // Same durable-wins merge as nav items, keyed by `addonId:routeId` (== the
-  // durable view id per RFC A2).
+  // contributed route id per RFC A2).
   const merged = new Map<string, DynamicRouteEntry>();
   for (const route of dynamicRoutes.values()) {
     merged.set(scopedKey(route.addonId, route.routeId), route);

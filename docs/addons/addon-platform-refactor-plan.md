@@ -139,11 +139,11 @@ gates) shipped hardening without its counterpart affordances. Confirmed fallout:
   *transient* layer; `getDynamicNavItems`/`getDynamicRoutes`/
   `subscribeToNavigationUpdates` keep signatures and return merged durable+transient →
   **zero changes** in `app-navigation.tsx` and `routes.tsx`. Manifest
-  `contributes.views` ingested at boot without executing addon code.
-  `AddonIframeRoute` calls `activationCoordinator.activateView(addonId, viewId)`
+  `contributes.routes` + `contributes.links` ingested at boot without executing
+  addon code. `AddonIframeRoute` calls `activationCoordinator.activateView(addonId)`
   (in-flight promise dedupe) before `attachRoute`. Settings actions keep today's
   whole-world `reloadAllAddons()` (per-addon resync deferred — see §7). Pinned
-  (eager, non-evictable): addons without `contributes.views` and all dev-mode addons.
+  (eager, non-evictable): addons without `contributes.routes` and all dev-mode addons.
 - **Manifest round-trip gotcha:** `parse_manifest_json_metadata_with_options`
   (`service.rs:854`) hand-extracts fields — the new `contributes` field must be added
   to the `models.rs` struct AND the hand parser AND the struct literal (`:1019`),
@@ -210,18 +210,30 @@ UI filter, Rust escalation skip (+tests in `type-bridge.test.ts` and core tests)
   `addon-migration-guide-v3.5-to-v3.6.md`.
 
 **F. Manifest schema + enforcement (RFC Phase 1, Rust/SDK half)**
-- `models.rs` — `contributes: Option<AddonContributes>` (`views: Vec<{id, label,
-  icon?, path, order?}>`). No `activationEvents` in v1 (deferred to Phase 6; the only
-  v1 activation is on-view-visit, the default).
-- `service.rs` — hand parser + struct literal + round-trip tests; enforce
-  `minWealthfolioVersion` at install/enable (Rust only).
-- SDK `manifest.ts` types.
+- `models.rs` — `contributes: Option<AddonContributes>`, two primitives:
+  `routes: Vec<{id, path}>` (durable addon pages, the lazy-activation surface)
+  and `links: BTreeMap<slot, Vec<{id?, route, label, icon?, order?}>>` (slot
+  placements referencing declared route ids; a link id defaults to its route
+  id). Only slot `"sidebar"` is consumed for now; unknown slot keys parse and
+  round-trip untouched (future host surfaces, e.g. `"asset/actions"`). No
+  `activationEvents` in v1 (deferred to Phase 6; the only v1 activation is
+  on-route-visit, the default).
+- `service.rs` — hand parser + struct literal + round-trip tests; validation:
+  non-empty route id/path, duplicate route ids rejected, links must reference a
+  declared route id (error names the bad ref), duplicate effective link ids per
+  slot rejected. Enforce `minWealthfolioVersion` at install/enable (Rust only).
+- SDK `manifest.ts` types (`AddonContributedRoute`/`AddonContributedLink`).
 
 **G. ContributionRegistry + nav/routes from registry (Phases 1–2)**
 - `apps/frontend/src/addons/contribution-registry.ts` (+vitest) — durable layer:
-  validation (route-namespace policy reuse, dup ids, external URLs), `getView`;
-  absorbs the transient maps per §4. (No `getAddonForPath` — `AddonIframeRoute`
-  already receives `addonId`/`routeId` as props from the route table.)
+  routes ingested from `contributes.routes` regardless of links (a link-less
+  route is deep-link only); nav items from `contributes.links["sidebar"]`, each
+  link resolved against the addon's declared routes (bad refs skipped with a
+  warn — defense-in-depth for dev manifests that bypass Rust); other slots
+  ignored with a debug log. Validation (route-namespace policy reuse, dup ids,
+  external URLs); absorbs the transient maps per §4. (No `getAddonForPath` —
+  `AddonIframeRoute` already receives `addonId`/`routeId` as props from the
+  route table.)
 - `addons-core.ts` — ingest manifests into durable layer at boot (before iframes).
 - Settings actions keep today's whole-world `reloadAllAddons()` (see §7 — per-addon
   `resyncAddon` deferred; with lazy activation a world reload is cheap because lazy
@@ -244,7 +256,7 @@ UI filter, Rust escalation skip (+tests in `type-bridge.test.ts` and core tests)
   (`addons-core.ts`, `addon-iframe-manager.ts`, `addon-iframe-route.tsx`) — resident
   count is derivable from the runtimes map/DOM, no separate gauge.
 - `e2e/fixtures/addons/conformance-addon/` — source + prebuilt zip: one
-  `contributes.views` entry, a `component` route, an enable-time
+  `contributes.routes` entry + sidebar link, a `component` route, an enable-time
   `ctx.api.storage` write, one undeclared consented call (assert denial toast), one
   guarded `localStorage` touch (assert classified error, no crash).
 - `e2e/11-addon-conformance.spec.ts` — asserts the **refactored** behavior: install
@@ -302,12 +314,13 @@ UI filter, Rust escalation skip (+tests in `type-bridge.test.ts` and core tests)
 
 ### wealthfolio-addons repo follow-ups (after host release)
 - **PR-A:** Swingfolio → `ctx.api.storage` (drop localStorage fallback), `component`
-  routes, `contributes.views`, drop `ui` permission block.
-- **PR-B:** templates/scaffold — no `ui`/`query` declarations; `contributes.views` +
-  `component` pattern; dev-tools detection stops emitting baseline categories.
+  routes, `contributes.routes` + `contributes.links`, drop `ui` permission block.
+- **PR-B:** templates/scaffold — no `ui`/`query` declarations; `contributes.routes` +
+  `contributes.links` + `component` pattern; dev-tools detection stops emitting
+  baseline categories.
 - **PR-C:** `docs/sdk-3.6-sandbox-migration.md` + RFC — document storage API,
-  baseline capabilities, `component`, `contributes.views`; state that Web Storage is
-  permanently unsupported (no shim); amend RFC with A1–A4.
+  baseline capabilities, `component`, `contributes.routes` + `contributes.links`;
+  state that Web Storage is permanently unsupported (no shim); amend RFC with A1–A4.
 
 ## 6. Verification
 
@@ -329,7 +342,13 @@ UI filter, Rust escalation skip (+tests in `type-bridge.test.ts` and core tests)
 
 ## 7. Open items for review
 
-- Naming: `contributes.views` field names (`id/label/icon/path/order`) final?
+- Naming: RESOLVED — shipped as two primitives, `contributes.routes`
+  (`{id, path}`: a durable addon page, host-renderable pre-boot) and
+  `contributes.links` (a map keyed by slot id of
+  `{id?, route, label, icon?, order?}` placements referencing declared route
+  ids; a link id defaults to its route id). Only the `"sidebar"` slot is
+  consumed today; unknown slots round-trip and are ignored — additional host
+  slots (e.g. `"asset/actions"`) are the follow-up.
 - Quota numbers (128-char keys, 1 MiB/addon) — adjust?
 - `events` kept consented (leaks data-activity timing) — confirm.
 - Auth-gate removal ships with no replacement signal; a later "server runs
@@ -339,9 +358,11 @@ UI filter, Rust escalation skip (+tests in `type-bridge.test.ts` and core tests)
   sub-routes of a lazy addon — e.g. Swingfolio's `/activities` and `/settings` —
   don't exist in the host router until the addon boots, so a hard app reload
   while ON a sub-route lands on 404 until the user re-enters via the sidebar
-  (the durable contributed route self-heals; sub-routes can't). Future options:
-  non-nav durable route contributions (`contributes.routes` or `views[].hidden`)
-  or addons folding sub-pages into query params on the durable route. Deferred.
+  (the durable contributed route self-heals; sub-routes can't). The shipped
+  schema already supports the fix host-side: a `contributes.routes` entry with
+  no link is a durable, deep-link-only route — addons just need to declare
+  their sub-pages as routes (or fold them into query params on the main
+  route). Remaining work is addon adoption, not host schema.
 
 ### Simplifications applied in the over-engineering pass
 Dropped from v1 (each was speculative for Phases 0–3): `activationEvents` manifest

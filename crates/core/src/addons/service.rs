@@ -990,23 +990,58 @@ fn parse_manifest_json_metadata_with_options(
         None
     };
 
-    // Declarative view contributions. Parse the whole `contributes` sub-object via
-    // serde for brevity, then validate that each view carries the required
-    // id/label/path (serde would otherwise error on missing non-Option fields, so
-    // surface a clear manifest error instead of a raw serde message).
+    // Declarative contributions (routes + links). Parse the whole `contributes`
+    // sub-object via serde for brevity, then validate: every route has a
+    // non-empty id/path with no duplicate ids, and every link (in any slot,
+    // including unknown future slots, which are accepted and round-tripped
+    // as-is) has a non-empty label and references a declared route id.
     let contributes = match raw_manifest.get("contributes") {
         Some(value) if !value.is_null() => {
             let parsed: AddonContributes = serde_json::from_value(value.clone())
                 .map_err(|e| format!("Invalid 'contributes' field in manifest.json: {}", e))?;
-            for view in &parsed.views {
-                if view.id.trim().is_empty() {
-                    return Err("Missing 'id' field in contributes.views entry".to_string());
+            let mut route_ids = std::collections::HashSet::new();
+            for route in &parsed.routes {
+                if route.id.trim().is_empty() {
+                    return Err("Missing 'id' field in contributes.routes entry".to_string());
                 }
-                if view.label.trim().is_empty() {
-                    return Err("Missing 'label' field in contributes.views entry".to_string());
+                if route.path.trim().is_empty() {
+                    return Err("Missing 'path' field in contributes.routes entry".to_string());
                 }
-                if view.path.trim().is_empty() {
-                    return Err("Missing 'path' field in contributes.views entry".to_string());
+                if !route_ids.insert(route.id.as_str()) {
+                    return Err(format!(
+                        "Invalid 'contributes' field in manifest.json: duplicate route id '{}'",
+                        route.id
+                    ));
+                }
+            }
+            for (slot, links) in &parsed.links {
+                let mut link_ids = std::collections::HashSet::new();
+                for link in links {
+                    if link.route.trim().is_empty() {
+                        return Err(format!(
+                            "Missing 'route' field in contributes.links['{}'] entry",
+                            slot
+                        ));
+                    }
+                    if link.label.trim().is_empty() {
+                        return Err(format!(
+                            "Missing 'label' field in contributes.links['{}'] entry",
+                            slot
+                        ));
+                    }
+                    if !route_ids.contains(link.route.as_str()) {
+                        return Err(format!(
+                            "Invalid 'contributes' field in manifest.json: link in slot '{}' references undeclared route '{}'",
+                            slot, link.route
+                        ));
+                    }
+                    let effective_id = link.id.as_deref().unwrap_or(link.route.as_str());
+                    if !link_ids.insert(effective_id) {
+                        return Err(format!(
+                            "Invalid 'contributes' field in manifest.json: duplicate link id '{}' in slot '{}'",
+                            effective_id, slot
+                        ));
+                    }
                 }
             }
             Some(parsed)

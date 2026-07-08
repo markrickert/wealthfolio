@@ -196,9 +196,10 @@ export async function loadInstalledAddons(): Promise<void> {
 
   // Rebuild the durable contribution layer from scratch on every (re)load so a
   // disabled/uninstalled addon (no longer in enabledAddonFiles) leaves no stale
-  // nav. Ingest reads `contributes.views` from the manifest WITHOUT executing
-  // addon code or booting an iframe — it only populates the durable nav/route
-  // layer. A disabled addon shows no nav, so ingest only the enabled ones.
+  // nav. Ingest reads `contributes` (routes + links) from the manifest WITHOUT
+  // executing addon code or booting an iframe — it only populates the durable
+  // nav/route layer. A disabled addon shows no nav, so ingest only the enabled
+  // ones.
   clearAllContributions();
   // Reset lazy-activation state so a (re)load re-registers every addon cleanly.
   resetActivations();
@@ -208,13 +209,13 @@ export async function loadInstalledAddons(): Promise<void> {
   // mounted addon routes, and a route self-healing from a reload (its runtime
   // was stopped) immediately calls activateView — its bootFn must already be
   // registered or that activation would fail spuriously. Addons that contribute
-  // views boot lazily on first visit to a contributed route; addons WITHOUT
-  // contributed views must eager-boot ("pinned") so their runtime's
+  // routes boot lazily on first visit to a contributed route; addons WITHOUT
+  // contributed routes must eager-boot ("pinned") so their runtime's
   // sidebar.addItem/router.add still registers navigation at startup. (Dev-mode
   // addons take the separate dev path and are always pinned there; this function
   // only sees installed addons.)
   for (const addonFile of enabledAddonFiles) {
-    const pinned = !addonFile.manifest.contributes?.views?.length;
+    const pinned = !addonFile.manifest.contributes?.routes?.length;
     registerActivatable(addonFile.manifest.id, () => loadAddon(addonFile), { pinned });
   }
   for (const addonFile of enabledAddonFiles) {

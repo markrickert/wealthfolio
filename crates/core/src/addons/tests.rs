@@ -846,28 +846,33 @@ fn test_parse_manifest_json_metadata_service_preserves_host_dependencies() {
 }
 
 #[test]
-fn test_parse_manifest_contributes_views_round_trips() {
+fn test_parse_manifest_contributes_routes_and_links_round_trip() {
     let manifest_json = r#"
     {
-        "id": "views-addon",
-        "name": "Views Addon",
+        "id": "routes-addon",
+        "name": "Routes Addon",
         "version": "1.0.0",
         "main": "dist/addon.js",
         "contributes": {
-            "views": [
-                {
-                    "id": "views-addon.dashboard",
-                    "label": "Dashboard",
-                    "icon": "LayoutDashboard",
-                    "path": "/addon/views-addon/dashboard",
-                    "order": 10
-                },
-                {
-                    "id": "views-addon.report",
-                    "label": "Report",
-                    "path": "/addon/views-addon/report"
-                }
-            ]
+            "routes": [
+                { "id": "main", "path": "/addons/routes-addon" },
+                { "id": "report", "path": "/addons/routes-addon/report" }
+            ],
+            "links": {
+                "sidebar": [
+                    {
+                        "id": "main-nav",
+                        "route": "main",
+                        "label": "Routes Addon",
+                        "icon": "wallet",
+                        "order": 150
+                    },
+                    { "route": "report", "label": "Report" }
+                ],
+                "asset/actions": [
+                    { "route": "report", "label": "Open Report" }
+                ]
+            }
         }
     }
     "#;
@@ -882,21 +887,41 @@ fn test_parse_manifest_contributes_views_round_trips() {
     let contributes = reparsed
         .contributes
         .expect("contributes should survive round-trip");
-    assert_eq!(contributes.views.len(), 2);
+    assert_eq!(contributes.routes.len(), 2);
 
-    let dashboard = &contributes.views[0];
-    assert_eq!(dashboard.id, "views-addon.dashboard");
-    assert_eq!(dashboard.label, "Dashboard");
-    assert_eq!(dashboard.icon.as_deref(), Some("LayoutDashboard"));
-    assert_eq!(dashboard.path, "/addon/views-addon/dashboard");
-    assert_eq!(dashboard.order, Some(10));
+    let main_route = &contributes.routes[0];
+    assert_eq!(main_route.id, "main");
+    assert_eq!(main_route.path, "/addons/routes-addon");
 
-    let report = &contributes.views[1];
-    assert_eq!(report.id, "views-addon.report");
-    assert_eq!(report.label, "Report");
-    assert_eq!(report.icon, None);
-    assert_eq!(report.path, "/addon/views-addon/report");
-    assert_eq!(report.order, None);
+    let report_route = &contributes.routes[1];
+    assert_eq!(report_route.id, "report");
+    assert_eq!(report_route.path, "/addons/routes-addon/report");
+
+    let sidebar = contributes
+        .links
+        .get("sidebar")
+        .expect("sidebar links should survive round-trip");
+    assert_eq!(sidebar.len(), 2);
+    assert_eq!(sidebar[0].id.as_deref(), Some("main-nav"));
+    assert_eq!(sidebar[0].route, "main");
+    assert_eq!(sidebar[0].label, "Routes Addon");
+    assert_eq!(sidebar[0].icon.as_deref(), Some("wallet"));
+    assert_eq!(sidebar[0].order, Some(150));
+    assert_eq!(sidebar[1].id, None);
+    assert_eq!(sidebar[1].route, "report");
+    assert_eq!(sidebar[1].label, "Report");
+    assert_eq!(sidebar[1].icon, None);
+    assert_eq!(sidebar[1].order, None);
+
+    // Unknown slot keys are future host surfaces: they must parse fine and
+    // survive the install rewrite untouched.
+    let asset_actions = contributes
+        .links
+        .get("asset/actions")
+        .expect("unknown slot should survive round-trip");
+    assert_eq!(asset_actions.len(), 1);
+    assert_eq!(asset_actions[0].route, "report");
+    assert_eq!(asset_actions[0].label, "Open Report");
 
     // A manifest with no `contributes` stays None (and does not emit the key).
     let without =
@@ -908,22 +933,90 @@ fn test_parse_manifest_contributes_views_round_trips() {
 }
 
 #[test]
-fn test_parse_manifest_contributes_views_rejects_missing_required_fields() {
+fn test_parse_manifest_contributes_rejects_missing_required_fields() {
+    // Route missing `path`.
     let manifest_json = r#"
     {
-        "id": "views-addon",
-        "name": "Views Addon",
+        "id": "routes-addon",
+        "name": "Routes Addon",
         "version": "1.0.0",
         "main": "dist/addon.js",
-        "contributes": { "views": [ { "id": "x", "label": "X" } ] }
+        "contributes": { "routes": [ { "id": "main" } ] }
+    }
+    "#;
+    let err = parse_manifest_json_metadata(manifest_json)
+        .expect_err("route missing 'path' should be rejected");
+    assert!(
+        err.contains("contributes"),
+        "error should mention contributes, got: {err}"
+    );
+
+    // Link missing `label`.
+    let manifest_json = r#"
+    {
+        "id": "routes-addon",
+        "name": "Routes Addon",
+        "version": "1.0.0",
+        "main": "dist/addon.js",
+        "contributes": {
+            "routes": [ { "id": "main", "path": "/addons/routes-addon" } ],
+            "links": { "sidebar": [ { "route": "main" } ] }
+        }
+    }
+    "#;
+    let err = parse_manifest_json_metadata(manifest_json)
+        .expect_err("link missing 'label' should be rejected");
+    assert!(
+        err.contains("contributes"),
+        "error should mention contributes, got: {err}"
+    );
+}
+
+#[test]
+fn test_parse_manifest_contributes_rejects_bad_route_ref() {
+    let manifest_json = r#"
+    {
+        "id": "routes-addon",
+        "name": "Routes Addon",
+        "version": "1.0.0",
+        "main": "dist/addon.js",
+        "contributes": {
+            "routes": [ { "id": "main", "path": "/addons/routes-addon" } ],
+            "links": { "sidebar": [ { "route": "missing", "label": "Ghost" } ] }
+        }
     }
     "#;
 
     let err = parse_manifest_json_metadata(manifest_json)
-        .expect_err("view missing 'path' should be rejected");
+        .expect_err("link referencing an undeclared route should be rejected");
     assert!(
-        err.contains("contributes"),
-        "error should mention contributes, got: {err}"
+        err.contains("missing"),
+        "error should name the bad route ref, got: {err}"
+    );
+}
+
+#[test]
+fn test_parse_manifest_contributes_rejects_duplicate_route_ids() {
+    let manifest_json = r#"
+    {
+        "id": "routes-addon",
+        "name": "Routes Addon",
+        "version": "1.0.0",
+        "main": "dist/addon.js",
+        "contributes": {
+            "routes": [
+                { "id": "main", "path": "/addons/routes-addon" },
+                { "id": "main", "path": "/addons/routes-addon/other" }
+            ]
+        }
+    }
+    "#;
+
+    let err = parse_manifest_json_metadata(manifest_json)
+        .expect_err("duplicate route ids should be rejected");
+    assert!(
+        err.contains("duplicate route id 'main'"),
+        "error should name the duplicate route id, got: {err}"
     );
 }
 

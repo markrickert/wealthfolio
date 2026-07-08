@@ -215,10 +215,10 @@ export function classifyAddonErrorHint(rawMessage: string | undefined): string |
   if (message.includes("unknown addon host api method")) {
     return "This add-on called an API this version of Wealthfolio does not provide. Update the add-on, or update Wealthfolio.";
   }
-  // A contributed view whose id does not match a route the add-on registers at
-  // runtime (contributes.views[].id must equal router.add({ id })).
+  // A contributed route whose id does not match a route the add-on registers
+  // at runtime (contributes.routes[].id must equal router.add({ id })).
   if (message.includes("route") && message.includes("is not available")) {
-    return "This add-on could not render this view — a declared view id may not match a route the add-on registers. The add-on may need updating.";
+    return "This add-on could not render this page — a declared route id may not match a route the add-on registers. The add-on may need updating.";
   }
   return undefined;
 }

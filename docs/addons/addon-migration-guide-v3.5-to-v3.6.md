@@ -104,11 +104,27 @@ export default function enable(ctx: AddonContext) {
   `pathname/search/hash/params`), re-passed on each navigation.
 - Prefer `component`; keep `render` only for non-React or imperative rendering.
 
-> **`contributes.views` + `component`:** if you declare a view in your manifest
-> (`contributes.views[].id`) and also register its route/renderer at runtime,
-> the runtime `router.add({ id })` **must use the same id** as the view. A
-> mismatch renders a blank view ("route is not available"). Only relevant for
-> addons using the new declarative `contributes.views`.
+> **`contributes.routes` + `contributes.links`:** addons can declare their
+> pages and navigation in the manifest, so the host knows them without booting
+> the addon. A **route** is a durable addon page; a **link** places it in a
+> host slot (only `"sidebar"` is consumed today) and must reference a declared
+> route id of the same addon:
+>
+> ```jsonc
+> "contributes": {
+>   "routes": [ { "id": "main", "path": "/addons/my-addon" } ],
+>   "links": {
+>     "sidebar": [
+>       { "id": "main-nav", "route": "main", "label": "My Addon", "icon": "wallet", "order": 150 }
+>     ]
+>   }
+> }
+> ```
+>
+> If you declare a route and also register its renderer at runtime, the runtime
+> `router.add({ id })` **must use the same id** as the declared route
+> (`contributes.routes[].id`). A mismatch renders a blank page ("route is not
+> available"). A route without any link is legal — it is deep-link only.
 
 ---
 
