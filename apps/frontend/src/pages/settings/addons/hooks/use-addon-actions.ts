@@ -10,6 +10,7 @@ import {
   uninstallAddon,
   extractAddon,
   clearAddonStaging,
+  updateAddonNetworkApprovals,
 } from "@/adapters";
 import type { InstalledAddon, Permission, ExtractedAddon } from "@/adapters";
 
@@ -106,7 +107,7 @@ export function useAddonActions() {
 
       const filePromise = new Promise<File | null>((resolve) => {
         input.onchange = () => {
-          const file = input.files && input.files[0] ? input.files[0] : null;
+          const file = input.files?.[0] ?? null;
           resolve(file);
           // Cleanup
           if (input.parentNode) {
@@ -329,6 +330,32 @@ export function useAddonActions() {
     }
   };
 
+  const handleUpdateNetworkApprovals = async (
+    addon: InstalledAddon,
+    approvedNetworkHosts: string[],
+  ) => {
+    try {
+      const metadata = await updateAddonNetworkApprovals(addon.metadata.id, approvedNetworkHosts);
+
+      queryClient.invalidateQueries({ queryKey: [QueryKeys.INSTALLED_ADDONS] });
+      setViewPermissionDialog({ open: false });
+      await reloadAllAddons();
+
+      toast({
+        title: "Network permissions updated",
+        description: `${metadata.name} network host approvals have been saved.`,
+      });
+    } catch (error) {
+      console.error("Error updating network approvals:", error);
+      toast({
+        title: "Error updating network permissions",
+        description:
+          error instanceof Error ? error.message : "Failed to update network host approvals",
+        variant: "destructive",
+      });
+    }
+  };
+
   return {
     // State
     installedAddons,
@@ -346,6 +373,7 @@ export function useAddonActions() {
     handleToggleAddon,
     handleUninstallAddon,
     handleViewPermissions,
+    handleUpdateNetworkApprovals,
 
     // Dialog setters
     setPermissionDialog,

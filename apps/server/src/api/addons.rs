@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use crate::{
-    error::ApiResult,
-    main_lib::AppState,
-};
+use crate::{error::ApiResult, main_lib::AppState};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,

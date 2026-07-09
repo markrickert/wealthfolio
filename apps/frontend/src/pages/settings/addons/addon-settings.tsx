@@ -52,6 +52,7 @@ export default function AddonSettingsPage() {
     handleToggleAddon,
     handleUninstallAddon,
     handleViewPermissions,
+    handleUpdateNetworkApprovals,
     setPermissionDialog,
     setViewPermissionDialog,
   } = useAddonActions();
@@ -412,7 +413,7 @@ export default function AddonSettingsPage() {
                                   : "text-muted-foreground/70"
                               }`}
                             >
-                              <Icons.Users className="h-4 w-4 flex-shrink-0" />
+                              <Icons.Users className="h-4 w-4 shrink-0" />
                               <span className="truncate">
                                 {t("settings:addon_card_by", { author: addon.metadata.author })}
                               </span>
@@ -601,13 +602,19 @@ export default function AddonSettingsPage() {
           manifest={viewPermissionDialog.addon.metadata}
           declaredPermissions={viewPermissionDialog.permissions || []}
           riskLevel={viewPermissionDialog.riskLevel || "low"}
-          onApprove={() => {
-            setViewPermissionDialog({ open: false });
+          onApprove={(approvedNetworkHosts) => {
+            const addon = viewPermissionDialog.addon;
+            if (!addon?.metadata.network?.allowedHosts?.length) {
+              setViewPermissionDialog({ open: false });
+              return;
+            }
+            void handleUpdateNetworkApprovals(addon, approvedNetworkHosts);
           }}
           onDeny={() => {
             setViewPermissionDialog({ open: false });
           }}
           isViewOnly={true}
+          canEditNetworkHosts={true}
         />
       )}
 
