@@ -140,7 +140,18 @@
     "YTD": "en lo que va del año",
     "1Y": "último año",
     "5Y": "últimos 5 años",
-    "ALL": "Todo el tiempo"
+    "ALL": "Todo el tiempo",
+    "label": {
+      "1D": "1D",
+      "1W": "1S",
+      "1M": "1M",
+      "3M": "3M",
+      "6M": "6M",
+      "YTD": "YTD",
+      "1Y": "1A",
+      "5Y": "5A",
+      "ALL": "Máx"
+    }
   },
   "search": {
     "clear": "Borrar búsqueda",

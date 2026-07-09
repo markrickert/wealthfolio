@@ -140,7 +140,18 @@
     "YTD": "seit Jahresbeginn",
     "1Y": "letztes Jahr",
     "5Y": "letzte 5 Jahre",
-    "ALL": "Gesamter Zeitraum"
+    "ALL": "Gesamter Zeitraum",
+    "label": {
+      "1D": "1T",
+      "1W": "1W",
+      "1M": "1M",
+      "3M": "3M",
+      "6M": "6M",
+      "YTD": "YTD",
+      "1Y": "1J",
+      "5Y": "5J",
+      "ALL": "Max"
+    }
   },
   "search": {
     "clear": "Suche löschen",

@@ -140,7 +140,18 @@
     "YTD": "year to date",
     "1Y": "past year",
     "5Y": "past 5 years",
-    "ALL": "All Time"
+    "ALL": "All Time",
+    "label": {
+      "1D": "1D",
+      "1W": "1W",
+      "1M": "1M",
+      "3M": "3M",
+      "6M": "6M",
+      "YTD": "YTD",
+      "1Y": "1Y",
+      "5Y": "5Y",
+      "ALL": "ALL"
+    }
   },
   "search": {
     "clear": "Clear search",

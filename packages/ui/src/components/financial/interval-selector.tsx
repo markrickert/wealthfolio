@@ -133,7 +133,7 @@ const IntervalSelector: React.FC<IntervalSelectorProps> = ({
 
   const items = intervals.map((interval) => ({
     value: interval.code,
-    label: interval.code,
+    label: t("ui:interval.label." + interval.code, interval.code),
     title: t("ui:interval." + interval.code, interval.description),
   }));
 

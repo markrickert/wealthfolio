@@ -140,7 +140,18 @@
     "YTD": "depuis le début de l'année",
     "1Y": "dernière année",
     "5Y": "5 dernières années",
-    "ALL": "Tout l'historique"
+    "ALL": "Tout l'historique",
+    "label": {
+      "1D": "1J",
+      "1W": "1S",
+      "1M": "1M",
+      "3M": "3M",
+      "6M": "6M",
+      "YTD": "YTD",
+      "1Y": "1A",
+      "5Y": "5A",
+      "ALL": "Max"
+    }
   },
   "search": {
     "clear": "Effacer la recherche",
