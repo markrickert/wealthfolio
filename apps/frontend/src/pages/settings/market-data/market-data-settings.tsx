@@ -366,7 +366,7 @@ function ProviderSettings({
                           id={`apikey-${provider.id}`}
                           type={showApiKey ? "text" : "password"}
                           value={
-                            hasLoadedKey
+                            hasLoadedKey || apiKeyValue
                               ? apiKeyValue
                               : provider.hasApiKey
                                 ? "••••••••••••••••••••••••"
