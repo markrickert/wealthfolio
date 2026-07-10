@@ -1632,9 +1632,10 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
     }
     // Device Sync commands - Device management
     case "register_device": {
-      const { displayName, instanceId } = payload as {
+      const { displayName, deviceNonce, instanceId } = payload as {
         displayName: string;
-        instanceId: string;
+        deviceNonce?: string;
+        instanceId?: string;
       };
       // Detect platform from browser user agent
       const userAgent = navigator.userAgent.toLowerCase();
@@ -1645,7 +1646,7 @@ export const invoke = async <T>(command: string, payload?: Record<string, unknow
       else if (userAgent.includes("android")) platform = "android";
       else if (userAgent.includes("iphone") || userAgent.includes("ipad")) platform = "ios";
 
-      body = JSON.stringify({ displayName, platform, instanceId });
+      body = JSON.stringify({ displayName, platform, deviceNonce: deviceNonce ?? instanceId });
       break;
     }
     case "get_device": {
