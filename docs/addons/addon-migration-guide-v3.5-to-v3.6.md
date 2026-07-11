@@ -354,6 +354,11 @@ const res = await ctx.api.network.request({
 Store the token once with `ctx.api.secrets.set('example-api-key', token)`; the
 broker reads it by `secretKey` so the raw token never enters addon code paths.
 
+`auth.type` accepts `"bearer"` (injects `Authorization: Bearer <secret>`) or
+`"basic"` (injects `Authorization: Basic <secret>`). For `"basic"`, store the
+already base64-encoded `user:pass` string as the secret — the broker only
+prefixes the scheme.
+
 ---
 
 ## 7. New capability: durable storage (replaces `localStorage`)
