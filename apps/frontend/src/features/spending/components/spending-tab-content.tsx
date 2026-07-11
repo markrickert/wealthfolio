@@ -34,7 +34,7 @@ import { useCategorizationRules } from "../hooks/use-categorization-rules";
 import { useCashActivities, useUncategorizedCount } from "../hooks/use-cash-activities";
 import { useSpendingReport } from "../hooks/use-spending-report";
 import { useSpendingSettings } from "../hooks/use-spending-settings";
-import { topCategoryId } from "../lib/category-rollup";
+import { SAVINGS_ROW_COLOR, SAVINGS_ROW_ID, buildWhereItWentRows } from "../lib/category-rollup";
 import {
   SPENDING_MONTH_PARAM,
   SPENDING_MONTH_STORAGE_KEY,
@@ -520,6 +520,7 @@ export default function SpendingTabContent() {
   );
 
   const totalSpending = report?.current.outflow ?? 0;
+  const totalSaved = report?.current.saved ?? 0;
   const priorSpending = priorReport?.current.outflow ?? 0;
   const delta = totalSpending - priorSpending;
   // `deltaPct` is a RATIO (0.2 == 20%) used for thresholds; convert to
@@ -730,45 +731,16 @@ export default function SpendingTabContent() {
 
   const categoryRows = useMemo(() => {
     if (!report) return [];
-    const topAmounts = new Map<string, { amount: number; subCount: number; txCount: number }>();
-    for (const row of report.spendingBreakdown) {
-      const meta = categoriesMeta.get(row.categoryId);
-      const topId = topCategoryId(row.categoryId, categoriesMeta);
-      const e = topAmounts.get(topId) ?? { amount: 0, subCount: 0, txCount: 0 };
-      e.amount += row.amount;
-      e.txCount += row.count;
-      if (meta?.parentId) e.subCount += 1;
-      topAmounts.set(topId, e);
-    }
-    const priorAmounts = new Map<string, number>();
-    for (const row of priorReport?.spendingBreakdown ?? []) {
-      const topId = topCategoryId(row.categoryId, categoriesMeta);
-      priorAmounts.set(topId, (priorAmounts.get(topId) ?? 0) + row.amount);
-    }
-    return Array.from(topAmounts.entries())
-      .sort(([, a], [, b]) => b.amount - a.amount)
-      .map(([id, e]) => {
-        const meta = categoriesMeta.get(id);
-        const priorAmt = priorAmounts.get(id) ?? 0;
-        const d = e.amount - priorAmt;
-        const dPct = priorAmt > 0 ? (d / priorAmt) * 100 : null;
-        return {
-          id,
-          name:
-            id === "__uncategorized__"
-              ? t("spending:insightsPage.uncategorized")
-              : (meta?.name ?? id),
-          color: meta?.color ?? null,
-          icon: meta?.icon ?? null,
-          amount: e.amount,
-          subCount: e.subCount,
-          txCount: e.txCount,
-          delta: d,
-          deltaPct: dPct,
-        };
-      })
-      .filter((row) => row.amount > 0);
-  }, [report, priorReport, categoriesMeta, t]);
+    return buildWhereItWentRows({
+      spendingBreakdown: report.spendingBreakdown,
+      priorSpendingBreakdown: priorReport?.spendingBreakdown ?? [],
+      categoriesMeta,
+      totalSaved,
+      priorSaved: priorReport?.current.saved ?? 0,
+      uncategorizedLabel: t("spending:insightsPage.uncategorized"),
+      savingsLabel: t("spending:cashFlow.saving"),
+    });
+  }, [report, priorReport, categoriesMeta, t, totalSaved]);
 
   const insights = useMemo(() => {
     const items: {
@@ -1061,19 +1033,21 @@ export default function SpendingTabContent() {
                 ) : whereItWentView === "map" ? (
                   <CategoryTreemapMono
                     rows={categoryRows}
-                    total={totalSpending}
+                    total={totalSpending + totalSaved}
                     currency={currency}
                     themeColor={theme.deep}
                     hasNoIncludedAccounts={hasNoIncludedAccounts}
+                    savingsHref={dashboardInsightHref.cashflow}
                   />
                 ) : (
                   <CategoryRankedBar
                     rows={categoryRows}
-                    total={totalSpending}
+                    total={totalSpending + totalSaved}
                     currency={currency}
                     themeColor={theme.deep}
                     groupRows={budget?.computed.groupRows ?? []}
                     hasNoIncludedAccounts={hasNoIncludedAccounts}
+                    savingsHref={dashboardInsightHref.cashflow}
                   />
                 )}
               </DashboardCard>
@@ -1260,7 +1234,8 @@ interface CategoryRow {
  * no real category id, so it routes to the status filter — the category filter
  * would match nothing and render an empty list.
  */
-function spendingActivityHref(id: string): string {
+function spendingActivityHref(id: string, savingsHref?: string): string {
+  if (id === SAVINGS_ROW_ID) return savingsHref ?? "/activities?tab=spending";
   return id === "__uncategorized__"
     ? "/activities?tab=spending&status=uncategorized"
     : `/activities?tab=spending&category=${id}`;
@@ -1316,12 +1291,14 @@ function CategoryTreemapMono({
   currency,
   themeColor,
   hasNoIncludedAccounts,
+  savingsHref,
 }: {
   rows: CategoryRow[];
   total: number;
   currency: string;
   themeColor: string;
   hasNoIncludedAccounts: boolean;
+  savingsHref?: string;
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -1373,7 +1350,7 @@ function CategoryTreemapMono({
                   currency={currency}
                   onActivate={(id) => {
                     if (id && id !== "__other__") {
-                      navigate(spendingActivityHref(id));
+                      navigate(spendingActivityHref(id, savingsHref));
                     }
                   }}
                 />
@@ -1383,7 +1360,7 @@ function CategoryTreemapMono({
             onClick={(node: unknown) => {
               const id = (node as { id?: string } | null)?.id;
               if (id && id !== "__other__") {
-                navigate(spendingActivityHref(id));
+                navigate(spendingActivityHref(id, savingsHref));
               }
             }}
           >
@@ -1537,6 +1514,7 @@ function CategoryRankedBar({
   themeColor,
   groupRows = [],
   hasNoIncludedAccounts,
+  savingsHref,
 }: {
   rows: CategoryRow[];
   total: number;
@@ -1548,6 +1526,7 @@ function CategoryRankedBar({
    * group, the list switches to a grouped layout with collapsible group rows.
    */
   groupRows?: import("../types/budget").BudgetGroupRow[];
+  savingsHref?: string;
 }) {
   const { t } = useTranslation();
   const { isBalanceHidden } = useBalancePrivacy();
@@ -1646,8 +1625,13 @@ function CategoryRankedBar({
         : ensureBucket("__other__", t("spending:hero.other"), null);
 
     for (const row of rows) {
-      const g = categoryGroup.get(row.id);
-      const b = g ? ensureBucket(g.id, g.name, g.color) : ensureOther();
+      let b: Bucket;
+      if (row.id === SAVINGS_ROW_ID) {
+        b = ensureBucket(SAVINGS_ROW_ID, t("spending:cashFlow.saving"), SAVINGS_ROW_COLOR);
+      } else {
+        const g = categoryGroup.get(row.id);
+        b = g ? ensureBucket(g.id, g.name, g.color) : ensureOther();
+      }
       b.categories.push(row);
       b.total += row.amount;
     }
@@ -1679,6 +1663,7 @@ function CategoryRankedBar({
               total={total}
               currency={currency}
               themeColor={themeColor}
+              savingsHref={savingsHref}
             />
           ))}
         </div>
@@ -1699,7 +1684,7 @@ function CategoryRankedBar({
           return (
             <Link
               key={r.id}
-              to={spendingActivityHref(r.id)}
+              to={spendingActivityHref(r.id, savingsHref)}
               className="hover:bg-muted/40 group flex items-center gap-2.5 rounded-md px-1 py-1 transition-colors"
             >
               <span
@@ -1751,6 +1736,7 @@ function GroupedCategoryBlock({
   total,
   currency,
   themeColor,
+  savingsHref,
 }: {
   bucket: {
     id: string;
@@ -1762,6 +1748,7 @@ function GroupedCategoryBlock({
   total: number;
   currency: string;
   themeColor: string;
+  savingsHref?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const share = total > 0 ? (bucket.total / total) * 100 : 0;
@@ -1811,9 +1798,7 @@ function GroupedCategoryBlock({
           {sortedCats.map((cat) => {
             const catShare = total > 0 ? (cat.amount / total) * 100 : 0;
             const isUncategorized = cat.id === "__uncategorized__";
-            const to = isUncategorized
-              ? "/activities?tab=spending&status=uncategorized"
-              : `/activities?tab=spending&category=${cat.id}`;
+            const to = spendingActivityHref(cat.id, savingsHref);
             const dotColor = cat.color ?? accent;
             return (
               <Link
