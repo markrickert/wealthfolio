@@ -1017,7 +1017,12 @@ impl ValuationService {
         activities: Vec<Activity>,
         timezone: chrono_tz::Tz,
     ) -> Vec<(Activity, NaiveDate, Decimal)> {
-        let mut candidates_by_event: BTreeMap<(String, NaiveDate), Vec<(Activity, Decimal)>> =
+        // Rows for the same real-world split can resolve to adjacent local dates when
+        // sources stamp different times of day, so cluster per asset by date gap
+        // instead of keying on the exact date; two events would apply the factor twice.
+        const MERGE_GAP_DAYS: i64 = 1;
+
+        let mut candidates_by_asset: BTreeMap<String, Vec<(Activity, NaiveDate, Decimal)>> =
             BTreeMap::new();
 
         for activity in activities {
@@ -1033,16 +1038,32 @@ impl ValuationService {
                 continue;
             };
             let split_date = time_utils::activity_date_in_tz(activity.activity_date, timezone);
-            candidates_by_event
-                .entry((asset_id, split_date))
+            candidates_by_asset
+                .entry(asset_id)
                 .or_default()
-                .push((activity, ratio));
+                .push((activity, split_date, ratio));
         }
 
-        candidates_by_event
-            .into_iter()
-            .filter_map(|((asset_id, split_date), mut candidates)| {
-                candidates.sort_by(|(left, _), (right, _)| {
+        let mut selected_events = Vec::new();
+        for (asset_id, mut candidates) in candidates_by_asset {
+            candidates.sort_by_key(|(_, split_date, _)| *split_date);
+
+            let mut clusters: Vec<Vec<(Activity, NaiveDate, Decimal)>> = Vec::new();
+            for candidate in candidates {
+                match clusters.last_mut() {
+                    Some(cluster)
+                        if cluster.last().is_some_and(|(_, last_date, _)| {
+                            (candidate.1 - *last_date).num_days() <= MERGE_GAP_DAYS
+                        }) =>
+                    {
+                        cluster.push(candidate);
+                    }
+                    _ => clusters.push(vec![candidate]),
+                }
+            }
+
+            for mut cluster in clusters {
+                cluster.sort_by(|(left, _, _), (right, _, _)| {
                     Self::split_activity_source_rank(right)
                         .cmp(&Self::split_activity_source_rank(left))
                         .then_with(|| right.updated_at.cmp(&left.updated_at))
@@ -1050,11 +1071,16 @@ impl ValuationService {
                 });
 
                 let distinct_ratios: HashSet<Decimal> =
-                    candidates.iter().map(|(_, ratio)| *ratio).collect();
-                let (selected, selected_ratio) = candidates.into_iter().next()?;
+                    cluster.iter().map(|(_, _, ratio)| *ratio).collect();
+                let Some((selected, split_date, selected_ratio)) = cluster.into_iter().next()
+                else {
+                    continue;
+                };
                 if distinct_ratios.len() > 1 {
-                    let mut ratios: Vec<String> =
-                        distinct_ratios.into_iter().map(|ratio| ratio.to_string()).collect();
+                    let mut ratios: Vec<String> = distinct_ratios
+                        .into_iter()
+                        .map(|ratio| ratio.to_string())
+                        .collect();
                     ratios.sort();
                     warn!(
                         "Conflicting split ratios for asset '{}' on {}: {:?}. Using ratio {} from activity '{}'.",
@@ -1062,9 +1088,11 @@ impl ValuationService {
                     );
                 }
 
-                Some((selected, split_date, selected_ratio))
-            })
-            .collect()
+                selected_events.push((selected, split_date, selected_ratio));
+            }
+        }
+
+        selected_events
     }
 
     fn quote_adjusted_split_events_for_assets(
@@ -2863,6 +2891,45 @@ mod tests {
             }],
         );
         assert_eq!(factors.get("VGT"), Some(&dec!(4)));
+    }
+
+    #[test]
+    fn shared_split_selection_merges_adjacent_dates_for_same_event() {
+        let activities = vec![
+            split_activity_on_date(
+                "broker-day-before",
+                "account-1",
+                "VGT",
+                "2025-11-30",
+                dec!(4),
+                Some("SNAPTRADE"),
+            ),
+            split_activity_on_date(
+                "manual-winner",
+                "account-2",
+                "VGT",
+                "2025-12-01",
+                dec!(4),
+                Some("MANUAL"),
+            ),
+            split_activity_on_date(
+                "earlier-distinct-split",
+                "account-1",
+                "VGT",
+                "2025-06-15",
+                dec!(2),
+                Some("SNAPTRADE"),
+            ),
+        ];
+
+        let selected = ValuationService::select_shared_split_activities(activities, chrono_tz::UTC);
+
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected[0].0.id, "earlier-distinct-split");
+        assert_eq!(selected[0].1, date("2025-06-15"));
+        assert_eq!(selected[1].0.id, "manual-winner");
+        assert_eq!(selected[1].1, date("2025-12-01"));
+        assert_eq!(selected[1].2, dec!(4));
     }
 
     #[test]
