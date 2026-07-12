@@ -24,6 +24,9 @@ use crate::lots::LotRepositoryTrait;
 use crate::portfolio::economic_events::BasisStatus;
 use crate::portfolio::holdings::{HoldingType, HoldingsServiceTrait};
 use crate::portfolio::performance::is_external_transfer;
+use crate::portfolio::snapshot::holdings_calculator::economics::{
+    gross_trade_amount, AssetPositionInfo,
+};
 use crate::portfolio::snapshot::{AccountStateSnapshot, Position, SnapshotServiceTrait};
 use crate::portfolio::valuation::{
     DailyAccountValuation, ExternalFlowSource, ValuationServiceTrait, ValuationStatus,
@@ -1879,21 +1882,16 @@ fn valuation_quality_issue(
 }
 
 fn health_sell_net_proceeds(activity: &Activity, asset: Option<&Asset>) -> Decimal {
-    let has_qty = activity.quantity.is_some_and(|qty| !qty.is_zero());
-    let has_unit_price = activity.unit_price.is_some_and(|price| !price.is_zero());
-    let use_activity_amount =
-        asset.is_some_and(|asset| asset.is_bond()) || !has_qty || !has_unit_price;
+    // Mirrors the holdings calculator's sell cash booking
+    // (`gross_trade_amount(..) - fee - tax`, see handlers/trades.rs); only
+    // `is_bond` and `contract_multiplier` affect the gross amount.
+    let mut asset_info = AssetPositionInfo::fallback(&activity.currency);
+    if let Some(asset) = asset {
+        asset_info.is_bond = asset.is_bond();
+        asset_info.contract_multiplier = asset.contract_multiplier();
+    }
 
-    let gross = if use_activity_amount {
-        activity.amt()
-    } else {
-        let contract_multiplier = asset
-            .map(|asset| asset.contract_multiplier())
-            .unwrap_or(Decimal::ONE);
-        activity.qty() * activity.price() * contract_multiplier
-    };
-
-    gross - activity.fee_amt()
+    gross_trade_amount(activity, &asset_info) - activity.fee_amt() - activity.tax_amt()
 }
 
 fn transfer_leg_detail(
@@ -3153,6 +3151,29 @@ mod tests {
         assert_eq!(
             health_sell_net_proceeds(&bond_sell, Some(&bond_asset)),
             dec!(949.75)
+        );
+
+        // Without a booked amount the calculator falls back to qty * price
+        // (has_amount gate in should_use_activity_amount), so the health
+        // check must too — not amt() == 0.
+        let mut bond_sell_no_amount = bond_sell.clone();
+        bond_sell_no_amount.id = "sell-bond-no-amount".to_string();
+        bond_sell_no_amount.amount = None;
+
+        assert_eq!(
+            health_sell_net_proceeds(&bond_sell_no_amount, Some(&bond_asset)),
+            dec!(2.75)
+        );
+
+        let mut taxed_sell = sell_activity("sell-taxed", "business", "aapl");
+        taxed_sell.quantity = Some(dec!(10));
+        taxed_sell.unit_price = Some(dec!(100));
+        taxed_sell.fee = Some(dec!(5));
+        taxed_sell.tax = Some(dec!(15));
+
+        assert_eq!(
+            health_sell_net_proceeds(&taxed_sell, Some(&health_asset("aapl"))),
+            dec!(980)
         );
     }
 

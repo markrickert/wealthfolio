@@ -22,7 +22,8 @@ mod fx;
 mod lots;
 
 /// Trade-economics/intent helpers and asset-fact cache types.
-mod economics;
+/// `pub(crate)` so other modules (e.g. health checks) reuse the canonical trade math.
+pub(crate) mod economics;
 /// Per-activity handlers grouped by domain.
 mod handlers;
 use economics::*;
