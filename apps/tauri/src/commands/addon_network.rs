@@ -6,9 +6,9 @@ use tauri::{AppHandle, Manager, State};
 use wealthfolio_core::addons::network::{
     resolve_addon_network_auth_header, AddonNetworkRequest, AddonNetworkResponse,
 };
-use wealthfolio_core::addons::{
-    parse_manifest_json_metadata, AddonManifest, AddonService, AddonServiceTrait,
-};
+#[cfg(debug_assertions)]
+use wealthfolio_core::addons::parse_manifest_json_metadata;
+use wealthfolio_core::addons::{AddonManifest, AddonService, AddonServiceTrait};
 
 use crate::context::ServiceContext;
 
@@ -29,6 +29,7 @@ impl DevAddonRegistry {
     }
 }
 
+#[cfg(debug_assertions)]
 #[tauri::command]
 pub fn register_dev_addon_manifest(
     registry: State<'_, DevAddonRegistry>,
@@ -54,6 +55,7 @@ pub fn register_dev_addon_manifest(
     Ok(())
 }
 
+#[cfg(debug_assertions)]
 #[tauri::command]
 pub fn unregister_dev_addon_manifest(registry: State<'_, DevAddonRegistry>, addon_id: String) {
     registry.0.lock().unwrap().remove(&addon_id);

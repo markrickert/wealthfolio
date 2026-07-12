@@ -664,7 +664,9 @@ pub fn run() {
             commands::secrets::get_addon_secret,
             commands::secrets::delete_addon_secret,
             commands::addon_network::addon_network_request,
+            #[cfg(debug_assertions)]
             commands::addon_network::register_dev_addon_manifest,
+            #[cfg(debug_assertions)]
             commands::addon_network::unregister_dev_addon_manifest,
             // Provider settings commands
             commands::providers_settings::get_market_data_providers_settings,
