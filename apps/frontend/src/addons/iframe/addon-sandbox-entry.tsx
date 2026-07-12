@@ -13,6 +13,7 @@ import {
   type SandboxAddonFile,
 } from "./addon-sandbox-styles";
 import { applyHostTheme, type AddonThemeSnapshot } from "./addon-sandbox-theme";
+import { rewriteModuleSpecifiers } from "./addon-module-rewriter";
 
 const CHANNEL = "wealthfolio:addon-sandbox:v1";
 
@@ -61,7 +62,6 @@ interface SandboxMessage {
 }
 
 type RouteRenderer = (context: RouteRenderContext) => Promise<void> | void;
-type ModuleSpecifierResolver = (importerPath: string, specifier: string) => string;
 
 const init = new URLSearchParams(window.location.hash.slice(1));
 const ADDON_ID = init.get("addonId") ?? "";
@@ -249,7 +249,14 @@ function createAddonModuleRegistry(code: string, files: SandboxAddonFile[] = [])
     if (!moduleUrl) {
       moduleUrl = URL.createObjectURL(
         new Blob(
-          [rewriteModuleSpecifiers(moduleEntry.path, moduleEntry.source, resolveModuleSpecifier)],
+          [
+            rewriteModuleSpecifiers(
+              moduleEntry.path,
+              moduleEntry.source,
+              resolveModuleSpecifier,
+              (specifier) => isHostDependencySpecifier(specifier) || specifier.startsWith("."),
+            ),
+          ],
           {
             type: "text/javascript",
           },
@@ -274,46 +281,6 @@ function createAddonModuleRegistry(code: string, files: SandboxAddonFile[] = [])
     mainUrl: resolveModuleSpecifier(mainPath, mainPath),
     objectUrls,
   };
-}
-
-function rewriteStaticImportSpecifiers(
-  importerPath: string,
-  code: string,
-  resolveSpecifier: ModuleSpecifierResolver,
-) {
-  const rewrite = (match: string, prefix: string, quote: string, specifier: string) => {
-    if (!isHostDependencySpecifier(specifier) && !specifier.startsWith(".")) {
-      return match;
-    }
-    return `${prefix}${quote}${resolveSpecifier(importerPath, specifier)}${quote}`;
-  };
-
-  const withFromImports = code.replace(
-    /(\b(?:import|export)\s*[^'"]*?\bfrom\s*)(["'])([^"']+)\2/g,
-    (match, prefix: string, quote: string, specifier: string) => {
-      return rewrite(match, prefix, quote, specifier);
-    },
-  );
-
-  return withFromImports.replace(
-    /(\bimport\s*)(["'])([^"']+)\2/g,
-    (match, prefix: string, quote: string, specifier: string) => {
-      return rewrite(match, prefix, quote, specifier);
-    },
-  );
-}
-
-function rewriteModuleSpecifiers(
-  importerPath: string,
-  code: string,
-  resolveSpecifier: ModuleSpecifierResolver,
-) {
-  const withStaticImports = rewriteStaticImportSpecifiers(importerPath, code, resolveSpecifier);
-
-  return withStaticImports.replace(
-    /\bimport\s*\(/g,
-    `globalThis.__wealthfolioImport(${JSON.stringify(importerPath)}, `,
-  );
 }
 
 function findAnchor(target: EventTarget | null) {
