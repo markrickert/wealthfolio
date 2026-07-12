@@ -1112,6 +1112,113 @@ describe("Form Schemas Validation", () => {
     });
   });
 
+  describe("standalone charge (FEE/TAX) defaults and payload", () => {
+    it("FEE getDefaults surfaces the fee field as the editable amount (fee → amount)", () => {
+      const defaults = ACTIVITY_FORM_CONFIG.FEE.getDefaults(
+        {
+          activityType: ActivityType.FEE,
+          accountId: "acc-123",
+          date: new Date(),
+          fee: "10",
+          amount: "0",
+          currency: "USD",
+        },
+        [],
+      ) as any;
+
+      expect(defaults.amount).toBe(10);
+    });
+
+    it("FEE getDefaults falls back to amount when fee is absent", () => {
+      const defaults = ACTIVITY_FORM_CONFIG.FEE.getDefaults(
+        {
+          activityType: ActivityType.FEE,
+          accountId: "acc-123",
+          date: new Date(),
+          fee: "0",
+          amount: "25",
+          currency: "USD",
+        },
+        [],
+      ) as any;
+
+      expect(defaults.amount).toBe(25);
+    });
+
+    it("FEE toPayload resets legacy fee to zero so amount is booked", () => {
+      const payload = ACTIVITY_FORM_CONFIG.FEE.toPayload({
+        accountId: "acc-123",
+        activityDate: new Date(),
+        amount: 20,
+        comment: null,
+        subtype: null,
+        currency: "USD",
+      } as any) as any;
+
+      expect(payload).toMatchObject({ amount: 20, fee: 0 });
+    });
+
+    it("TAX getDefaults surfaces the tax field as the editable amount (tax → fee → amount)", () => {
+      const defaults = ACTIVITY_FORM_CONFIG.TAX.getDefaults(
+        {
+          activityType: ActivityType.TAX,
+          accountId: "acc-123",
+          date: new Date(),
+          tax: "15",
+          fee: "0",
+          amount: "0",
+          currency: "USD",
+        },
+        [],
+      ) as any;
+
+      expect(defaults.amount).toBe(15);
+    });
+
+    it("TAX getDefaults falls back to fee, then amount", () => {
+      const withFee = ACTIVITY_FORM_CONFIG.TAX.getDefaults(
+        {
+          activityType: ActivityType.TAX,
+          accountId: "acc-123",
+          date: new Date(),
+          tax: "0",
+          fee: "10",
+          amount: "25",
+          currency: "USD",
+        },
+        [],
+      ) as any;
+      expect(withFee.amount).toBe(10);
+
+      const withAmount = ACTIVITY_FORM_CONFIG.TAX.getDefaults(
+        {
+          activityType: ActivityType.TAX,
+          accountId: "acc-123",
+          date: new Date(),
+          tax: "0",
+          fee: "0",
+          amount: "25",
+          currency: "USD",
+        },
+        [],
+      ) as any;
+      expect(withAmount.amount).toBe(25);
+    });
+
+    it("TAX toPayload resets legacy tax and fee to zero so amount is booked", () => {
+      const payload = ACTIVITY_FORM_CONFIG.TAX.toPayload({
+        accountId: "acc-123",
+        activityDate: new Date(),
+        amount: 20,
+        comment: null,
+        subtype: null,
+        currency: "USD",
+      } as any) as any;
+
+      expect(payload).toMatchObject({ amount: 20, fee: 0, tax: 0 });
+    });
+  });
+
   describe("asset identity payloads", () => {
     it("omits stale selected asset id for option payloads", () => {
       const payload = ACTIVITY_FORM_CONFIG.BUY.toPayload({

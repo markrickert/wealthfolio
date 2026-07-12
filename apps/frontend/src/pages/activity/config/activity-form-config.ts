@@ -507,7 +507,10 @@ export const ACTIVITY_FORM_CONFIG: Record<
     activityType: ActivityType.FEE,
     getDefaults: (activity, accounts) => ({
       ...getBaseDefaults(activity, accounts),
-      amount: absNum(activity?.amount),
+      // The charge may be stored in `fee` (imported rows) or `amount`. Surface it
+      // with the backend's charge precedence (fee → amount) so editing shows the
+      // value that is actually displayed and booked.
+      amount: absNum(activity?.fee) || absNum(activity?.amount),
       // Advanced options
       currency: activity?.currency,
       subtype: activity?.subtype ?? null,
@@ -518,6 +521,9 @@ export const ACTIVITY_FORM_CONFIG: Record<
         accountId: d.accountId,
         activityDate: d.activityDate,
         amount: d.amount,
+        // Normalize the charge into `amount` and reset any legacy `fee` to zero so
+        // the backend's charge precedence (fee → amount) books the edited amount.
+        fee: 0,
         comment: d.comment,
         subtype: d.subtype,
         currency: d.currency,
@@ -569,7 +575,10 @@ export const ACTIVITY_FORM_CONFIG: Record<
     activityType: ActivityType.TAX,
     getDefaults: (activity, accounts) => ({
       ...getBaseDefaults(activity, accounts),
-      amount: absNum(activity?.amount),
+      // The charge may be stored in `tax`/`fee` (imported rows) or `amount`. Surface
+      // it with the backend's charge precedence (tax → fee → amount) so editing shows
+      // the value that is actually displayed and booked.
+      amount: absNum(activity?.tax) || absNum(activity?.fee) || absNum(activity?.amount),
       // Advanced options
       currency: activity?.currency,
       subtype: activity?.subtype ?? null,
@@ -580,6 +589,10 @@ export const ACTIVITY_FORM_CONFIG: Record<
         accountId: d.accountId,
         activityDate: d.activityDate,
         amount: d.amount,
+        // Normalize the charge into `amount` and reset any legacy `tax`/`fee` to zero
+        // so the backend's charge precedence (tax → fee → amount) books the edited amount.
+        fee: 0,
+        tax: 0,
         comment: d.comment,
         subtype: d.subtype,
         currency: d.currency,
