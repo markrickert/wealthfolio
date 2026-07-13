@@ -18,6 +18,11 @@ import {
   getAccounts,
   updateAccount,
   addonNetworkRequest,
+  getTransferPairForActivity,
+  findTransferMatchCandidates,
+  saveInternalTransferPair,
+  linkTransferActivities,
+  unlinkTransferActivities,
 } from "@/adapters";
 import {
   addExchangeRate,
@@ -502,6 +507,12 @@ export function createAddonHostAPI(
       createActivity,
       updateActivity,
       saveActivities,
+
+      getTransferPairForActivity,
+      findTransferMatchCandidates,
+      saveInternalTransferPair,
+      linkTransferActivities,
+      unlinkTransferActivities,
 
       openCsvFileDialog,
       openFileSaveDialog,
