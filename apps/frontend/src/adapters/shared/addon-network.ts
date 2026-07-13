@@ -10,18 +10,3 @@ export const addonNetworkRequest = async (
     request,
   });
 };
-
-/**
- * Registers a dev-server addon's manifest with the backend so `addonNetworkRequest` can
- * resolve permissions/approved hosts for it (desktop/Tauri only — see addons-dev-mode.ts).
- */
-export const registerDevAddonManifest = async (
-  addonId: string,
-  manifestJson: string,
-): Promise<void> => {
-  return invoke<void>("register_dev_addon_manifest", { addonId, manifestJson });
-};
-
-export const unregisterDevAddonManifest = async (addonId: string): Promise<void> => {
-  return invoke<void>("unregister_dev_addon_manifest", { addonId });
-};

@@ -150,11 +150,7 @@ export {
 } from "../shared/secrets";
 
 // Addon Network Commands
-export {
-  addonNetworkRequest,
-  registerDevAddonManifest,
-  unregisterDevAddonManifest,
-} from "../shared/addon-network";
+export { addonNetworkRequest } from "../shared/addon-network";
 
 // Taxonomy Commands
 export {
@@ -469,10 +465,12 @@ export {
   listInstalledAddons,
   loadAddon,
   loadAddonForRuntime,
+  registerDevAddonManifest,
   setAddonStorageItem,
   submitAddonRating,
   toggleAddon,
   uninstallAddon,
+  unregisterDevAddonManifest,
   updateAddon,
   updateAddonNetworkApprovals,
 } from "./addons";
