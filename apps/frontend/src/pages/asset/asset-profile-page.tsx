@@ -774,7 +774,11 @@ export const AssetProfilePage = () => {
     const hasOpenTransactionLotWithBase = assetLots.some(
       (lot) => lot.source === "TRANSACTION_LOT" && !lot.isClosed && lot.costBasisBase != null,
     );
+    const isForeignCurrency =
+      displayCurrency.trim().toUpperCase() !==
+      (holding?.baseCurrency ?? baseCurrency).trim().toUpperCase();
     const fxEffect =
+      isForeignCurrency &&
       hasOpenTransactionLotWithBase &&
       holding?.unrealizedGain?.base != null &&
       holding?.unrealizedGain?.local != null &&

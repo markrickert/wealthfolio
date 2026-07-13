@@ -1,5 +1,6 @@
 import { RenderableChartContainer } from "@/components/renderable-chart-container";
 import { usePersistentState } from "@/hooks/use-persistent-state";
+import { getBaseHoldingPerformancePercentForMode } from "@/lib/holding-performance";
 import { useSettingsContext } from "@/lib/settings-provider";
 import { Holding } from "@/lib/types";
 import { cn, parseLocalDate } from "@/lib/utils";
@@ -326,12 +327,7 @@ export function PortfolioComposition({ holdings, isLoading }: PortfolioCompositi
         const symbol = holding.instrument?.symbol;
         if (!symbol) return null; // Skip if no symbol
 
-        const gain =
-          returnType === "daily"
-            ? Number(holding.dayChangePct) || 0
-            : returnType === "return"
-              ? Number(holding.totalReturnPct) || 0
-              : Number(holding.totalGainPct) || 0;
+        const gain = getBaseHoldingPerformancePercentForMode(holding, returnType) ?? 0;
 
         const marketValue = Number(holding.marketValue?.base) || 0;
 

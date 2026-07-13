@@ -100,6 +100,8 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
   const averageCostLabel = isOption
     ? t("asset:detailCard.average_premium")
     : t("asset:detailCard.average_cost");
+  const hasFxEffect =
+    fxEffect !== null && currency.trim().toUpperCase() !== baseCurrency.trim().toUpperCase();
 
   const amountTone = (amount: number | null) => {
     if (amount == null || amount === 0) return "";
@@ -157,13 +159,17 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
       percent: null,
       color: amountTone(income),
     },
-    {
-      label: t("asset:detailCard.fx_effect"),
-      amount: fxEffect,
-      currency: baseCurrency,
-      percent: null,
-      color: amountTone(fxEffect),
-    },
+    ...(hasFxEffect
+      ? [
+          {
+            label: t("asset:detailCard.fx_effect"),
+            amount: fxEffect,
+            currency: baseCurrency,
+            percent: null,
+            color: amountTone(fxEffect),
+          },
+        ]
+      : []),
     {
       label: t("asset:detailCard.price_return"),
       amount: null,
@@ -210,7 +216,7 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
         <Separator className="my-3" />
         <div>
           <SectionHeader>{t("asset:detailCard.position")}</SectionHeader>
-          <div className="space-y-1.5 text-sm">
+          <div className="space-y-2 text-sm">
             {positionRows.map(({ label, value }, idx) => (
               <div key={idx} className="flex justify-between">
                 <span className="text-muted-foreground">{label}</span>
@@ -223,7 +229,7 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
         <Separator className="my-3" />
         <div>
           <SectionHeader>{t("asset:detailCard.performance")}</SectionHeader>
-          <div className="space-y-1.5 text-sm">
+          <div className="space-y-2 text-sm">
             {performanceRows.map(
               ({ label, amount, currency: rowCurrency, percent, color }, idx) => (
                 <div key={idx} className="flex items-center justify-between">

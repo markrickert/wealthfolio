@@ -14,8 +14,10 @@ import {
 import { Icons } from "@wealthfolio/ui/components/ui/icons";
 
 import { TickerAvatar } from "@/components/ticker-avatar";
+import { HoldingPerformancePercent } from "@/components/holding-performance-percent";
 import { useBalancePrivacy } from "@/hooks/use-balance-privacy";
 import { HoldingType } from "@/lib/constants";
+import { getBaseHoldingPerformancePercent } from "@/lib/holding-performance";
 import { useSettingsContext } from "@/lib/settings-provider";
 import { Holding } from "@/lib/types";
 import { AmountDisplay, PriceDisplay, QuantityDisplay, formatPercent } from "@wealthfolio/ui";
@@ -495,11 +497,14 @@ const getColumns = (
         ? (holding.totalGain?.base ?? 0)
         : (holding.totalGain?.local ?? 0);
       const currency = showConvertedValues ? holding.baseCurrency : holding.localCurrency;
+      const percentage = showConvertedValues
+        ? getBaseHoldingPerformancePercent(holding, "totalGain")
+        : holding.totalGainPct;
 
       return (
         <div className="flex min-h-[40px] flex-col items-end justify-center px-4">
           <AmountDisplay value={value} currency={currency} colorFormat={true} isHidden={isHidden} />
-          <GainPercent className="text-xs" value={holding.totalGainPct || 0} />
+          <HoldingPerformancePercent className="text-xs" value={percentage} />
         </div>
       );
     },
@@ -534,11 +539,14 @@ const getColumns = (
         ? (holding.totalReturn?.base ?? 0)
         : (holding.totalReturn?.local ?? 0);
       const currency = showConvertedValues ? holding.baseCurrency : holding.localCurrency;
+      const percentage = showConvertedValues
+        ? getBaseHoldingPerformancePercent(holding, "totalReturn")
+        : holding.totalReturnPct;
 
       return (
         <div className="flex min-h-[40px] flex-col items-end justify-center px-4">
           <AmountDisplay value={value} currency={currency} colorFormat={true} isHidden={isHidden} />
-          <GainPercent className="text-xs" value={holding.totalReturnPct || 0} />
+          <HoldingPerformancePercent className="text-xs" value={percentage} />
         </div>
       );
     },
@@ -602,11 +610,14 @@ const getColumns = (
         ? (holding.unrealizedGain?.base ?? 0)
         : (holding.unrealizedGain?.local ?? 0);
       const currency = showConvertedValues ? holding.baseCurrency : holding.localCurrency;
+      const percentage = showConvertedValues
+        ? getBaseHoldingPerformancePercent(holding, "unrealizedGain")
+        : holding.unrealizedGainPct;
 
       return (
         <div className="flex min-h-[40px] flex-col items-end justify-center px-4">
           <AmountDisplay value={value} currency={currency} colorFormat={true} isHidden={isHidden} />
-          <GainPercent className="text-xs" value={holding.unrealizedGainPct || 0} />
+          <HoldingPerformancePercent className="text-xs" value={percentage} />
         </div>
       );
     },
@@ -636,15 +647,14 @@ const getColumns = (
         ? (holding.realizedGain?.base ?? 0)
         : (holding.realizedGain?.local ?? 0);
       const currency = showConvertedValues ? holding.baseCurrency : holding.localCurrency;
+      const percentage = showConvertedValues
+        ? getBaseHoldingPerformancePercent(holding, "realizedGain")
+        : holding.realizedGainPct;
 
       return (
         <div className="flex min-h-[40px] flex-col items-end justify-center px-4">
           <AmountDisplay value={value} currency={currency} colorFormat={true} isHidden={isHidden} />
-          {holding.realizedGainPct == null ? (
-            <span className="text-muted-foreground text-xs">-</span>
-          ) : (
-            <GainPercent className="text-xs" value={holding.realizedGainPct} />
-          )}
+          <HoldingPerformancePercent className="text-xs" value={percentage} />
         </div>
       );
     },

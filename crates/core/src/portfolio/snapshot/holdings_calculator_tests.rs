@@ -7585,6 +7585,9 @@ mod tests {
         assert_eq!(pos_a.currency, "USD");
         // 100 CAD * 0.75 = 75 USD per share
         assert_eq!(pos_a.average_cost, dec!(75));
+        let source_lot = pos_a.lots[0].clone();
+        assert!(source_lot.fx_rate_to_base.is_some());
+        assert_eq!(source_lot.base_currency.as_deref(), Some("CAD"));
 
         // Transfer out from CAD account
         let transfer_out = create_transfer_activity(
@@ -7633,6 +7636,14 @@ mod tests {
         // Lots should preserve the original USD cost basis: 75 USD per share
         assert_eq!(pos_b.average_cost, dec!(75));
         assert_eq!(pos_b.total_cost_basis, dec!(750));
+        let transferred_lot = &pos_b.lots[0];
+        assert_eq!(transferred_lot.cost_basis, source_lot.cost_basis);
+        assert_eq!(
+            transferred_lot.acquisition_date,
+            source_lot.acquisition_date
+        );
+        assert_eq!(transferred_lot.fx_rate_to_base, source_lot.fx_rate_to_base);
+        assert_eq!(transferred_lot.base_currency, source_lot.base_currency);
     }
 
     #[test]

@@ -1,18 +1,13 @@
 import { DashboardCard } from "@/components/dashboard-card";
+import { HoldingPerformancePercent } from "@/components/holding-performance-percent";
 import { TickerAvatar } from "@/components/ticker-avatar";
 import { Skeleton } from "@wealthfolio/ui/components/ui/skeleton";
 import { HoldingType, isAlternativeAssetKind } from "@/lib/constants";
+import { getBaseHoldingPerformancePercentForMode } from "@/lib/holding-performance";
 import { parseOccSymbol } from "@/lib/occ-symbol";
 import { Holding } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import {
-  AmountDisplay,
-  Button,
-  GainAmount,
-  GainPercent,
-  Icons,
-  usePersistentState,
-} from "@wealthfolio/ui";
+import { AmountDisplay, Button, GainAmount, Icons, usePersistentState } from "@wealthfolio/ui";
 import { Popover, PopoverContent, PopoverTrigger } from "@wealthfolio/ui/components/ui/popover";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
@@ -67,12 +62,7 @@ function HoldingRow({
       : performanceMode === "pnl"
         ? (holding.totalGain?.base ?? holding.unrealizedGain?.base ?? 0)
         : (holding.dayChange?.base ?? 0);
-  const gainPercent =
-    performanceMode === "return"
-      ? (holding.totalReturnPct ?? holding.totalGainPct ?? 0)
-      : performanceMode === "pnl"
-        ? (holding.totalGainPct ?? holding.unrealizedGainPct ?? 0)
-        : (holding.dayChangePct ?? 0);
+  const gainPercent = getBaseHoldingPerformancePercentForMode(holding, performanceMode);
 
   return (
     <div
@@ -103,10 +93,10 @@ function HoldingRow({
             displayCurrency={false}
             className="text-xs"
           />
-          <GainPercent
+          <HoldingPerformancePercent
             value={gainPercent}
             variant="badge"
-            className="min-w-[60px] justify-center text-xs"
+            className="min-w-[60px] justify-center text-center text-xs"
           />
         </div>
       </div>

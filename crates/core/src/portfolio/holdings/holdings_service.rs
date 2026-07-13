@@ -654,7 +654,7 @@ impl HoldingsService {
                 base: totals.realized_base,
             };
             holding.realized_gain = Some(realized.clone());
-            holding.realized_gain_pct = gain_pct(realized.base, totals.disposed_cost_base);
+            holding.realized_gain_pct = gain_pct(realized.local, totals.disposed_cost_local);
 
             let mut total_gain = realized;
             if let Some(unrealized) = &holding.unrealized_gain {
@@ -678,7 +678,7 @@ impl HoldingsService {
                 base: open_cost_base + totals.disposed_cost_base,
             };
             holding.return_basis = Some(return_basis.clone());
-            holding.total_gain_pct = gain_pct(total_gain.base, return_basis.base);
+            holding.total_gain_pct = gain_pct(total_gain.local, return_basis.local);
         }
     }
 
@@ -715,12 +715,12 @@ impl HoldingsService {
             let Some(total_gain) = holding.total_gain.clone() else {
                 continue;
             };
-            let basis_base = holding
+            let basis_local = holding
                 .return_basis
                 .as_ref()
-                .map(|basis| basis.base)
+                .map(|basis| basis.local)
                 .unwrap_or(Decimal::ZERO);
-            holding.total_gain_pct = gain_pct(total_gain.base, basis_base);
+            holding.total_gain_pct = gain_pct(total_gain.local, basis_local);
         }
     }
 
@@ -791,11 +791,11 @@ impl HoldingsService {
     }
 }
 
-fn gain_pct(amount_base: Decimal, basis_base: Decimal) -> Option<Decimal> {
-    let exposure_base = basis_base.abs();
-    if exposure_base > Decimal::ZERO {
-        Some((amount_base / exposure_base).round_dp(DECIMAL_PRECISION))
-    } else if amount_base.is_zero() {
+fn gain_pct(amount: Decimal, basis: Decimal) -> Option<Decimal> {
+    let exposure = basis.abs();
+    if exposure > Decimal::ZERO {
+        Some((amount / exposure).round_dp(DECIMAL_PRECISION))
+    } else if amount.is_zero() {
         Some(Decimal::ZERO)
     } else {
         None
@@ -819,13 +819,13 @@ fn refresh_total_return(holding: &mut Holding) {
         }
     }
 
-    let basis_base = holding
+    let basis_local = holding
         .return_basis
         .as_ref()
-        .map(|basis| basis.base)
+        .map(|basis| basis.local)
         .unwrap_or(Decimal::ZERO);
     if let Some(total_gain) = &holding.total_gain {
-        holding.total_gain_pct = gain_pct(total_gain.base, basis_base);
+        holding.total_gain_pct = gain_pct(total_gain.local, basis_local);
     }
 
     let mut total_return = holding
@@ -836,7 +836,7 @@ fn refresh_total_return(holding: &mut Holding) {
         add_monetary(&mut total_return, income);
     }
     holding.total_return = Some(total_return.clone());
-    holding.total_return_pct = gain_pct(total_return.base, basis_base);
+    holding.total_return_pct = gain_pct(total_return.local, basis_local);
 }
 
 fn calculate_asset_income(
@@ -1312,33 +1312,29 @@ impl HoldingsServiceTrait for HoldingsService {
             a_cash.cmp(&b_cash).then_with(|| a.id.cmp(&b.id))
         });
 
-        // Recompute percentage fields from the summed base values.
+        // Recompute percentage fields from the summed local values.
         // The merge loop accumulates monetary values but percentages from the first
         // account seen are no longer correct for the aggregated position.
         for h in result.iter_mut() {
-            let basis_base = h
+            let basis_local = h
                 .return_basis
                 .as_ref()
-                .map(|basis| basis.base)
+                .map(|basis| basis.local)
                 .unwrap_or(Decimal::ZERO);
-            let open_cost_base = h
+            let open_cost_local = h
                 .cost_basis
                 .as_ref()
-                .map(|cost_basis| cost_basis.base)
+                .map(|cost_basis| cost_basis.local)
                 .unwrap_or(Decimal::ZERO);
-            let open_exposure_base = open_cost_base.abs();
-            if open_exposure_base > Decimal::ZERO {
-                h.unrealized_gain_pct = h
-                    .unrealized_gain
-                    .as_ref()
-                    .map(|v| (v.base / open_exposure_base).round_dp(DECIMAL_PRECISION));
-            } else {
-                h.unrealized_gain_pct = None;
-            }
-            h.total_gain_pct = h
-                .total_gain
+            h.unrealized_gain_pct = h
+                .unrealized_gain
                 .as_ref()
-                .and_then(|v| gain_pct(v.base, basis_base));
+                .and_then(|value| gain_pct(value.local, open_cost_local));
+            let disposed_cost_local = basis_local - open_cost_local;
+            h.realized_gain_pct = h
+                .realized_gain
+                .as_ref()
+                .and_then(|value| gain_pct(value.local, disposed_cost_local));
             refresh_total_return(h);
             let prev_close_base = h
                 .prev_close_value
@@ -1868,7 +1864,7 @@ mod tests {
                             };
                             holding.unrealized_gain = Some(unrealized.clone());
                             holding.unrealized_gain_pct =
-                                gain_pct(unrealized.base, cost_basis.base);
+                                gain_pct(unrealized.local, cost_basis.local);
                             holding.total_gain = Some(unrealized.clone());
                             holding.total_gain_pct = holding.unrealized_gain_pct;
                         }
@@ -3202,7 +3198,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn single_holding_computes_income_return_basis_and_total_return() {
+    async fn single_holding_percentages_use_local_values_when_fx_changes() {
         let account_id = "acc-1";
         let asset_id = "AAPL";
         let mut position = test_position(account_id, asset_id);
@@ -3214,27 +3210,23 @@ mod tests {
             positions: HashMap::from([(asset_id.to_string(), position)]),
             ..Default::default()
         };
-        let lot_repository = MockLotRepository::new(vec![test_lot_record(
-            account_id,
-            asset_id,
-            "USD",
-            dec!(100),
-        )])
-        .with_disposals(vec![test_lot_disposal(
-            account_id,
-            asset_id,
-            dec!(50),
-            dec!(50),
-            dec!(20),
-            dec!(20),
-        )]);
+        let lot_repository =
+            MockLotRepository::new(vec![test_lot_record(account_id, asset_id, "USD", dec!(50))])
+                .with_disposals(vec![test_lot_disposal(
+                    account_id,
+                    asset_id,
+                    dec!(50),
+                    dec!(20),
+                    dec!(20),
+                    dec!(10),
+                )]);
         let income_service = MockHoldingIncomeService::new(HashMap::from([(
             account_id.to_string(),
             HashMap::from([(
                 asset_id.to_string(),
                 MonetaryValue {
                     local: dec!(5),
-                    base: dec!(5),
+                    base: dec!(2),
                 },
             )]),
         )]));
@@ -3252,12 +3244,20 @@ mod tests {
         assert_eq!(*scopes.lock().unwrap(), vec![vec![account_id.to_string()]]);
         assert_eq!(holdings.len(), 1);
         let holding = &holdings[0];
-        assert_eq!(holding.unrealized_gain.as_ref().unwrap().base, dec!(30));
-        assert_eq!(holding.realized_gain.as_ref().unwrap().base, dec!(20));
-        assert_eq!(holding.total_gain.as_ref().unwrap().base, dec!(50));
-        assert_eq!(holding.income.as_ref().unwrap().base, dec!(5));
-        assert_eq!(holding.total_return.as_ref().unwrap().base, dec!(55));
-        assert_eq!(holding.return_basis.as_ref().unwrap().base, dec!(150));
+        assert_eq!(holding.unrealized_gain.as_ref().unwrap().local, dec!(30));
+        assert_eq!(holding.unrealized_gain.as_ref().unwrap().base, dec!(80));
+        assert_eq!(holding.unrealized_gain_pct, Some(dec!(0.3)));
+        assert_eq!(holding.realized_gain.as_ref().unwrap().local, dec!(20));
+        assert_eq!(holding.realized_gain.as_ref().unwrap().base, dec!(10));
+        assert_eq!(holding.realized_gain_pct, Some(dec!(0.4)));
+        assert_eq!(holding.total_gain.as_ref().unwrap().local, dec!(50));
+        assert_eq!(holding.total_gain.as_ref().unwrap().base, dec!(90));
+        assert_eq!(holding.income.as_ref().unwrap().local, dec!(5));
+        assert_eq!(holding.income.as_ref().unwrap().base, dec!(2));
+        assert_eq!(holding.total_return.as_ref().unwrap().local, dec!(55));
+        assert_eq!(holding.total_return.as_ref().unwrap().base, dec!(92));
+        assert_eq!(holding.return_basis.as_ref().unwrap().local, dec!(150));
+        assert_eq!(holding.return_basis.as_ref().unwrap().base, dec!(70));
         assert_eq!(holding.total_gain_pct, Some(dec!(0.33333333)));
         assert_eq!(holding.total_return_pct, Some(dec!(0.36666667)));
     }
@@ -3478,8 +3478,12 @@ mod tests {
             ..Default::default()
         };
         let lot_repository = MockLotRepository::new(vec![
-            test_lot_record(account_one, asset_id, "USD", dec!(100)),
-            test_lot_record(account_two, asset_id, "USD", dec!(100)),
+            test_lot_record(account_one, asset_id, "USD", dec!(50)),
+            test_lot_record(account_two, asset_id, "USD", dec!(50)),
+        ])
+        .with_disposals(vec![
+            test_lot_disposal(account_one, asset_id, dec!(40), dec!(20), dec!(4), dec!(2)),
+            test_lot_disposal(account_two, asset_id, dec!(60), dec!(30), dec!(18), dec!(9)),
         ]);
         let income_service = MockHoldingIncomeService::new(HashMap::from([
             (
@@ -3488,7 +3492,7 @@ mod tests {
                     asset_id.to_string(),
                     MonetaryValue {
                         local: dec!(5),
-                        base: dec!(5),
+                        base: dec!(2),
                     },
                 )]),
             ),
@@ -3498,7 +3502,7 @@ mod tests {
                     asset_id.to_string(),
                     MonetaryValue {
                         local: dec!(7),
-                        base: dec!(7),
+                        base: dec!(3),
                     },
                 )]),
             ),
@@ -3527,12 +3531,54 @@ mod tests {
         );
         assert_eq!(holdings.len(), 1);
         let holding = &holdings[0];
-        assert_eq!(holding.income.as_ref().unwrap().base, dec!(12));
-        assert_eq!(holding.total_gain.as_ref().unwrap().base, dec!(20));
-        assert_eq!(holding.total_return.as_ref().unwrap().base, dec!(32));
-        assert_eq!(holding.return_basis.as_ref().unwrap().base, dec!(200));
-        assert_eq!(holding.total_gain_pct, Some(dec!(0.1)));
-        assert_eq!(holding.total_return_pct, Some(dec!(0.16)));
+        assert_eq!(holding.income.as_ref().unwrap().local, dec!(12));
+        assert_eq!(holding.income.as_ref().unwrap().base, dec!(5));
+        assert_eq!(holding.realized_gain.as_ref().unwrap().local, dec!(22));
+        assert_eq!(holding.realized_gain.as_ref().unwrap().base, dec!(11));
+        assert_eq!(holding.realized_gain_pct, Some(dec!(0.22)));
+        assert_eq!(holding.total_gain.as_ref().unwrap().local, dec!(42));
+        assert_eq!(holding.total_gain.as_ref().unwrap().base, dec!(131));
+        assert_eq!(holding.total_return.as_ref().unwrap().local, dec!(54));
+        assert_eq!(holding.total_return.as_ref().unwrap().base, dec!(136));
+        assert_eq!(holding.return_basis.as_ref().unwrap().local, dec!(300));
+        assert_eq!(holding.return_basis.as_ref().unwrap().base, dec!(150));
+        assert_eq!(holding.total_gain_pct, Some(dec!(0.14)));
+        assert_eq!(holding.total_return_pct, Some(dec!(0.18)));
+    }
+
+    #[tokio::test]
+    async fn multi_account_aggregation_reports_zero_percent_for_zero_basis_and_gain() {
+        let account_one = "acc-1";
+        let account_two = "acc-2";
+        let asset_id = "AAPL";
+        let mut position = test_position(account_one, asset_id);
+        position.total_cost_basis = Decimal::ZERO;
+
+        let snapshot = AccountStateSnapshot {
+            account_id: account_one.to_string(),
+            currency: "USD".to_string(),
+            positions: HashMap::from([(asset_id.to_string(), position)]),
+            ..Default::default()
+        };
+        let service = test_service(
+            snapshot,
+            vec![test_asset(asset_id, "AAPL", InstrumentType::Equity)],
+            HashMap::from([(asset_id.to_string(), Decimal::ZERO)]),
+        );
+
+        let holdings = service
+            .get_holdings_for_accounts(
+                &[account_one.to_string(), account_two.to_string()],
+                "USD",
+                "portfolio",
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(holdings.len(), 1);
+        assert_eq!(holdings[0].unrealized_gain_pct, Some(Decimal::ZERO));
+        assert_eq!(holdings[0].total_gain_pct, Some(Decimal::ZERO));
+        assert_eq!(holdings[0].total_return_pct, Some(Decimal::ZERO));
     }
 
     #[test]
