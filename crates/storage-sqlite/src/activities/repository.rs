@@ -2001,6 +2001,8 @@ impl ActivityRepositoryTrait for ActivityRepository {
                 activities::activity_type,
                 activities::activity_date,
                 activities::amount,
+                activities::quantity,
+                activities::unit_price,
                 activities::currency,
                 activities::metadata,
                 activities::source_group_id,
@@ -2009,6 +2011,8 @@ impl ActivityRepositoryTrait for ActivityRepository {
                 String,
                 String,
                 String,
+                Option<String>,
+                Option<String>,
                 Option<String>,
                 String,
                 Option<String>,
@@ -2025,6 +2029,8 @@ impl ActivityRepositoryTrait for ActivityRepository {
                     activity_type,
                     activity_date_str,
                     amount_str,
+                    quantity_str,
+                    unit_price_str,
                     currency,
                     metadata,
                     source_group_id,
@@ -2041,7 +2047,19 @@ impl ActivityRepositoryTrait for ActivityRepository {
                         })
                         .ok()?;
 
-                    let amount = amount_str.and_then(|s| Decimal::from_str(&s).ok());
+                    let amount = match amount_str {
+                        Some(amount) => Decimal::from_str(&amount).ok(),
+                        None if activity_type == ACTIVITY_TYPE_TRANSFER_IN => {
+                            let quantity =
+                                quantity_str.and_then(|value| Decimal::from_str(&value).ok());
+                            let unit_price =
+                                unit_price_str.and_then(|value| Decimal::from_str(&value).ok());
+                            quantity
+                                .zip(unit_price)
+                                .map(|(quantity, price)| quantity * price)
+                        }
+                        None => None,
+                    };
 
                     Some(ContributionActivity {
                         account_id,
@@ -2785,10 +2803,14 @@ impl ActivityRepositoryTrait for ActivityRepository {
 mod tests {
     use super::*;
     use crate::db::{create_pool, get_connection, init, run_migrations, write_actor::spawn_writer};
+    use crate::fx::FxRepository;
+    use crate::limits::ContributionLimitRepository;
     use crate::schema::{spending_activity_splits, sync_outbox};
     use rust_decimal::Decimal;
     use tempfile::tempdir;
     use wealthfolio_core::activities::{import_type, ActivityStatus, ActivityUpsert};
+    use wealthfolio_core::fx::FxService;
+    use wealthfolio_core::limits::{ContributionLimitService, ContributionLimitServiceTrait};
 
     fn setup_db() -> (Arc<Pool<ConnectionManager<SqliteConnection>>>, WriteHandle) {
         std::env::set_var("CONNECT_API_URL", "http://test.local");
@@ -2952,6 +2974,90 @@ mod tests {
             .map(|activity| activity.id.as_str())
             .collect();
         assert_eq!(ids, HashSet::from(["split-1", "split-2", "archived-split"]));
+    }
+
+    #[tokio::test]
+    async fn contribution_limit_preserves_transfer_classification_with_missing_amounts() {
+        let (pool, writer) = setup_db();
+        let activity_repository = ActivityRepository::new(pool.clone(), writer.clone());
+        let limit_repository = ContributionLimitRepository::new(pool.clone(), writer.clone());
+        let fx_service = FxService::new(Arc::new(FxRepository::new(pool.clone(), writer)));
+
+        {
+            let mut conn = get_connection(&pool).expect("conn");
+            insert_account(&mut conn, "registered-account");
+            insert_account(&mut conn, "second-registered-account");
+            diesel::update(
+                accounts::table.filter(
+                    accounts::id.eq_any(["registered-account", "second-registered-account"]),
+                ),
+            )
+            .set(accounts::account_type.eq("SECURITIES"))
+            .execute(&mut conn)
+            .expect("set securities account type");
+            diesel::sql_query(
+                "INSERT INTO activities
+                 (id, account_id, activity_type, status, activity_date, quantity, unit_price,
+                  amount, currency, metadata, source_system, is_user_modified, needs_review,
+                  created_at, updated_at)
+                 VALUES
+                 ('external-transfer-in', 'registered-account', 'TRANSFER_IN', 'POSTED',
+                  '2025-06-15T12:00:00Z', '10', '25', NULL, 'USD',
+                  '{\"flow\":{\"is_external\":true}}', 'MANUAL', 0, 0,
+                  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+                 ('internal-transfer-out', 'registered-account', 'TRANSFER_OUT', 'POSTED',
+                  '2025-07-15T12:00:00Z', '5', '20', NULL, 'USD',
+                  '{\"flow\":{\"is_external\":true}}',
+                  'MANUAL', 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+                 ('internal-transfer-in', 'second-registered-account', 'TRANSFER_IN', 'POSTED',
+                  '2025-07-15T12:00:00Z', '5', '20', NULL, 'USD',
+                  '{\"flow\":{\"is_external\":true}}',
+                  'MANUAL', 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+                 ('unflagged-transfer-in', 'second-registered-account', 'TRANSFER_IN', 'POSTED',
+                  '2025-08-15T12:00:00Z', '4', '25', NULL, 'USD', NULL, 'MANUAL', 0, 0,
+                  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            )
+            .execute(&mut conn)
+            .expect("insert units-based transfer");
+            diesel::update(
+                activities::table.filter(
+                    activities::id.eq_any(["internal-transfer-out", "internal-transfer-in"]),
+                ),
+            )
+            .set(activities::source_group_id.eq(Some("within-limit".to_string())))
+            .execute(&mut conn)
+            .expect("link internal transfer pair");
+            diesel::sql_query(
+                "INSERT INTO contribution_limits
+                 (id, group_name, contribution_year, limit_amount, account_ids,
+                  created_at, updated_at, start_date, end_date)
+                 VALUES
+                 ('registered-limit', 'Registered', 2025, 1000,
+                  'registered-account,second-registered-account',
+                  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+                  '2025-01-01T00:00:00Z', '2025-12-31T23:59:59Z')",
+            )
+            .execute(&mut conn)
+            .expect("insert contribution limit");
+        }
+
+        let service = ContributionLimitService::new(
+            Arc::new(fx_service),
+            Arc::new(limit_repository),
+            Arc::new(activity_repository),
+        );
+        let deposits = service
+            .calculate_deposits_for_contribution_limit("registered-limit", "USD")
+            .expect("calculate deposits");
+
+        assert_eq!(deposits.total, Decimal::from(250));
+        assert_eq!(
+            deposits.by_account["registered-account"].amount,
+            Decimal::from(250)
+        );
+        assert!(!deposits
+            .by_account
+            .contains_key("second-registered-account"));
     }
 
     fn insert_holdings_snapshot(

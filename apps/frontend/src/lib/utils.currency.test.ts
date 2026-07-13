@@ -24,6 +24,7 @@ describe("currency utilities", () => {
   it("preserves meaningful precision for per-unit prices", () => {
     expect(formatPrice(1.4018, "CNY")).toBe("CN¥1.4018");
     expect(formatPrice(12, "USD")).toBe("$12.00");
+    expect(formatPrice(268.3999939, "USD")).toBe("$268.40");
     expect(formatPrice(0.00012345, "USD", false)).toBe("0.00012345");
     expect(formatPrice(-0.000000001, "USD", false)).toBe("0.00");
     expect(formatPrice(1.4018, "GBp")).toBe("1.4018p");

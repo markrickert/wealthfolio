@@ -367,6 +367,7 @@ export function NumberCell<TData>({
   const max = numberCellOpts?.max;
   const step = numberCellOpts?.step;
   const valueType = numberCellOpts?.valueType ?? "number";
+  const valueRenderer = numberCellOpts?.valueRenderer;
 
   const prevInitialValueRef = React.useRef(initialValue);
   if (initialValue !== prevInitialValueRef.current) {
@@ -557,7 +558,9 @@ export function NumberCell<TData>({
           className="w-full border-none bg-transparent p-0 text-end outline-none"
         />
       ) : (
-        <span data-slot="grid-cell-content">{value}</span>
+        <span data-slot="grid-cell-content">
+          {valueRenderer ? valueRenderer(initialValue, cell.row.original) : value}
+        </span>
       )}
     </DataGridCellWrapper>
   );

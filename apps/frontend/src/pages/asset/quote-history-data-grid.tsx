@@ -24,6 +24,9 @@ const normalizeDate = (value: Date | string): Date => {
 
 const QUOTE_DECIMAL_PRECISION = 8;
 
+const renderPriceCellValue = (value: number | string | null, rowData: unknown) =>
+  formatPrice(value, (rowData as QuoteEntry).currency, false);
+
 interface QuoteHistoryDataGridProps {
   /** Quote data from the backend */
   data: Quote[];
@@ -143,22 +146,30 @@ export function QuoteHistoryDataGrid({
       columnHelper.accessor("open", {
         header: t("asset:quoteGrid.open"),
         size: 120,
-        meta: { cell: { variant: "number", min: 0, step: stepValue } },
+        meta: {
+          cell: { variant: "number", min: 0, step: stepValue, valueRenderer: renderPriceCellValue },
+        },
       }),
       columnHelper.accessor("high", {
         header: t("asset:quoteGrid.high"),
         size: 120,
-        meta: { cell: { variant: "number", min: 0, step: stepValue } },
+        meta: {
+          cell: { variant: "number", min: 0, step: stepValue, valueRenderer: renderPriceCellValue },
+        },
       }),
       columnHelper.accessor("low", {
         header: t("asset:quoteGrid.low"),
         size: 120,
-        meta: { cell: { variant: "number", min: 0, step: stepValue } },
+        meta: {
+          cell: { variant: "number", min: 0, step: stepValue, valueRenderer: renderPriceCellValue },
+        },
       }),
       columnHelper.accessor("close", {
         header: t("asset:quoteGrid.close"),
         size: 120,
-        meta: { cell: { variant: "number", min: 0, step: stepValue } },
+        meta: {
+          cell: { variant: "number", min: 0, step: stepValue, valueRenderer: renderPriceCellValue },
+        },
       }),
       columnHelper.accessor("volume", {
         header: t("asset:quoteGrid.volume"),
