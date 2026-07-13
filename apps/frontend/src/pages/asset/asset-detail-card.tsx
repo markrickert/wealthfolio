@@ -229,7 +229,7 @@ const AssetDetailCard: React.FC<AssetDetailProps> = ({ assetData, className }) =
         <Separator className="my-3" />
         <div>
           <SectionHeader>{t("asset:detailCard.performance")}</SectionHeader>
-          <div className="space-y-1.5 text-sm">
+          <div className="space-y-2 text-sm">
             {performanceRows.map(
               ({ label, amount, currency: rowCurrency, percent, color }, idx) => (
                 <div key={idx} className="flex items-center justify-between">
