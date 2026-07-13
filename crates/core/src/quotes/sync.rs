@@ -217,6 +217,12 @@ fn should_include_closed_positions(mode: SyncMode, targeted_sync: bool) -> bool 
         )
 }
 
+fn should_skip_for_error_limit(mode: SyncMode, targeted_sync: bool, error_count: i32) -> bool {
+    !targeted_sync
+        && !matches!(mode, SyncMode::BackfillHistory { .. })
+        && error_count >= MAX_SYNC_ERRORS
+}
+
 fn min_optional_date(left: Option<NaiveDate>, right: Option<NaiveDate>) -> Option<NaiveDate> {
     match (left, right) {
         (Some(left), Some(right)) => Some(left.min(right)),
@@ -1426,17 +1432,15 @@ where
             let fetch_end_date =
                 market_fetch_end_date(now, asset.instrument_exchange_mic.as_deref());
 
-            // Skip assets with too many consecutive errors (unless full resync)
-            if !matches!(mode, SyncMode::BackfillHistory { .. }) {
-                if let Some(ref s) = state {
-                    if s.error_count >= MAX_SYNC_ERRORS {
-                        debug!(
-                            "Skipping {} - too many consecutive errors ({})",
-                            asset.id, s.error_count
-                        );
-                        result.add_skipped(asset.id.clone(), AssetSkipReason::TooManyErrors);
-                        continue;
-                    }
+            // Explicit targeted retries bypass the broad-sync error cutoff.
+            if let Some(ref s) = state {
+                if should_skip_for_error_limit(mode, targeted_sync, s.error_count) {
+                    debug!(
+                        "Skipping {} - too many consecutive errors ({})",
+                        asset.id, s.error_count
+                    );
+                    result.add_skipped(asset.id.clone(), AssetSkipReason::TooManyErrors);
+                    continue;
                 }
             }
 
@@ -2118,6 +2122,20 @@ mod tests {
         assert!(!is_targeted_asset_sync(None));
         assert!(!is_targeted_asset_sync(Some(&empty_ids)));
         assert!(is_targeted_asset_sync(Some(&targeted_ids)));
+    }
+
+    #[test]
+    fn test_targeted_sync_bypasses_error_limit() {
+        assert!(!should_skip_for_error_limit(
+            SyncMode::Incremental,
+            true,
+            MAX_SYNC_ERRORS,
+        ));
+        assert!(should_skip_for_error_limit(
+            SyncMode::Incremental,
+            false,
+            MAX_SYNC_ERRORS,
+        ));
     }
 
     #[test]

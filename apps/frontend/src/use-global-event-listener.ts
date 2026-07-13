@@ -42,10 +42,15 @@ const POST_LOGIN_REQUIRED_LISTENERS = new Set(["broker-sync-complete", "broker-s
 interface MarketSyncCompletePayload {
   failed_syncs?: [string, string][];
   skipped_reasons?: [string, string][];
+  show_skipped_reasons?: boolean;
 }
 
 function getSyncFailures(payload?: MarketSyncCompletePayload | null): [string, string][] {
   return Array.isArray(payload?.failed_syncs) ? payload.failed_syncs : [];
+}
+
+function getSyncSkips(payload?: MarketSyncCompletePayload | null): [string, string][] {
+  return Array.isArray(payload?.skipped_reasons) ? payload.skipped_reasons : [];
 }
 
 const useGlobalEventListener = () => {
@@ -89,6 +94,7 @@ const useGlobalEventListener = () => {
 
     const handleMarketSyncComplete = (event: { payload: MarketSyncCompletePayload | null }) => {
       const failed_syncs = getSyncFailures(event.payload);
+      const skipped_reasons = getSyncSkips(event.payload);
 
       if (isMobileViewportRef.current && syncContextRef.current) {
         syncContextRef.current.setIdle();
@@ -101,6 +107,20 @@ const useGlobalEventListener = () => {
         const count = failed_syncs.length;
         toast.error(`Price update failed for ${count} asset${count === 1 ? "" : "s"}`, {
           id: "market-sync-error",
+          duration: 10000,
+          action: {
+            label: "View",
+            onClick: () => navigateRef.current("/health"),
+          },
+        });
+      }
+
+      if (event.payload?.show_skipped_reasons && skipped_reasons.length > 0) {
+        const count = skipped_reasons.length;
+        const reasons = [...new Set(skipped_reasons.map(([, reason]) => reason))];
+        toast.warning(`Price update skipped for ${count} asset${count === 1 ? "" : "s"}`, {
+          id: "market-sync-skipped",
+          description: reasons.slice(0, 2).join("; "),
           duration: 10000,
           action: {
             label: "View",

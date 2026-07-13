@@ -172,6 +172,7 @@ pub async fn execute_health_fix(
                 let result_payload = MarketSyncResult {
                     failed_syncs: result.failures,
                     skipped_reasons,
+                    show_skipped_reasons: true,
                 };
                 if let Err(e) = app_handle.emit(MARKET_SYNC_COMPLETE, &result_payload) {
                     error!("Failed to emit market:sync-complete event: {}", e);

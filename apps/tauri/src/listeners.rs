@@ -136,6 +136,7 @@ fn handle_portfolio_request(handle: AppHandle, payload_str: &str, force_recalc: 
                                 let result_payload = MarketSyncResult {
                                     failed_syncs,
                                     skipped_reasons,
+                                    show_skipped_reasons: false,
                                 };
                                 if let Err(e) =
                                     handle_clone.emit(MARKET_SYNC_COMPLETE, &result_payload)

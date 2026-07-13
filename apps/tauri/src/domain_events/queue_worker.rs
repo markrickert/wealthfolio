@@ -382,6 +382,7 @@ async fn run_portfolio_job(
                 let result_payload = MarketSyncResult {
                     failed_syncs,
                     skipped_reasons,
+                    show_skipped_reasons: false,
                 };
                 if let Err(e) = app_handle.emit(MARKET_SYNC_COMPLETE, &result_payload) {
                     error!("Failed to emit market:sync-complete event: {}", e);

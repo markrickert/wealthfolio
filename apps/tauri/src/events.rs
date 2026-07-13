@@ -34,6 +34,8 @@ pub struct MarketSyncResult {
     pub failed_syncs: Vec<(String, String)>,
     /// List of (asset_id, reason) tuples for skipped syncs.
     pub skipped_reasons: Vec<(String, String)>,
+    /// Whether the frontend should display skipped reasons to the user.
+    pub show_skipped_reasons: bool,
 }
 
 /// Event emitted when the market data sync process encounters an error.
